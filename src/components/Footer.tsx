@@ -44,6 +44,7 @@ export const Footer: React.FC = () => {
               <li><Link href="/watchlist?tab=favorites" className="hover:text-amber-400 transition-colors">Favorites & Ratings</Link></li>
               <li><Link href="/simkl" className="hover:text-sky-400 transition-colors">SIMKL Cloud Sync</Link></li>
               <li><Link href="/mdblist" className="hover:text-emerald-400 transition-colors">MDBList Ratings</Link></li>
+              <li><Link href="/admin" className="hover:text-amber-400 transition-colors font-semibold text-amber-500/90">🛡️ Admin Panel</Link></li>
             </ul>
           </div>
 

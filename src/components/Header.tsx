@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Film, Search, Bookmark, Sparkles, Settings, RefreshCw, Flame, Menu, X, User as UserIcon, Layers, Compass } from 'lucide-react';
+import { Film, Search, Bookmark, Sparkles, Settings, RefreshCw, Flame, Menu, X, User as UserIcon, Layers, Compass, Shield } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
 import SettingsModal from './SettingsModal';
@@ -138,6 +138,21 @@ export const Header: React.FC = () => {
               <Search className="w-4 h-4" />
             </Link>
 
+            {/* Admin Panel Button */}
+            <Link
+              href="/admin"
+              className={`p-2 rounded-lg transition-colors border ${
+                pathname === '/admin'
+                  ? 'bg-amber-500 text-black border-amber-400'
+                  : 'bg-zinc-800/70 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border-zinc-700/60'
+              }`}
+              title="Admin Control Panel"
+              aria-label="Admin"
+              suppressHydrationWarning
+            >
+              <Shield className="w-4 h-4" />
+            </Link>
+
             {/* Settings Modal Button */}
             <button
               onClick={() => setIsSettingsOpen(true)}
@@ -190,6 +205,15 @@ export const Header: React.FC = () => {
                 {link.label}
               </Link>
             ))}
+            <Link
+              href="/admin"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`block px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 ${
+                pathname === '/admin' ? 'bg-amber-500 text-black' : 'text-amber-400 hover:bg-zinc-800'
+              }`}
+            >
+              <Shield className="w-4 h-4" /> Admin Control Panel
+            </Link>
           </div>
         )}
       </header>
