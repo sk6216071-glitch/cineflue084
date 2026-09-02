@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   Shield,
   ShieldCheck,
@@ -9,6 +10,7 @@ import {
   Database,
   Link2,
   Trash2,
+  Edit,
   ExternalLink,
   RefreshCw,
   Plus,
@@ -32,11 +34,14 @@ import {
   Star,
   Search,
   Tag,
+  Eye,
+  UserCheck,
+  X,
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
-import { MOCK_TITLES } from '@/lib/mockData';
+import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL } from '@/lib/tmdb';
 
 const DEFAULT_ADMIN_PASS = 'admin123';
@@ -66,8 +71,8 @@ export default function AdminPage() {
   const [passwordError, setPasswordError] = useState(false);
   const [adminPass, setAdminPass] = useState(DEFAULT_ADMIN_PASS);
 
-  // Tabs: 'overview' | 'links' | 'apis' | 'backup' | 'logs'
-  const [activeTab, setActiveTab] = useState<'overview' | 'links' | 'apis' | 'backup' | 'logs'>('overview');
+  // Tabs: 'overview' | 'links' | 'titles' | 'users' | 'apis' | 'backup' | 'logs'
+  const [activeTab, setActiveTab] = useState<'overview' | 'links' | 'titles' | 'users' | 'apis' | 'backup' | 'logs'>('overview');
 
   // API Form States
   const [tmdbKey, setTmdbKey] = useState('');
@@ -88,11 +93,20 @@ export default function AdminPage() {
   const [newLinkCategory, setNewLinkCategory] = useState<'Streaming' | 'Subtitles' | 'Discussion' | 'Review' | 'Download' | 'Official' | 'Recent'>('Streaming');
   const [addLinkSuccess, setAddLinkSuccess] = useState(false);
 
+  // Edit Link Modal State
+  const [editingLink, setEditingLink] = useState<{ movieId: number; link: CustomLink } | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [editCategory, setEditCategory] = useState<CustomLink['category']>('Streaming');
+
+  // Titles Search
+  const [titleSearchQuery, setTitleSearchQuery] = useState('');
+
   // Diagnostics logs
   const [systemLogs, setSystemLogs] = useState<Array<{ timestamp: string; level: 'info' | 'success' | 'warn'; message: string }>>([
     { timestamp: 'Just now', level: 'success', message: 'Admin session initialized.' },
-    { timestamp: '1m ago', level: 'info', message: 'Local storage vault synced successfully.' },
-    { timestamp: '2m ago', level: 'info', message: 'TMDB & SIMKL engines connected.' },
+    { timestamp: '1m ago', level: 'info', message: 'Role separation enforced: Users view/click only, Admin manages.' },
+    { timestamp: '2m ago', level: 'info', message: 'TMDB, SIMKL & MDBList engines operational.' },
   ]);
 
   // Load Saved Admin State & Keys on mount
@@ -229,7 +243,6 @@ export default function AdminPage() {
       category: newLinkCategory,
     });
 
-    // Also update local state
     const newLinkObj: CustomLink = {
       id: `link-${Date.now()}`,
       title: newLinkTitle.trim(),
@@ -240,17 +253,90 @@ export default function AdminPage() {
 
     setCustomLinksMap((prev) => {
       const existing = prev[String(newLinkMovieId)] || [];
-      return {
+      const updated = {
         ...prev,
         [String(newLinkMovieId)]: [newLinkObj, ...existing],
       };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
+      }
+      return updated;
     });
 
     setNewLinkTitle('');
     setNewLinkUrl('');
     setAddLinkSuccess(true);
-    addLog(`Added custom link "${newLinkTitle}" for ID ${newLinkMovieId}`, 'success');
+    addLog(`Admin added custom link "${newLinkTitle}" for movie ID ${newLinkMovieId}`, 'success');
     setTimeout(() => setAddLinkSuccess(false), 3000);
+  };
+
+  // Open Edit Link Modal
+  const openEditModal = (movieId: number, link: CustomLink) => {
+    setEditingLink({ movieId, link });
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+    setEditCategory(link.category);
+  };
+
+  // Save Edited Link
+  const handleSaveEditLink = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLink || !editTitle.trim() || !editUrl.trim()) return;
+
+    let url = editUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+
+    // 1. Remove old link from Watchlist Context
+    removeCustomLink(editingLink.movieId, editingLink.link.id);
+
+    // 2. Add updated link
+    addCustomLink(editingLink.movieId, {
+      title: editTitle.trim(),
+      url,
+      category: editCategory,
+    });
+
+    // 3. Update local standalone map
+    setCustomLinksMap((prev) => {
+      const movieIdStr = String(editingLink.movieId);
+      const existing = prev[movieIdStr] || [];
+      const filtered = existing.filter((l) => l.id !== editingLink.link.id);
+      const updatedList = [
+        {
+          ...editingLink.link,
+          title: editTitle.trim(),
+          url,
+          category: editCategory,
+        },
+        ...filtered,
+      ];
+      const updatedMap = { ...prev, [movieIdStr]: updatedList };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
+      }
+      return updatedMap;
+    });
+
+    addLog(`Admin updated link "${editTitle}" for ID ${editingLink.movieId}`, 'success');
+    setEditingLink(null);
+  };
+
+  // Delete Link
+  const handleDeleteLink = (movieId: number, linkId: string, linkTitle: string) => {
+    removeCustomLink(movieId, linkId);
+    setCustomLinksMap((prev) => {
+      const movieIdStr = String(movieId);
+      const existing = prev[movieIdStr] || [];
+      const updatedList = existing.filter((l) => l.id !== linkId);
+      const updatedMap = { ...prev, [movieIdStr]: updatedList };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
+      }
+      return updatedMap;
+    });
+    addLog(`Admin deleted link "${linkTitle}"`, 'warn');
   };
 
   // Export Full JSON Backup
@@ -303,7 +389,7 @@ export default function AdminPage() {
     reader.readAsText(file);
   };
 
-  // Combine links from watchlist and from standalone map
+  // Flatten all custom links across all movie IDs for the moderation table
   const allFlattenedLinks: Array<{ movieId: number; movieName: string; link: CustomLink }> = [];
   const seenLinkIds = new Set<string>();
 
@@ -350,6 +436,12 @@ export default function AdminPage() {
     return matchesCat && matchesSearch;
   });
 
+  // Filtered titles for Manage Titles tab
+  const allKnownTitles = Object.values(MOCK_TITLES);
+  const filteredTitles = allKnownTitles.filter((t) =>
+    (t.title || t.name || '').toLowerCase().includes(titleSearchQuery.toLowerCase())
+  );
+
   // -------------------------------------------------------------
   // 1. Password Lock Gate (If not authenticated)
   // -------------------------------------------------------------
@@ -364,7 +456,7 @@ export default function AdminPage() {
           <div className="space-y-1.5">
             <h1 className="text-2xl font-black text-white">Admin Control Panel</h1>
             <p className="text-xs text-zinc-400">
-              Master administration vault for CineFuel. Enter your passcode to manage engines, APIs, and community links.
+              Master administration vault for CineFuel. Enter your passcode to manage links, titles, APIs, and users.
             </p>
           </div>
 
@@ -426,11 +518,11 @@ export default function AdminPage() {
                 Master Admin Mode
               </span>
               <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Live & Protected
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Role Enforced: Users Read-Only / Admin Controls
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              CineFuel Control Panel
+              CineFuel Command Center
             </h1>
           </div>
         </div>
@@ -475,7 +567,31 @@ export default function AdminPage() {
           }`}
           suppressHydrationWarning
         >
-          <Link2 className="w-4 h-4" /> Custom Links Catalog ({allFlattenedLinks.length})
+          <Link2 className="w-4 h-4" /> Manage Links ({allFlattenedLinks.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('titles')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
+            activeTab === 'titles'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+          }`}
+          suppressHydrationWarning
+        >
+          <Film className="w-4 h-4" /> Manage Titles
+        </button>
+
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
+            activeTab === 'users'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+          }`}
+          suppressHydrationWarning
+        >
+          <Users className="w-4 h-4" /> Manage Users
         </button>
 
         <button
@@ -487,7 +603,7 @@ export default function AdminPage() {
           }`}
           suppressHydrationWarning
         >
-          <Key className="w-4 h-4" /> API Keys & Integrations
+          <Key className="w-4 h-4" /> API Integrations
         </button>
 
         <button
@@ -499,7 +615,7 @@ export default function AdminPage() {
           }`}
           suppressHydrationWarning
         >
-          <Database className="w-4 h-4" /> Backup & Vault Restore
+          <Database className="w-4 h-4" /> Backup & Vault
         </button>
 
         <button
@@ -511,7 +627,7 @@ export default function AdminPage() {
           }`}
           suppressHydrationWarning
         >
-          <Server className="w-4 h-4" /> System Health & Logs
+          <Server className="w-4 h-4" /> Diagnostics
         </button>
       </div>
 
@@ -520,7 +636,6 @@ export default function AdminPage() {
       {/* ========================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Key Numbers Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
               <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Tracked Titles</span>
@@ -529,21 +644,21 @@ export default function AdminPage() {
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Community Custom Links</span>
+              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Custom Links</span>
               <p className="text-3xl font-black text-amber-400">{allFlattenedLinks.length}</p>
               <span className="text-[11px] text-zinc-400 font-medium">Across all titles</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Custom Lists Created</span>
+              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Custom Lists</span>
               <p className="text-3xl font-black text-sky-400" suppressHydrationWarning>{isMounted ? customLists.length : 0}</p>
               <span className="text-[11px] text-zinc-400 font-medium">Curated collections</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Logged In User</span>
-              <p className="text-lg font-bold text-emerald-400 truncate">
-                {isLoggedIn ? (userProfile?.displayName || userProfile?.email) : 'Guest / Local Mode'}
+              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Logged In Session</span>
+              <p className="text-base font-bold text-emerald-400 truncate">
+                {isLoggedIn ? (userProfile?.displayName || userProfile?.email) : 'Guest / Local Session'}
               </p>
               <span className="text-[11px] text-zinc-400 font-medium">Firebase Auth status</span>
             </div>
@@ -556,7 +671,6 @@ export default function AdminPage() {
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* TMDB Card */}
               <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -569,7 +683,6 @@ export default function AdminPage() {
                 <p className="text-xs text-zinc-400">Live metadata, posters, backdrops, and official YouTube trailers.</p>
               </div>
 
-              {/* SIMKL Card */}
               <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -584,7 +697,6 @@ export default function AdminPage() {
                 <p className="text-xs text-zinc-400">Watchlist, ratings (1–10), and anime/show progress tracker.</p>
               </div>
 
-              {/* MDBList Card */}
               <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -599,7 +711,6 @@ export default function AdminPage() {
                 <p className="text-xs text-zinc-400">Rotten Tomatoes Tomatometer, Metacritic, and Letterboxd scores.</p>
               </div>
 
-              {/* Cloudflare / Vercel Edge */}
               <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -617,19 +728,19 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 2: CUSTOM LINKS CATALOG & MODERATION */}
+      {/* TAB 2: MANAGE LINKS (ADD, EDIT, DELETE) */}
       {/* ========================================================= */}
       {activeTab === 'links' && (
         <div className="space-y-6">
           {/* Quick Add Custom Link Box */}
           <div className="p-6 rounded-3xl bg-[#0f121a] border border-amber-500/20 space-y-4">
             <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-              <Plus className="w-4 h-4 text-amber-400" /> Add Curated Link to Movie/Show
+              <Plus className="w-4 h-4 text-amber-400" /> Add Custom Link to Title
             </h3>
 
             <form onSubmit={handleQuickAddLink} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Target Movie</label>
+                <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Target Movie / Show</label>
                 <select
                   value={newLinkMovieId}
                   onChange={(e) => setNewLinkMovieId(Number(e.target.value))}
@@ -710,7 +821,6 @@ export default function AdminPage() {
               </h3>
 
               <div className="flex items-center gap-2">
-                {/* Search */}
                 <div className="relative">
                   <input
                     type="text"
@@ -722,7 +832,6 @@ export default function AdminPage() {
                   <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 </div>
 
-                {/* Category Filter */}
                 <select
                   value={linkCategoryFilter}
                   onChange={(e) => setLinkCategoryFilter(e.target.value)}
@@ -769,7 +878,7 @@ export default function AdminPage() {
                         <td className="py-3 px-3 font-mono text-zinc-400 max-w-xs truncate">
                           {item.link.url}
                         </td>
-                        <td className="py-3 px-3 text-right space-x-2">
+                        <td className="py-3 px-3 text-right space-x-1.5">
                           <a
                             href={item.link.url}
                             target="_blank"
@@ -780,10 +889,14 @@ export default function AdminPage() {
                             <ExternalLink className="w-3.5 h-3.5" />
                           </a>
                           <button
-                            onClick={() => {
-                              removeCustomLink(item.movieId, item.link.id);
-                              addLog(`Deleted link "${item.link.title}"`, 'info');
-                            }}
+                            onClick={() => openEditModal(item.movieId, item.link)}
+                            className="inline-flex p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+                            title="Edit Link"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLink(item.movieId, item.link.id, item.link.title)}
                             className="inline-flex p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
                             title="Delete link"
                           >
@@ -805,7 +918,134 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 3: API KEYS & ENGINE COMMAND CENTER */}
+      {/* TAB 3: MANAGE TITLES */}
+      {/* ========================================================= */}
+      {activeTab === 'titles' && (
+        <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Film className="w-4 h-4 text-amber-400" /> Title & Catalog Directory
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Browse catalog titles, check links attached to each movie, and manage metadata.
+              </p>
+            </div>
+
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search catalog titles..."
+                value={titleSearchQuery}
+                onChange={(e) => setTitleSearchQuery(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-56"
+              />
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredTitles.map((t) => {
+              const poster = getImageURL(t.poster_path, 'w200');
+              const linksCount = (customLinksMap[String(t.id)] || []).length;
+              return (
+                <div key={t.id} className="flex gap-3 p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all">
+                  <div className="relative w-14 h-20 rounded-xl overflow-hidden bg-zinc-800 shrink-0">
+                    <Image src={poster} alt={t.title || 'Title'} fill className="object-cover" sizes="56px" />
+                  </div>
+                  <div className="flex-1 overflow-hidden space-y-1">
+                    <h4 className="text-xs font-bold text-white truncate">{t.title || t.name}</h4>
+                    <span className="text-[10px] text-zinc-400 block font-mono">ID: {t.id} • {t.media_type?.toUpperCase()}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20 inline-block">
+                      {linksCount} Custom Links
+                    </span>
+                    <div className="flex items-center gap-2 pt-1">
+                      <Link
+                        href={`/${t.media_type || 'movie'}/${t.id}`}
+                        target="_blank"
+                        className="text-[10px] text-zinc-400 hover:text-white flex items-center gap-1 font-semibold"
+                      >
+                        <Eye className="w-3 h-3" /> View Page
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setNewLinkMovieId(t.id);
+                          setActiveTab('links');
+                        }}
+                        className="text-[10px] text-amber-400 hover:underline font-bold"
+                      >
+                        + Add Link
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB 4: MANAGE USERS */}
+      {/* ========================================================= */}
+      {activeTab === 'users' && (
+        <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
+          <div className="space-y-1">
+            <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+              <Users className="w-4 h-4 text-amber-400" /> User Directory & Account Vault
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Overview of connected user accounts, Firebase authentication states, and collection storage.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-sm">
+                  {userProfile?.displayName ? userProfile.displayName[0].toUpperCase() : 'U'}
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">
+                    {userProfile?.displayName || 'Active Account'}
+                  </h4>
+                  <span className="text-xs text-zinc-400">{userProfile?.email || 'Guest User Session'}</span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-zinc-800/80 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="p-2 rounded-xl bg-black/40">
+                  <span className="text-zinc-500 block text-[10px]">Watchlist</span>
+                  <span className="font-bold text-white" suppressHydrationWarning>{isMounted ? watchlist.length : 0}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-black/40">
+                  <span className="text-zinc-500 block text-[10px]">Favorites</span>
+                  <span className="font-bold text-amber-400" suppressHydrationWarning>{isMounted ? stats.favoritesCount : 0}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-black/40">
+                  <span className="text-zinc-500 block text-[10px]">Watched</span>
+                  <span className="font-bold text-emerald-400" suppressHydrationWarning>{isMounted ? stats.watchedCount : 0}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
+                <UserCheck className="w-4 h-4 text-emerald-400" /> Firebase Auth Integration
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Users authenticate securely with email/password or Google Auth. User custom watchlists, ratings, and custom links sync automatically to their profile.
+              </p>
+              <div className="text-[11px] text-zinc-500 font-mono">
+                Status: <span className="text-emerald-400">Firebase Ready</span> • Role: <span className="text-amber-400">Master Administrator</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB 5: API KEYS & INTEGRATIONS */}
       {/* ========================================================= */}
       {activeTab === 'apis' && (
         <div className="p-6 sm:p-8 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
@@ -819,7 +1059,6 @@ export default function AdminPage() {
           </div>
 
           <form onSubmit={handleSaveApis} className="space-y-5 max-w-2xl">
-            {/* TMDB API Key */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
                 <span>TMDB API Key (v3 auth)</span>
@@ -851,7 +1090,6 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* SIMKL Client ID */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
                 <span>SIMKL Client ID</span>
@@ -866,7 +1104,6 @@ export default function AdminPage() {
               />
             </div>
 
-            {/* MDBList API Key */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
                 <span>MDBList API Key</span>
@@ -898,11 +1135,10 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 4: BACKUP & DATABASE RESTORE */}
+      {/* TAB 6: BACKUP & DATABASE RESTORE */}
       {/* ========================================================= */}
       {activeTab === 'backup' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Export Box */}
           <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
               <Download className="w-5 h-5" />
@@ -921,7 +1157,6 @@ export default function AdminPage() {
             </button>
           </div>
 
-          {/* Import Box */}
           <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
             <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 flex items-center justify-center">
               <Upload className="w-5 h-5" />
@@ -941,7 +1176,7 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 5: SYSTEM HEALTH & LOGS */}
+      {/* TAB 7: DIAGNOSTICS & LOGS */}
       {/* ========================================================= */}
       {activeTab === 'logs' && (
         <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4 font-mono">
@@ -971,6 +1206,84 @@ export default function AdminPage() {
                 <span className="text-zinc-300">{log.message}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* EDIT LINK MODAL (ADMIN ONLY) */}
+      {/* ========================================================= */}
+      {editingLink && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#10141d] border border-amber-500/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 shadow-2xl animate-scaleIn">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h3 className="text-base font-black text-white flex items-center gap-2">
+                <Edit className="w-4 h-4 text-amber-400" /> Edit Custom Link
+              </h3>
+              <button
+                onClick={() => setEditingLink(null)}
+                className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditLink} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-zinc-300 block mb-1">Link Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-300 block mb-1">Destination URL</label>
+                <input
+                  type="text"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-300 block mb-1">Category</label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value as any)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                >
+                  <option value="Streaming">🎬 Streaming</option>
+                  <option value="Subtitles">🌐 Subtitles</option>
+                  <option value="Discussion">💬 Discussion</option>
+                  <option value="Review">📝 Review</option>
+                  <option value="Download">📥 Download</option>
+                  <option value="Official">🏛️ Official</option>
+                  <option value="Recent">⚡ Recent</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingLink(null)}
+                  className="px-4 py-2.5 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -47,6 +47,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const existing = isMounted ? getItem(titleDetails.id) : undefined;
   const userCustomLinks = existing?.customLinks || [];
 
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isOpenForm, setIsOpenForm] = useState(false);
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -54,6 +55,13 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<'All' | CustomLink['category']>('All');
   const [error, setError] = useState('');
   const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const auth = sessionStorage.getItem('cinefuel_admin_auth');
+      setIsAdmin(auth === 'true');
+    }
+  }, []);
 
   // 1. Title Metadata & IDs
   const imdbId = titleDetails.external_ids?.imdb_id;
@@ -695,14 +703,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
-                  <button
-                    onClick={() => removeCustomLink(titleDetails.id, custom.id)}
-                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                    title="Remove link"
-                    suppressHydrationWarning
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => removeCustomLink(titleDetails.id, custom.id)}
+                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      title="Admin: Remove link"
+                      suppressHydrationWarning
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -710,19 +720,21 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         ) : (
           <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1">
             <p className="text-xs text-zinc-400">No custom links in this category yet.</p>
-            <button
-              onClick={() => setIsOpenForm(true)}
-              className="text-xs text-amber-400 font-bold hover:underline"
-              suppressHydrationWarning
-            >
-              + Add First Custom Link
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setIsOpenForm(true)}
+                className="text-xs text-amber-400 font-bold hover:underline"
+                suppressHydrationWarning
+              >
+                + Add First Custom Link (Admin)
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Add More Links Interactive Form */}
-      {isOpenForm && (
+      {/* Add More Links Interactive Form (Admin Only) */}
+      {isAdmin && isOpenForm && (
         <form
           onSubmit={handleAddLink}
           className="bg-zinc-900/95 border border-amber-500/40 rounded-2xl p-5 sm:p-6 space-y-4 shadow-2xl animate-fadeIn"
