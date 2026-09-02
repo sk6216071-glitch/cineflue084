@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+  <rect width="1280" height="720" fill="#08090c"/>
+  <circle cx="640" cy="360" r="180" fill="#151922" opacity="0.6"/>
+  <path d="M600 320L700 360L600 400V320Z" fill="#f5c518" opacity="0.8"/>
+  <text x="640" y="480" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="600" text-anchor="middle">CineFuel Cinema</text>
+</svg>
