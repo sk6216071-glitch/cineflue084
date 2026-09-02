@@ -44,7 +44,8 @@ import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL } from '@/lib/tmdb';
 
-const DEFAULT_ADMIN_PASS = 'admin123';
+const DEFAULT_ADMIN_USER = 'shyam';
+const DEFAULT_ADMIN_PASS = 'shyam081';
 
 export default function AdminPage() {
   const {
@@ -67,8 +68,10 @@ export default function AdminPage() {
 
   // Admin Auth Gate State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState(false);
+  const [authError, setAuthError] = useState(false);
+  const [adminUser, setAdminUser] = useState(DEFAULT_ADMIN_USER);
   const [adminPass, setAdminPass] = useState(DEFAULT_ADMIN_PASS);
 
   // Tabs: 'overview' | 'links' | 'titles' | 'users' | 'apis' | 'backup' | 'logs'
@@ -104,7 +107,7 @@ export default function AdminPage() {
 
   // Diagnostics logs
   const [systemLogs, setSystemLogs] = useState<Array<{ timestamp: string; level: 'info' | 'success' | 'warn'; message: string }>>([
-    { timestamp: 'Just now', level: 'success', message: 'Admin session initialized.' },
+    { timestamp: 'Just now', level: 'success', message: 'Admin session initialized for Shyam.' },
     { timestamp: '1m ago', level: 'info', message: 'Role separation enforced: Users view/click only, Admin manages.' },
     { timestamp: '2m ago', level: 'info', message: 'TMDB, SIMKL & MDBList engines operational.' },
   ]);
@@ -116,6 +119,9 @@ export default function AdminPage() {
       if (savedAuth === 'true') {
         setIsAuthenticated(true);
       }
+
+      const storedUser = localStorage.getItem('cinefuel_admin_user');
+      if (storedUser) setAdminUser(storedUser);
 
       const storedPass = localStorage.getItem('cinefuel_admin_pass');
       if (storedPass) setAdminPass(storedPass);
@@ -156,19 +162,24 @@ export default function AdminPage() {
   // Handle Admin Login
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === adminPass) {
+    const isUserValid = usernameInput.trim().toLowerCase() === adminUser.toLowerCase();
+    const isPassValid = passwordInput === adminPass;
+
+    if (isUserValid && isPassValid) {
       setIsAuthenticated(true);
-      setPasswordError(false);
+      setAuthError(false);
       sessionStorage.setItem('cinefuel_admin_auth', 'true');
-      addLog('Admin authenticated successfully.', 'success');
+      sessionStorage.setItem('cinefuel_admin_user', 'shyam');
+      addLog('Master Admin (Shyam) authenticated successfully.', 'success');
     } else {
-      setPasswordError(true);
+      setAuthError(true);
     }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     sessionStorage.removeItem('cinefuel_admin_auth');
+    sessionStorage.removeItem('cinefuel_admin_user');
     addLog('Admin logged out.', 'info');
   };
 
@@ -456,28 +467,43 @@ export default function AdminPage() {
           <div className="space-y-1.5">
             <h1 className="text-2xl font-black text-white">Admin Control Panel</h1>
             <p className="text-xs text-zinc-400">
-              Master administration vault for CineFuel. Enter your passcode to manage links, titles, APIs, and users.
+              Master administration vault for CineFuel. Enter your admin name and password to access controls.
             </p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4 text-left">
             <div>
-              <label className="text-xs font-semibold text-zinc-300 block mb-1.5">Master Passcode</label>
+              <label className="text-xs font-semibold text-zinc-300 block mb-1.5">Admin Username</label>
               <input
-                type="password"
-                placeholder="Enter admin passcode (default: admin123)"
-                value={passwordInput}
+                type="text"
+                placeholder="Enter admin name"
+                value={usernameInput}
                 onChange={(e) => {
-                  setPasswordInput(e.target.value);
-                  setPasswordError(false);
+                  setUsernameInput(e.target.value);
+                  setAuthError(false);
                 }}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
                 autoFocus
                 suppressHydrationWarning
               />
-              {passwordError && (
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-300 block mb-1.5">Admin Password</label>
+              <input
+                type="password"
+                placeholder="Enter admin password"
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  setAuthError(false);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                suppressHydrationWarning
+              />
+              {authError && (
                 <p className="text-xs text-rose-400 mt-1.5 font-medium flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Incorrect passcode. Try &quot;admin123&quot;.
+                  <AlertTriangle className="w-3.5 h-3.5" /> Incorrect username or password.
                 </p>
               )}
             </div>
@@ -492,7 +518,7 @@ export default function AdminPage() {
           </form>
 
           <div className="pt-2 border-t border-zinc-800 text-[11px] text-zinc-500">
-            Default master passcode: <span className="font-mono text-zinc-400">admin123</span>
+            Protected Admin Gate • Master Access
           </div>
         </div>
       </div>
@@ -509,20 +535,20 @@ export default function AdminPage() {
         <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 shrink-0">
-            <ShieldCheck className="w-8 h-8 fill-black/20 text-black" />
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 shrink-0 font-black text-xl">
+            S
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
-                Master Admin Mode
+                Master Administrator • Shyam
               </span>
               <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Role Enforced: Users Read-Only / Admin Controls
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              CineFuel Command Center
+              Welcome, Shyam | CineFuel Control Center
             </h1>
           </div>
         </div>
