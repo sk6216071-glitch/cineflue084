@@ -351,7 +351,7 @@ export const RecentlyAddedLinksCatalog: React.FC = () => {
           {filteredLinks.slice(0, 9).map((item) => (
             <div
               key={item.link.id}
-              className="group relative bg-zinc-900/90 hover:bg-[#131722] border border-zinc-800 hover:border-amber-400/50 rounded-2xl p-4 transition-all duration-200 shadow-lg hover:shadow-amber-500/5 flex flex-col justify-between"
+              className="group relative bg-[#10131b]/95 hover:bg-[#151924] border border-white/10 hover:border-amber-400/60 rounded-2xl p-4 transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-amber-500/10 hover:-translate-y-1.5 flex flex-col justify-between"
             >
               {/* Top Row: Movie Thumbnail + Title + Link */}
               <div className="flex items-start gap-3.5">

@@ -63,11 +63,13 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glass-card:hover {
-  border-color: rgba(245, 197, 24, 0.3);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.8), 0 0 20px -5px rgba(245, 197, 24, 0.15);
+  border-color: rgba(245, 197, 24, 0.4);
+  box-shadow: 0 14px 36px -10px rgba(0, 0, 0, 0.8), 0 0 25px -5px rgba(245, 197, 24, 0.2);
+  transform: translateY(-4px);
 }
 
 .text-gradient-gold {
@@ -80,6 +82,123 @@ body {
   background: linear-gradient(135deg, #f87171 0%, #e50914 60%, #b91c1c 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* ========================================================= */
+/* ULTRA-PREMIUM CINEMATIC HOVER & KEYFRAME ANIMATIONS */
+/* ========================================================= */
+
+@keyframes shimmerSweep {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateX(200%) skewX(-20deg);
+    opacity: 0;
+  }
+}
+
+@keyframes ambientPulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes floatGentle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-float {
+  animation: floatGentle 4s ease-in-out infinite;
+}
+
+.animate-ambient-pulse {
+  animation: ambientPulse 3s ease-in-out infinite;
+}
+
+/* Diagonal Sheen / Shimmer on Card Hover */
+.cine-shimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 20%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.03) 80%,
+    transparent 100%
+  );
+  transform: translateX(-150%) skewX(-20deg);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.group:hover .cine-shimmer {
+  animation: shimmerSweep 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Ambient Ambient Glow Behind Cards on Hover */
+.cine-card-glow {
+  position: relative;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cine-card-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(245, 197, 24, 0.4), rgba(249, 115, 22, 0.2), rgba(239, 68, 68, 0.3));
+  opacity: 0;
+  filter: blur(16px);
+  z-index: -1;
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
+
+.cine-card-glow:hover::before {
+  opacity: 0.85;
+  filter: blur(20px);
+}
+
+.cine-card-glow:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.9), 0 0 25px -5px rgba(245, 197, 24, 0.25);
+  border-color: rgba(245, 197, 24, 0.6);
+}
+
+/* Interactive Button Hover Glow */
+.cine-btn {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cine-btn:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 8px 25px -5px rgba(245, 197, 24, 0.4);
+}
+
+.cine-btn:active {
+  transform: translateY(1px) scale(0.97);
 }
 
 /* Hide scrollbar for carousels */

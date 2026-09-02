@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Star, Plus, Check, Eye, Heart, Film, Tv } from 'lucide-react';
+import { Star, Plus, Check, Eye, Heart, Film, Tv, Play } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { getImageURL } from '@/lib/tmdb';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -57,47 +57,59 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
   };
 
   return (
-    <div className="group relative flex flex-col rounded-2xl bg-[#11141c] border border-white/5 overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:border-amber-400/40 hover:shadow-2xl hover:shadow-amber-500/10">
-      {/* Poster Image Container */}
-      <Link href={`/${mediaType}/${item.id}`} className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-900 block">
+    <div className="group cine-card-glow relative flex flex-col rounded-2xl bg-[#10131b] border border-white/10 overflow-hidden cursor-pointer select-none">
+      {/* Poster Image Container with Shimmer and Zoom */}
+      <Link href={`/${mediaType}/${item.id}`} className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-950 block">
+        {/* Poster Image with 700ms Smooth Cinema Zoom */}
         <Image
           src={posterUrl}
           alt={title}
           fill
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
           priority={priority}
-          className="object-cover transition-transform duration-500 group-hover:scale-105"
+          className="object-cover transition-transform duration-700 ease-out group-hover:scale-110"
         />
 
-        {/* Gradient Overlay on Hover */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-3" />
+        {/* Diagonal Light Shimmer Sweep on Hover */}
+        <div className="cine-shimmer" />
 
-        {/* Badges Top Left & Right */}
-        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-          <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[11px] font-semibold text-zinc-300 border border-white/10 uppercase tracking-wider">
+        {/* Ambient Dark Gradient Vignette Overlay on Hover */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-3.5 pointer-events-none" />
+
+        {/* Badges Top Left (Media Type) */}
+        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-20">
+          <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md text-[10px] font-bold text-zinc-200 border border-white/15 uppercase tracking-wider shadow-lg group-hover:border-amber-400/40 transition-colors">
             {mediaType === 'tv' ? <Tv className="w-3 h-3 text-sky-400" /> : <Film className="w-3 h-3 text-amber-400" />}
             {mediaType === 'tv' ? 'TV' : 'Movie'}
           </span>
         </div>
 
+        {/* Badges Top Right (Rating) */}
         {item.vote_average > 0 && (
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md text-xs font-bold text-amber-300 border border-amber-400/30 shadow-md">
-            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/85 backdrop-blur-md text-xs font-black text-amber-300 border border-amber-400/40 shadow-lg group-hover:scale-105 group-hover:border-amber-400 transition-all z-20">
+            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
             <span>{item.vote_average.toFixed(1)}</span>
           </div>
         )}
 
-        {/* Action Overlay Buttons (Appears on Hover) */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all duration-200 transform translate-y-2 group-hover:translate-y-0">
+        {/* Center Play Button on Hover */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 transform scale-75 group-hover:scale-100 pointer-events-none z-20">
+          <div className="w-12 h-12 rounded-full bg-amber-500/90 text-black flex items-center justify-center shadow-xl shadow-amber-500/40 backdrop-blur-sm border border-amber-300/50">
+            <Play className="w-5 h-5 fill-black ml-0.5" />
+          </div>
+        </div>
+
+        {/* Bottom Quick-Action Buttons (Staggered Spring Entrance on Hover) */}
+        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-3 group-hover:translate-y-0 z-30 pointer-events-auto">
           <div className="flex items-center gap-1.5">
             {/* Watchlist toggle */}
             <button
               onClick={handleWatchlistClick}
               title={isInWatchlist && !isWatched ? 'Remove from Watchlist' : 'Add to Watchlist'}
-              className={`p-2 rounded-xl backdrop-blur-md transition-all ${
+              className={`p-2 rounded-xl backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 ${
                 isInWatchlist && !isWatched
-                  ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30'
-                  : 'bg-black/70 text-white hover:bg-amber-500 hover:text-black border border-white/20'
+                  ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/40 border border-amber-400'
+                  : 'bg-black/80 text-white hover:bg-amber-500 hover:text-black border border-white/20'
               }`}
               suppressHydrationWarning
             >
@@ -108,10 +120,10 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
             <button
               onClick={handleWatchedClick}
               title={isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
-              className={`p-2 rounded-xl backdrop-blur-md transition-all ${
+              className={`p-2 rounded-xl backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 ${
                 isWatched
-                  ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/30'
-                  : 'bg-black/70 text-white hover:bg-emerald-500 hover:text-black border border-white/20'
+                  ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/40 border border-emerald-400'
+                  : 'bg-black/80 text-white hover:bg-emerald-500 hover:text-black border border-white/20'
               }`}
               suppressHydrationWarning
             >
@@ -123,32 +135,34 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
           <button
             onClick={handleFavoriteClick}
             title={isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
-            className={`p-2 rounded-xl backdrop-blur-md transition-all ${
+            className={`p-2 rounded-xl backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 ${
               isFavorite
-                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
-                : 'bg-black/70 text-white hover:bg-rose-500 hover:text-white border border-white/20'
+                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 border border-rose-400'
+                : 'bg-black/80 text-white hover:bg-rose-500 hover:text-white border border-white/20'
             }`}
             suppressHydrationWarning
           >
-            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current text-white' : ''}`} />
           </button>
         </div>
       </Link>
 
       {/* Info Section Below Poster */}
-      <div className="p-3.5 flex flex-col justify-between flex-1">
+      <div className="p-3.5 flex flex-col justify-between flex-1 bg-gradient-to-b from-[#10131b] to-[#0c0f16]">
         <Link href={`/${mediaType}/${item.id}`} className="block">
-          <h3 className="text-sm font-semibold text-zinc-100 line-clamp-1 group-hover:text-amber-400 transition-colors">
+          <h3 className="text-sm font-bold text-zinc-100 line-clamp-1 group-hover:text-amber-400 transition-colors duration-200">
             {title}
           </h3>
         </Link>
         <div className="flex items-center justify-between text-xs text-zinc-400 mt-1.5 font-medium">
-          <span>{year || 'TBA'}</span>
+          <span className="text-zinc-400 group-hover:text-zinc-300 transition-colors">{year || 'TBA'}</span>
           {isMounted && existing?.personalRating ? (
-            <span className="flex items-center gap-0.5 text-amber-400 text-[11px] font-bold">
+            <span className="flex items-center gap-0.5 text-amber-400 text-[11px] font-black">
               ★ {existing.personalRating}/10
             </span>
-          ) : null}
+          ) : (
+            <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">HD • 4K</span>
+          )}
         </div>
       </div>
     </div>
