@@ -26,6 +26,7 @@ import { TitleDetails, CustomLink, WatchProviderInfo } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
 import { getConsolidatedCustomLinks, saveGlobalCustomLink } from '@/lib/curatedLinks';
+import { getDirectStreamingUrls } from '@/lib/ottLinks';
 import TrailerModal from './TrailerModal';
 
 interface CustomLinksManagerProps {
@@ -91,6 +92,15 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         { provider_id: 220, provider_name: 'JioCinema', logo_path: '/pTnn5JwWr4p3.jpg' },
       ],
     };
+
+  const ottUrls = useMemo(() => {
+    return getDirectStreamingUrls(
+      titleDetails.id,
+      titleName,
+      mediaType as any,
+      titleDetails['watch/providers']?.results?.[region]?.link || titleDetails['watch/providers']?.results?.['IN']?.link
+    );
+  }, [titleDetails.id, titleName, mediaType, region, titleDetails]);
 
   const streamingProviders: WatchProviderInfo[] = [
     ...(watchProviders.flatrate || []),
@@ -227,9 +237,9 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         </h4>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {/* Netflix */}
+          {/* Netflix (Direct Title Deeplink) */}
           <a
-            href={`https://www.netflix.com/search?q=${encodeURIComponent(titleName)}`}
+            href={ottUrls.netflix}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-red-600 hover:bg-zinc-800/90 transition-all group shadow-sm"
@@ -242,7 +252,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                 <span className="text-xs font-bold text-white group-hover:text-red-400 transition-colors block">
                   Netflix
                 </span>
-                <span className="text-[10px] text-zinc-400">Watch on Netflix</span>
+                <span className="text-[10px] text-zinc-400">Direct Title Stream</span>
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
@@ -250,7 +260,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
           {/* Prime Video */}
           <a
-            href={`https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${encodeURIComponent(titleName)}`}
+            href={ottUrls.prime}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
@@ -263,7 +273,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                 <span className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors block">
                   Prime Video
                 </span>
-                <span className="text-[10px] text-zinc-400">Stream on Prime</span>
+                <span className="text-[10px] text-zinc-400">Stream & Rent</span>
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-sky-400 transition-colors" />
@@ -271,7 +281,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
           {/* Disney+ Hotstar */}
           <a
-            href={`https://www.hotstar.com/in/explore?search_query=${encodeURIComponent(titleName)}`}
+            href={ottUrls.hotstar}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-blue-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
@@ -292,7 +302,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
           {/* JioCinema */}
           <a
-            href={`https://www.jiocinema.com/search/${encodeURIComponent(titleName)}`}
+            href={ottUrls.jiocinema}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-pink-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
@@ -305,7 +315,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                 <span className="text-xs font-bold text-white group-hover:text-pink-400 transition-colors block">
                   JioCinema
                 </span>
-                <span className="text-[10px] text-zinc-400">JioCinema OTT</span>
+                <span className="text-[10px] text-zinc-400">JioCinema Premium</span>
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-pink-400 transition-colors" />
@@ -313,7 +323,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
           {/* Apple TV+ */}
           <a
-            href={`https://tv.apple.com/search?term=${encodeURIComponent(titleName)}`}
+            href={ottUrls.appletv}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-zinc-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
@@ -326,7 +336,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                 <span className="text-xs font-bold text-white group-hover:text-zinc-200 transition-colors block">
                   Apple TV+
                 </span>
-                <span className="text-[10px] text-zinc-400">Stream / Rent</span>
+                <span className="text-[10px] text-zinc-400">Stream / Rent (4K)</span>
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 transition-colors" />
@@ -334,7 +344,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
           {/* YouTube Movies */}
           <a
-            href={`https://www.youtube.com/results?search_query=${encodeURIComponent(queryName)}+full+movie`}
+            href={ottUrls.youtube}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-red-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
@@ -351,6 +361,28 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
+          </a>
+
+          {/* JustWatch Direct Stream Hub */}
+          <a
+            href={ottUrls.justwatch}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/20 transition-all group shadow-sm sm:col-span-2"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-amber-500 text-black flex items-center justify-center font-black text-xs shadow-md">
+                JW
+              </div>
+              <div>
+                <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200 transition-colors block flex items-center gap-1.5">
+                  JustWatch Streaming & Price Finder
+                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wider font-extrabold">Live</span>
+                </span>
+                <span className="text-[10px] text-zinc-400">Compare 4K/HD streaming rates, rental prices & OTT plans</span>
+              </div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-300 transition-colors" />
           </a>
         </div>
       </div>
