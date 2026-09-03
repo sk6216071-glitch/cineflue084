@@ -43,6 +43,7 @@ import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL } from '@/lib/tmdb';
+import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink } from '@/lib/curatedLinks';
 
 const DEFAULT_ADMIN_USER = 'shyam';
 const DEFAULT_ADMIN_PASS = 'shyam081';
@@ -262,6 +263,8 @@ export default function AdminPage() {
       createdAt: new Date().toISOString(),
     };
 
+    saveGlobalCustomLink(newLinkMovieId, newLinkObj);
+
     setCustomLinksMap((prev) => {
       const existing = prev[String(newLinkMovieId)] || [];
       const updated = {
@@ -299,6 +302,15 @@ export default function AdminPage() {
       url = 'https://' + url;
     }
 
+    const updatedLinkObj: CustomLink = {
+      ...editingLink.link,
+      title: editTitle.trim(),
+      url,
+      category: editCategory,
+    };
+
+    saveGlobalCustomLink(editingLink.movieId, updatedLinkObj);
+
     // 1. Remove old link from Watchlist Context
     removeCustomLink(editingLink.movieId, editingLink.link.id);
 
@@ -314,15 +326,7 @@ export default function AdminPage() {
       const movieIdStr = String(editingLink.movieId);
       const existing = prev[movieIdStr] || [];
       const filtered = existing.filter((l) => l.id !== editingLink.link.id);
-      const updatedList = [
-        {
-          ...editingLink.link,
-          title: editTitle.trim(),
-          url,
-          category: editCategory,
-        },
-        ...filtered,
-      ];
+      const updatedList = [updatedLinkObj, ...filtered];
       const updatedMap = { ...prev, [movieIdStr]: updatedList };
       if (typeof window !== 'undefined') {
         localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
@@ -344,6 +348,7 @@ export default function AdminPage() {
       const updatedMap = { ...prev, [movieIdStr]: updatedList };
       if (typeof window !== 'undefined') {
         localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
+        window.dispatchEvent(new Event('cinefuel_links_updated'));
       }
       return updatedMap;
     });
@@ -404,6 +409,24 @@ export default function AdminPage() {
   const allFlattenedLinks: Array<{ movieId: number; movieName: string; link: CustomLink }> = [];
   const seenLinkIds = new Set<string>();
 
+  // 1. Built-in Curated Links
+  Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
+    const numId = Number(movieIdStr);
+    const matchedMovie = Object.values(MOCK_TITLES).find((m) => m.id === numId);
+    const movieName = matchedMovie ? (matchedMovie.title || matchedMovie.name || `Title #${numId}`) : `Title #${numId}`;
+    links.forEach((l) => {
+      if (!seenLinkIds.has(l.id)) {
+        seenLinkIds.add(l.id);
+        allFlattenedLinks.push({
+          movieId: numId,
+          movieName,
+          link: l,
+        });
+      }
+    });
+  });
+
+  // 2. Watchlist Links
   watchlist.forEach((w) => {
     if (w.customLinks && Array.isArray(w.customLinks)) {
       w.customLinks.forEach((l) => {
@@ -419,6 +442,7 @@ export default function AdminPage() {
     }
   });
 
+  // 3. Dynamic LocalStorage Custom Links
   Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
     if (Array.isArray(links)) {
       const numId = Number(movieIdStr);

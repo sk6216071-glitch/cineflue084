@@ -25,6 +25,7 @@ import {
 import { TitleDetails, CustomLink, WatchProviderInfo } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
+import { getConsolidatedCustomLinks, saveGlobalCustomLink } from '@/lib/curatedLinks';
 import TrailerModal from './TrailerModal';
 
 interface CustomLinksManagerProps {
@@ -45,9 +46,9 @@ const CATEGORIES: CustomLink['category'][] = [
 export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDetails }) => {
   const { getItem, addCustomLink, removeCustomLink, addToWatchlist, settings, isMounted } = useWatchlist();
   const existing = isMounted ? getItem(titleDetails.id) : undefined;
-  const userCustomLinks = existing?.customLinks || [];
 
   const [isAdmin, setIsAdmin] = useState(false);
+  const [linksRefresh, setLinksRefresh] = useState(0);
   const [isOpenForm, setIsOpenForm] = useState(false);
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -60,8 +61,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     if (typeof window !== 'undefined') {
       const auth = sessionStorage.getItem('cinefuel_admin_auth');
       setIsAdmin(auth === 'true');
+
+      const onUpdate = () => setLinksRefresh((v) => v + 1);
+      window.addEventListener('cinefuel_links_updated', onUpdate);
+      return () => window.removeEventListener('cinefuel_links_updated', onUpdate);
     }
   }, []);
+
+  const userCustomLinks = useMemo(() => {
+    return getConsolidatedCustomLinks(titleDetails.id, existing?.customLinks);
+  }, [titleDetails.id, existing?.customLinks, isMounted, linksRefresh]);
 
   // 1. Title Metadata & IDs
   const imdbId = titleDetails.external_ids?.imdb_id;
@@ -108,6 +117,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     if (!existing) {
       addToWatchlist(titleDetails, 'watchlist');
     }
+
+    const newLinkObj: CustomLink = {
+      id: `link-${Date.now()}`,
+      title: title.trim(),
+      url: finalUrl,
+      category,
+      createdAt: new Date().toISOString(),
+    };
+
+    saveGlobalCustomLink(titleDetails.id, newLinkObj);
 
     addCustomLink(titleDetails.id, {
       title: title.trim(),
