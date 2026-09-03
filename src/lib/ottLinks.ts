@@ -25,8 +25,8 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
   // Dune: Part Two (Available on Netflix Sub, Prime Video Rent, Apple TV Rent, YouTube Rent)
   693134: {
     netflix: 'https://www.netflix.com/in/title/81602836',
-    prime: 'https://www.primevideo.com/detail/0S33F7M9P5474L981B2T7V2361',
-    appletv: 'https://tv.apple.com/in/movie/dune-part-two/umc.cmc.363aycnv6vy9qgekvew6fveb9',
+    prime: 'https://www.primevideo.com/detail?camp=1789&gti=amzn1.dv.gti.9392c069-96f9-421b-ac7a-275308e1327a&linkCode=xm2',
+    appletv: 'https://tv.apple.com/in/movie/dune-part-two/umc.cmc.363aycnv6vy9qgekvew6fveb9?playableId=tvs.sbd.9001%3A1725365997',
     youtube: 'https://www.youtube.com/results?search_query=Dune+Part+Two+buy+or+rent',
     justwatch: 'https://www.justwatch.com/in/movie/dune-part-two',
   },
@@ -34,7 +34,7 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
   // Oppenheimer (JioCinema Premium, Prime Video Rent, Apple TV Rent)
   872585: {
     jiocinema: 'https://www.jiocinema.com/movies/oppenheimer/3847842',
-    prime: 'https://www.primevideo.com/detail/0S33F7M9P5474L981B2T7V2361',
+    prime: 'https://www.primevideo.com/detail?camp=1789&gti=amzn1.dv.gti.a4ecda73-a5ff-4c54-9eb1-888915b81a8b&linkCode=xm2',
     appletv: 'https://tv.apple.com/in/movie/oppenheimer/umc.cmc.5g9b4n6r',
     youtube: 'https://www.youtube.com/results?search_query=Oppenheimer+buy+or+rent',
     justwatch: 'https://www.justwatch.com/in/movie/oppenheimer',
