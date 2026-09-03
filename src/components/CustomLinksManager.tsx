@@ -27,6 +27,7 @@ import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
 import { getConsolidatedCustomLinks, saveGlobalCustomLink, deleteGlobalCustomLink } from '@/lib/curatedLinks';
 import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
+import { parseFullMediaTitle } from '@/lib/seasonParser';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import TrailerModal from './TrailerModal';
 
@@ -117,12 +118,20 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
       addToWatchlist(titleDetails, 'watchlist');
     }
 
+    const parsed = parseFullMediaTitle(title.trim());
+
     const newLinkObj: CustomLink = {
       id: `link-${Date.now()}`,
       title: title.trim(),
       url: finalUrl,
       category,
       createdAt: new Date().toISOString(),
+      seasonNumber: parsed.seasonNumber,
+      episodeNumber: parsed.episodeNumber,
+      linkType: parsed.linkType,
+      quality: parsed.quality,
+      audioLanguage: parsed.audioLanguage,
+      size: parsed.size,
     };
 
     saveGlobalCustomLink(titleDetails.id, newLinkObj);

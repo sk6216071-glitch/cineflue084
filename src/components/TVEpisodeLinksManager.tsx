@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FolderArchive,
   Download,
@@ -11,9 +11,20 @@ import {
   Layers,
   Sparkles,
   Info,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { saveGlobalCustomLink, deleteGlobalCustomLink } from '@/lib/curatedLinks';
+import {
+  detectSeasonNumber,
+  detectEpisodeNumber,
+  detectLinkType,
+  detectQuality,
+  detectAudio,
+  detectSize,
+  getQualityWeight,
+  parseFullMediaTitle,
+} from '@/lib/seasonParser';
 
 interface TVEpisodeLinksManagerProps {
   titleDetails: TitleDetails;
@@ -42,38 +53,97 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [formAudio, setFormAudio] = useState<string>('English (Original)');
   const [formSize, setFormSize] = useState<string>('1.2 GB');
 
-  const numberOfSeasons = titleDetails.number_of_seasons || 1;
-  const seasonsList = Array.from({ length: Math.max(1, numberOfSeasons) }, (_, i) => i + 1);
+  // Dynamically calculate all seasons present in TMDB metadata AND uploaded custom links (Auto S01, S02, S03...)
+  const seasonsList = useMemo(() => {
+    const detectedSeasons = new Set<number>();
+    const tmdbSeasons = titleDetails.number_of_seasons || 1;
+    for (let i = 1; i <= tmdbSeasons; i++) {
+      detectedSeasons.add(i);
+    }
 
-  // Filter links for this TV show by season and mode (ONLY Admin uploaded links)
-  const seasonLinks = useMemo(() => {
-    return customLinks.filter((l) => {
-      const linkSeason = l.seasonNumber || 1;
-      return linkSeason === selectedSeason;
+    customLinks.forEach((link) => {
+      const s = detectSeasonNumber(link);
+      if (s > 0) detectedSeasons.add(s);
     });
-  }, [customLinks, selectedSeason]);
 
+    return Array.from(detectedSeasons).sort((a, b) => a - b);
+  }, [titleDetails.number_of_seasons, customLinks]);
+
+  // If selectedSeason is not in seasonsList, adjust it
+  useEffect(() => {
+    if (seasonsList.length > 0 && !seasonsList.includes(selectedSeason)) {
+      setSelectedSeason(seasonsList[0]);
+    }
+  }, [seasonsList, selectedSeason]);
+
+  // Enrich each custom link with smart auto-detected season, episode, quality, audio, and type
+  const enrichedLinks = useMemo(() => {
+    return customLinks.map((l) => {
+      const detectedSeason = detectSeasonNumber(l);
+      const detectedEp = detectEpisodeNumber(l);
+      const detectedType = detectLinkType({ ...l, episodeNumber: detectedEp });
+      const detectedQ = l.quality && l.quality !== 'HD' ? l.quality : detectQuality(l.title, l.quality);
+      const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
+      const detectedSz = l.size || detectSize(l.title);
+
+      return {
+        ...l,
+        seasonNumber: detectedSeason,
+        episodeNumber: detectedEp,
+        linkType: detectedType,
+        quality: detectedQ,
+        audioLanguage: detectedAud,
+        size: detectedSz,
+      };
+    });
+  }, [customLinks]);
+
+  // Filter links strictly for currently selected season (Auto-separated S01 vs S02)
+  const seasonLinks = useMemo(() => {
+    return enrichedLinks.filter((l) => l.seasonNumber === selectedSeason);
+  }, [enrichedLinks, selectedSeason]);
+
+  // Zip / Batch Packs for this season (Sorted by quality weight: 4K 2160p at top)
   const zipPackLinks = useMemo(() => {
-    return seasonLinks.filter(
-      (l) =>
-        l.linkType === 'zip_pack' ||
-        l.category === 'ZipPack' ||
-        l.title.toLowerCase().includes('zip') ||
-        l.title.toLowerCase().includes('complete') ||
-        l.title.toLowerCase().includes('pack')
-    );
+    return seasonLinks
+      .filter((l) => l.linkType === 'zip_pack')
+      .sort((a, b) => {
+        const weightB = getQualityWeight(b.quality);
+        const weightA = getQualityWeight(a.quality);
+        if (weightB !== weightA) return weightB - weightA;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
   }, [seasonLinks]);
 
+  // Single Episodes for this season (Sorted by Episode 1, 2, 3...)
   const singleEpisodeLinks = useMemo(() => {
     return seasonLinks
-      .filter(
-        (l) =>
-          l.linkType === 'single_episode' ||
-          l.category === 'SingleEpisode' ||
-          (l.episodeNumber !== undefined && l.episodeNumber > 0)
-      )
-      .sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0));
+      .filter((l) => l.linkType === 'single_episode')
+      .sort((a, b) => {
+        const epA = a.episodeNumber || 0;
+        const epB = b.episodeNumber || 0;
+        if (epA !== epB) return epA - epB;
+        return getQualityWeight(b.quality) - getQualityWeight(a.quality);
+      });
   }, [seasonLinks]);
+
+  // Handle title input change with Auto-Classification intelligence
+  const handleTitleInputChange = (val: string) => {
+    setFormTitle(val);
+    if (val.trim().length > 3) {
+      const parsed = parseFullMediaTitle(val);
+      if (parsed.seasonNumber) setFormSeason(parsed.seasonNumber);
+      if (parsed.episodeNumber) {
+        setFormEpisode(parsed.episodeNumber);
+        setFormType('single_episode');
+      } else if (parsed.linkType) {
+        setFormType(parsed.linkType);
+      }
+      if (parsed.quality) setFormQuality(parsed.quality);
+      if (parsed.audioLanguage) setFormAudio(parsed.audioLanguage);
+      if (parsed.size) setFormSize(parsed.size);
+    }
+  };
 
   const handleAdminAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,7 +192,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             <h3 className="text-xl font-bold text-white">TV Series Season & Episode Vault</h3>
           </div>
           <p className="text-xs text-zinc-400">
-            Admin-managed season zip batch archives and weekly single episode releases.
+            Auto-arranged seasons (S01, S02...), full batch zip archives, and weekly single episode releases.
           </p>
         </div>
 
@@ -139,29 +209,46 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         )}
       </div>
 
-      {/* Season Selector Bar */}
+      {/* Season Selector Bar (S01, S02, S03...) */}
       <div className="space-y-2">
-        <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
-          Select Season:
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
+            Select Season:
+          </label>
+          <span className="text-[10px] text-amber-400 font-mono font-bold">
+            Season {selectedSeason} Active
+          </span>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
-          {seasonsList.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSelectedSeason(s)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                selectedSeason === s
-                  ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 scale-105'
-                  : 'bg-zinc-900 border border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800'
-              }`}
-            >
-              Season {s}
-            </button>
-          ))}
+          {seasonsList.map((s) => {
+            const countForSeason = enrichedLinks.filter((l) => l.seasonNumber === s).length;
+            return (
+              <button
+                key={s}
+                onClick={() => setSelectedSeason(s)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  selectedSeason === s
+                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 scale-105'
+                    : 'bg-zinc-900 border border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                <span>Season {s}</span>
+                {countForSeason > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                      selectedSeason === s ? 'bg-black text-amber-400' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                    }`}
+                  >
+                    {countForSeason}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Dual Mode Toggle Button */}
+      {/* Dual Mode Toggle Button (Zip/Pack vs Single EP's) */}
       <div className="grid grid-cols-2 rounded-2xl overflow-hidden p-1 bg-zinc-950 border border-zinc-800 shadow-inner">
         <button
           onClick={() => setActiveMode('zip_pack')}
@@ -196,7 +283,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               <FolderArchive className="w-4 h-4 text-amber-400" /> Season {selectedSeason} Complete Zip & Batch Packs
             </h4>
             <span className="text-[10px] text-zinc-500 font-mono">
-              {zipPackLinks.length} Pack{zipPackLinks.length !== 1 ? 's' : ''} Available
+              {zipPackLinks.length} Pack{zipPackLinks.length !== 1 ? 's' : ''} for Season {selectedSeason}
             </span>
           </div>
 
@@ -212,7 +299,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <FolderArchive className="w-5 h-5" />
                     </div>
                     <div className="overflow-hidden space-y-1">
-                      <h5 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors leading-snug">
+                      <h5 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors leading-snug break-words">
                         {pack.title}
                       </h5>
                       <div className="flex flex-wrap items-center gap-2 text-[10px]">
@@ -227,7 +314,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                           </span>
                         )}
                         {pack.size && (
-                          <span className="text-zinc-500 font-mono">Size: {pack.size}</span>
+                          <span className="text-zinc-400 font-mono">Size: {pack.size}</span>
                         )}
                       </div>
                     </div>
@@ -267,8 +354,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-sm mx-auto">
                   {isAdmin
-                    ? 'As an Admin, you can add verified full season zip packs with specific resolutions, audio dubs, and file sizes.'
-                    : 'Download packs for this season will be published by the admin soon.'}
+                    ? `As an Admin, click below to add Season ${selectedSeason} zip batch links.`
+                    : `Download packs for Season ${selectedSeason} will appear here once published by the admin.`}
                 </p>
               </div>
               {isAdmin && (
@@ -369,8 +456,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-sm mx-auto">
                   {isAdmin
-                    ? 'As an Admin, you can add weekly individual episodes as they air with custom audio, quality, and download links.'
-                    : 'Episode links for this season will appear here as soon as published by the admin.'}
+                    ? `As an Admin, click below to add weekly episodes for Season ${selectedSeason}.`
+                    : `Episode links for Season ${selectedSeason} will appear here as soon as published by the admin.`}
                 </p>
               </div>
               {isAdmin && (
@@ -395,9 +482,12 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#11141d] border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Plus className="w-4 h-4 text-amber-400" /> Add TV Episode or Zip Pack Link
-              </h4>
+              <div className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-amber-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Add TV Episode or Zip Pack Link
+                </h4>
+              </div>
               <button
                 onClick={() => setIsOpenAddModal(false)}
                 className="text-zinc-400 hover:text-white text-xs font-bold"
@@ -407,6 +497,21 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             </div>
 
             <form onSubmit={handleAdminAdd} className="space-y-3">
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                  Title / Release Name <span className="text-amber-400 text-[10px]">(Auto-detects S01, S02, Ep, Quality & Audio)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Loki S02 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip"
+                  value={formTitle}
+                  onChange={(e) => handleTitleInputChange(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  required
+                  autoFocus
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Season #</label>
@@ -451,23 +556,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               )}
 
               <div>
-                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Title / Release Name</label>
-                <input
-                  type="text"
-                  placeholder={
-                    formType === 'zip_pack'
-                      ? 'e.g., Season 1 Complete [1080p WEB-DL • English]'
-                      : 'e.g., S01E01 - Episode 1 [1080p English]'
-                  }
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Download / Stream URL</label>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Download / Stream Destination URL</label>
                 <input
                   type="text"
                   placeholder="https://..."
@@ -483,7 +572,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality / Format</label>
                   <input
                     type="text"
-                    placeholder="e.g. 1080p WEB-DL, 4K HDR, 720p"
+                    placeholder="e.g. 2160p 4K, 1080p"
                     value={formQuality}
                     onChange={(e) => setFormQuality(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -493,7 +582,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio / Language</label>
                   <input
                     type="text"
-                    placeholder="e.g. English, Hindi, Dual Audio, etc."
+                    placeholder="e.g. Hindi + English"
                     value={formAudio}
                     onChange={(e) => setFormAudio(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -503,7 +592,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   <label className="text-[10px] font-semibold text-zinc-400 block mb-1">File Size</label>
                   <input
                     type="text"
-                    placeholder="e.g. 1.2 GB, 800 MB, 14 GB"
+                    placeholder="e.g. 16.8 GB, 7.4 GB"
                     value={formSize}
                     onChange={(e) => setFormSize(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -511,7 +600,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
                 <button
                   type="button"
                   onClick={() => setIsOpenAddModal(false)}
@@ -521,7 +610,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
                 >
                   Save Link
                 </button>
