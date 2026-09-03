@@ -26,7 +26,7 @@ import { TitleDetails, CustomLink, WatchProviderInfo } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
 import { getConsolidatedCustomLinks, saveGlobalCustomLink } from '@/lib/curatedLinks';
-import { getDirectStreamingUrls } from '@/lib/ottLinks';
+import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import TrailerModal from './TrailerModal';
 
 interface CustomLinksManagerProps {
@@ -83,30 +83,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   // 2. Gather Built-in Links
   const region = settings.defaultRegion || 'IN';
-  const watchProviders = titleDetails['watch/providers']?.results?.[region] ||
-    titleDetails['watch/providers']?.results?.['IN'] || {
-      flatrate: [
-        { provider_id: 8, provider_name: 'Netflix', logo_path: '/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg' },
-        { provider_id: 119, provider_name: 'Prime Video', logo_path: '/emthp39XA2zhcoYLhp9ow8056vB.jpg' },
-        { provider_id: 122, provider_name: 'Disney+ Hotstar', logo_path: '/7rwgEsUBqf26m67nO8f9kky11.jpg' },
-        { provider_id: 220, provider_name: 'JioCinema', logo_path: '/pTnn5JwWr4p3.jpg' },
-      ],
-    };
 
-  const ottUrls = useMemo(() => {
-    return getDirectStreamingUrls(
+  const { availableList, justwatchUrl, hasSubscription } = useMemo(() => {
+    return getRealAvailableStreamingProviders(
       titleDetails.id,
       titleName,
       mediaType as any,
-      titleDetails['watch/providers']?.results?.[region]?.link || titleDetails['watch/providers']?.results?.['IN']?.link
+      titleDetails['watch/providers']?.results?.[region] || titleDetails['watch/providers']?.results?.['IN'],
+      region
     );
   }, [titleDetails.id, titleName, mediaType, region, titleDetails]);
-
-  const streamingProviders: WatchProviderInfo[] = [
-    ...(watchProviders.flatrate || []),
-    ...(watchProviders.free || []),
-    ...(watchProviders.rent || []),
-  ];
 
   const mainTrailer = titleDetails.videos?.results?.find(
     (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
@@ -230,161 +216,103 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         </button>
       </div>
 
-      {/* 1. Streaming Links Section */}
+      {/* 1. Streaming Links Section (Only Show Actually Available Platforms) */}
       <div className="space-y-3">
-        <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-          <Tv className="w-3.5 h-3.5 text-red-400" /> Streaming & OTT Services
-        </h4>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {/* Netflix (Direct Title Deeplink) */}
-          <a
-            href={ottUrls.netflix}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-red-600 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#E50914] flex items-center justify-center font-black text-white text-xs shadow-md">
-                N
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-red-400 transition-colors block">
-                  Netflix
-                </span>
-                <span className="text-[10px] text-zinc-400">Direct Title Stream</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
-          </a>
-
-          {/* Prime Video */}
-          <a
-            href={ottUrls.prime}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#00A8E1] flex items-center justify-center font-black text-white text-[11px] shadow-md">
-                PV
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors block">
-                  Prime Video
-                </span>
-                <span className="text-[10px] text-zinc-400">Stream & Rent</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-sky-400 transition-colors" />
-          </a>
-
-          {/* Disney+ Hotstar */}
-          <a
-            href={ottUrls.hotstar}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-blue-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#00147B] flex items-center justify-center font-black text-blue-400 text-xs shadow-md">
-                D+
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-blue-400 transition-colors block">
-                  Disney+ Hotstar
-                </span>
-                <span className="text-[10px] text-zinc-400">Hotstar India</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-blue-400 transition-colors" />
-          </a>
-
-          {/* JioCinema */}
-          <a
-            href={ottUrls.jiocinema}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-pink-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#D3007B] flex items-center justify-center font-black text-white text-xs shadow-md">
-                Jio
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-pink-400 transition-colors block">
-                  JioCinema
-                </span>
-                <span className="text-[10px] text-zinc-400">JioCinema Premium</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-pink-400 transition-colors" />
-          </a>
-
-          {/* Apple TV+ */}
-          <a
-            href={ottUrls.appletv}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-zinc-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-zinc-700 flex items-center justify-center font-bold text-white text-xs shadow-md">
-                tv+
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-zinc-200 transition-colors block">
-                  Apple TV+
-                </span>
-                <span className="text-[10px] text-zinc-400">Stream / Rent (4K)</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 transition-colors" />
-          </a>
-
-          {/* YouTube Movies */}
-          <a
-            href={ottUrls.youtube}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-red-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-red-600 flex items-center justify-center font-bold text-white text-xs shadow-md">
-                <Play className="w-3.5 h-3.5 fill-white" />
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-red-400 transition-colors block">
-                  YouTube Movies
-                </span>
-                <span className="text-[10px] text-zinc-400">Rent / Purchase</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
-          </a>
-
-          {/* JustWatch Direct Stream Hub */}
-          <a
-            href={ottUrls.justwatch}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/20 transition-all group shadow-sm sm:col-span-2"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-amber-500 text-black flex items-center justify-center font-black text-xs shadow-md">
-                JW
-              </div>
-              <div>
-                <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200 transition-colors block flex items-center gap-1.5">
-                  JustWatch Streaming & Price Finder
-                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wider font-extrabold">Live</span>
-                </span>
-                <span className="text-[10px] text-zinc-400">Compare 4K/HD streaming rates, rental prices & OTT plans</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-300 transition-colors" />
-          </a>
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Tv className="w-3.5 h-3.5 text-red-400" /> Streaming & OTT Services (India)
+          </h4>
+          <span className="text-[10px] text-zinc-500 font-medium">
+            {availableList.length > 0 ? `${availableList.length} verified platform${availableList.length > 1 ? 's' : ''}` : 'Digital / Rent Only'}
+          </span>
         </div>
+
+        {availableList.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {availableList.map((item) => (
+              <a
+                key={item.key}
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 ${item.accentBorder} hover:bg-zinc-800/90 transition-all group shadow-sm`}
+              >
+                <div className="flex items-center gap-2.5 overflow-hidden">
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center font-black text-white text-xs shadow-md shrink-0"
+                    style={{ backgroundColor: item.logoBg }}
+                  >
+                    {item.logoText}
+                  </div>
+                  <div className="overflow-hidden">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-xs font-bold text-white ${item.accentText} transition-colors block truncate`}>
+                        {item.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <span
+                        className={`font-semibold px-1 rounded text-[9px] ${
+                          item.tier === 'Subscription'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : item.tier === 'Rent'
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                            : 'bg-sky-500/10 text-sky-300 border border-sky-500/20'
+                        }`}
+                      >
+                        {item.tier}
+                      </span>
+                      <span className="text-zinc-500 truncate">{item.subtext}</span>
+                    </div>
+                  </div>
+                </div>
+                <ExternalLink className={`w-3.5 h-3.5 text-zinc-500 ${item.accentText} transition-colors shrink-0 ml-1`} />
+              </a>
+            ))}
+
+            {/* JustWatch Direct Stream & Price Finder Hub */}
+            <a
+              href={justwatchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/20 transition-all group shadow-sm sm:col-span-2"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-amber-500 text-black flex items-center justify-center font-black text-xs shadow-md shrink-0">
+                  JW
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200 transition-colors block flex items-center gap-1.5">
+                    JustWatch Streaming & Price Guide
+                    <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wider font-extrabold">Live</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-400">Live 4K streaming availability, rental prices & OTT plan tracker</span>
+                </div>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-300 transition-colors shrink-0" />
+            </a>
+          </div>
+        ) : (
+          <div className="p-4 rounded-2xl bg-zinc-900/50 border border-dashed border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="space-y-0.5 text-center sm:text-left">
+              <p className="text-xs font-semibold text-zinc-300">
+                Not currently streaming on major subscription platforms in India
+              </p>
+              <p className="text-[11px] text-zinc-500">
+                Check digital rent/purchase options or see custom community links below.
+              </p>
+            </div>
+            <a
+              href={justwatchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-xs border border-amber-500/30 transition-all shrink-0 flex items-center gap-1.5"
+            >
+              <span>Check on JustWatch</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        )}
       </div>
 
       {/* 2. Official Trailer & Video Launchers */}
