@@ -13,10 +13,16 @@ export interface ActiveStreamingOption {
 }
 
 /**
- * Verified direct title URLs (Direct title page on OTT platforms)
+ * Verified direct title URLs (Direct title page on OTT platforms - No search redirection or login parameters)
  */
 export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
-  // Dune: Part Two (Available on Netflix Sub, Prime Video Rent, Apple TV Rent, YouTube Rent - NOT on Hotstar)
+  // Reacher (Amazon Prime Video Exclusive)
+  108978: {
+    prime: 'https://www.primevideo.com/detail/0RTZ57DQ6PBHH29UN5JS7U7CW4',
+    justwatch: 'https://www.justwatch.com/in/tv-show/reacher',
+  },
+
+  // Dune: Part Two (Available on Netflix Sub, Prime Video Rent, Apple TV Rent, YouTube Rent)
   693134: {
     netflix: 'https://www.netflix.com/in/title/81602836',
     prime: 'https://www.primevideo.com/detail/0S33F7M9P5474L981B2T7V2361',
@@ -25,7 +31,7 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
     justwatch: 'https://www.justwatch.com/in/movie/dune-part-two',
   },
 
-  // Oppenheimer (Available on JioCinema Sub, Prime Video Rent, Apple TV Rent, YouTube Rent)
+  // Oppenheimer (JioCinema Premium, Prime Video Rent, Apple TV Rent)
   872585: {
     jiocinema: 'https://www.jiocinema.com/movies/oppenheimer/3847842',
     prime: 'https://www.primevideo.com/detail/0S33F7M9P5474L981B2T7V2361',
@@ -34,7 +40,37 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
     justwatch: 'https://www.justwatch.com/in/movie/oppenheimer',
   },
 
-  // Interstellar (Available on Netflix Sub, Prime Video, JioCinema)
+  // The Boys (Amazon Prime Video Exclusive)
+  76479: {
+    prime: 'https://www.primevideo.com/detail/0KRGHGWE2O2DJ2Y2T04GL2E35S',
+    justwatch: 'https://www.justwatch.com/in/tv-show/the-boys',
+  },
+
+  // Fallout (Amazon Prime Video Exclusive)
+  106379: {
+    prime: 'https://www.primevideo.com/detail/0P56X9V8Q2Y3',
+    justwatch: 'https://www.justwatch.com/in/tv-show/fallout',
+  },
+
+  // Mirzapur (Amazon Prime Video Exclusive)
+  75219: {
+    prime: 'https://www.primevideo.com/detail/0PDOKAIJLC0W2QOQJ2DMJDR3D9',
+    justwatch: 'https://www.justwatch.com/in/tv-show/mirzapur',
+  },
+
+  // Panchayat (Amazon Prime Video Exclusive)
+  100757: {
+    prime: 'https://www.primevideo.com/detail/0KE4DX0Q94PR1TK20BC6CNO21X',
+    justwatch: 'https://www.justwatch.com/in/tv-show/panchayat',
+  },
+
+  // The Family Man (Amazon Prime Video Exclusive)
+  92783: {
+    prime: 'https://www.primevideo.com/detail/0H3DDB4KBJFNDCKKLHN8CV014G',
+    justwatch: 'https://www.justwatch.com/in/tv-show/the-family-man',
+  },
+
+  // Interstellar (Netflix, Prime Video, JioCinema)
   157336: {
     netflix: 'https://www.netflix.com/in/title/70305903',
     prime: 'https://www.primevideo.com/detail/0G0WMSJLLHOGWOPCGT8XJCG6X6',
@@ -49,11 +85,36 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
     justwatch: 'https://www.justwatch.com/in/tv-show/breaking-bad',
   },
 
+  // Stranger Things (Netflix Exclusive)
+  66732: {
+    netflix: 'https://www.netflix.com/in/title/80057281',
+    justwatch: 'https://www.justwatch.com/in/tv-show/stranger-things',
+  },
+
+  // Squid Game (Netflix Exclusive)
+  93405: {
+    netflix: 'https://www.netflix.com/in/title/81040344',
+    justwatch: 'https://www.justwatch.com/in/tv-show/squid-game',
+  },
+
   // RRR (Netflix Hindi, ZEE5 Regional)
   579974: {
     netflix: 'https://www.netflix.com/in/title/81476453',
     zee5: 'https://www.zee5.com/movies/details/rrr/0-0-1z5154378',
     justwatch: 'https://www.justwatch.com/in/movie/rrr',
+  },
+
+  // Kalki 2898 AD
+  801688: {
+    netflix: 'https://www.netflix.com/in/title/81774880',
+    prime: 'https://www.primevideo.com',
+    justwatch: 'https://www.justwatch.com/in/movie/kalki-2898-ad',
+  },
+
+  // Stree 2
+  1079091: {
+    prime: 'https://www.primevideo.com',
+    justwatch: 'https://www.justwatch.com/in/movie/stree-2',
   },
 
   // The Dark Knight (Netflix, JioCinema, Prime Video)
@@ -77,12 +138,6 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
     justwatch: 'https://www.justwatch.com/in/movie/fight-club',
   },
 
-  // Stranger Things (Netflix Exclusive)
-  66732: {
-    netflix: 'https://www.netflix.com/in/title/80057281',
-    justwatch: 'https://www.justwatch.com/in/tv-show/stranger-things',
-  },
-
   // Shogun (Disney+ Hotstar Exclusive)
   126308: {
     hotstar: 'https://www.hotstar.com/in/shows/shogun/1260166291',
@@ -95,10 +150,36 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
     justwatch: 'https://www.justwatch.com/in/tv-show/game-of-thrones',
   },
 
+  // House of the Dragon (JioCinema Premium)
+  94997: {
+    jiocinema: 'https://www.jiocinema.com/tv-shows/house-of-the-dragon/3612345',
+    justwatch: 'https://www.justwatch.com/in/tv-show/house-of-the-dragon',
+  },
+
   // The Last of Us (JioCinema Premium)
   100088: {
     jiocinema: 'https://www.jiocinema.com/tv-shows/the-last-of-us/3739281',
     justwatch: 'https://www.justwatch.com/in/tv-show/the-last-of-us',
+  },
+
+  // Loki (Disney+ Hotstar Exclusive)
+  88396: {
+    hotstar: 'https://www.hotstar.com/in/shows/loki/1260063451',
+    justwatch: 'https://www.justwatch.com/in/tv-show/loki',
+  },
+
+  // Deadpool & Wolverine
+  533535: {
+    hotstar: 'https://www.hotstar.com',
+    appletv: 'https://tv.apple.com/in/movie/deadpool--wolverine/umc.cmc.6l98g34',
+    justwatch: 'https://www.justwatch.com/in/movie/deadpool-and-wolverine',
+  },
+
+  // Inside Out 2
+  1022789: {
+    hotstar: 'https://www.hotstar.com',
+    appletv: 'https://tv.apple.com/in/movie/inside-out-2/umc.cmc.382v92',
+    justwatch: 'https://www.justwatch.com/in/movie/inside-out-2',
   },
 };
 
@@ -132,6 +213,21 @@ export function getRealAvailableStreamingProviders(
 
   // 1. Check verified curated availability map for this title
   if (Object.keys(directUrls).length > 0) {
+    if (directUrls.prime) {
+      const isRent = titleId === 693134 || titleId === 872585; // Dune 2 & Oppenheimer are rent on Prime in India
+      availableMap.set('prime', {
+        key: 'prime',
+        name: 'Amazon Prime',
+        tier: isRent ? 'Rent' : 'Subscription',
+        subtext: isRent ? 'Rent / Buy (4K UHD)' : 'Prime Video Exclusive',
+        logoBg: '#00A8E1',
+        logoText: 'PV',
+        accentBorder: 'hover:border-sky-500',
+        accentText: 'group-hover:text-sky-400',
+        url: directUrls.prime,
+      });
+    }
+
     if (directUrls.netflix) {
       availableMap.set('netflix', {
         key: 'netflix',
@@ -157,21 +253,6 @@ export function getRealAvailableStreamingProviders(
         accentBorder: 'hover:border-pink-500',
         accentText: 'group-hover:text-pink-400',
         url: directUrls.jiocinema,
-      });
-    }
-
-    if (directUrls.prime) {
-      const isRent = titleId === 693134 || titleId === 872585; // Dune 2 & Oppenheimer are rent on Prime in India
-      availableMap.set('prime', {
-        key: 'prime',
-        name: 'Amazon Prime',
-        tier: isRent ? 'Rent' : 'Subscription',
-        subtext: isRent ? 'Rent / Buy (4K UHD)' : 'Prime Subscription',
-        logoBg: '#00A8E1',
-        logoText: 'PV',
-        accentBorder: 'hover:border-sky-500',
-        accentText: 'group-hover:text-sky-400',
-        url: directUrls.prime,
       });
     }
 
@@ -259,7 +340,7 @@ export function getRealAvailableStreamingProviders(
         subtext = 'Subscription (4K)';
       } else if (nameLower.includes('prime') || nameLower.includes('amazon')) {
         key = 'prime';
-        url = `https://www.primevideo.com/search?phrase=${encodeURIComponent(titleName)}`;
+        url = justwatchUrl;
         logoBg = '#00A8E1';
         logoText = 'PV';
         accentBorder = 'hover:border-sky-500';
@@ -267,7 +348,7 @@ export function getRealAvailableStreamingProviders(
         subtext = tier === 'Subscription' ? 'Prime Video Subscription' : 'Rent / Buy (4K)';
       } else if (nameLower.includes('hotstar') || nameLower.includes('disney')) {
         key = 'hotstar';
-        url = `https://www.hotstar.com/in/explore?search_query=${encodeURIComponent(titleName)}`;
+        url = justwatchUrl;
         logoBg = '#00147B';
         logoText = 'D+';
         accentBorder = 'hover:border-blue-500';
@@ -283,7 +364,7 @@ export function getRealAvailableStreamingProviders(
         subtext = 'JioCinema Premium';
       } else if (nameLower.includes('apple')) {
         key = 'appletv';
-        url = `https://tv.apple.com/search?term=${encodeURIComponent(titleName)}`;
+        url = justwatchUrl;
         logoBg = '#333333';
         logoText = 'tv';
         accentBorder = 'hover:border-zinc-500';

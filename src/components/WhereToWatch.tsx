@@ -6,6 +6,7 @@ import { Tv, ExternalLink, Globe, Sparkles, CheckCircle2 } from 'lucide-react';
 import { TitleDetails, WatchProvidersData, WatchProviderInfo } from '@/types';
 import { getImageURL } from '@/lib/tmdb';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 
 interface WhereToWatchProps {
   titleDetails: TitleDetails;
@@ -21,6 +22,9 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
     }
   }, [isMounted, settings.defaultRegion]);
 
+  const titleName = titleDetails.title || titleDetails.name || 'Title';
+  const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
+
   const watchProviders = titleDetails['watch/providers']?.results || {};
   const currentRegionData: WatchProvidersData = watchProviders[selectedRegion] || watchProviders['IN'] || {
     flatrate: [
@@ -33,10 +37,34 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
     ],
   };
 
+  const { availableList, justwatchUrl } = React.useMemo(() => {
+    return getRealAvailableStreamingProviders(
+      titleDetails.id,
+      titleName,
+      mediaType as any,
+      currentRegionData,
+      selectedRegion
+    );
+  }, [titleDetails.id, titleName, mediaType, currentRegionData, selectedRegion]);
+
   const hasStream = currentRegionData.flatrate && currentRegionData.flatrate.length > 0;
   const hasRent = currentRegionData.rent && currentRegionData.rent.length > 0;
   const hasBuy = currentRegionData.buy && currentRegionData.buy.length > 0;
   const hasFree = currentRegionData.free && currentRegionData.free.length > 0;
+
+  const getProviderUrl = (providerName: string) => {
+    const nameLower = providerName.toLowerCase();
+    const matched = availableList.find(
+      (a) =>
+        a.name.toLowerCase().includes(nameLower) ||
+        nameLower.includes(a.name.toLowerCase()) ||
+        (nameLower.includes('prime') && a.key === 'prime') ||
+        (nameLower.includes('netflix') && a.key === 'netflix') ||
+        (nameLower.includes('jio') && a.key === 'jiocinema') ||
+        (nameLower.includes('hotstar') && a.key === 'hotstar')
+    );
+    return matched?.url || justwatchUrl;
+  };
 
   const renderProviderPills = (providers?: WatchProviderInfo[]) => {
     if (!providers || providers.length === 0) return null;
@@ -44,10 +72,14 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
       <div className="flex flex-wrap gap-2.5">
         {providers.map((p) => {
           const logoUrl = getImageURL(p.logo_path, 'w200');
+          const targetUrl = getProviderUrl(p.provider_name);
           return (
-            <div
+            <a
               key={p.provider_id}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700/80 hover:border-amber-400/50 transition-colors shadow-md"
+              href={targetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700/80 hover:border-amber-400 hover:bg-zinc-800 transition-all shadow-md group"
             >
               <div className="relative w-6 h-6 rounded-md overflow-hidden bg-zinc-800 shrink-0">
                 <Image
@@ -58,8 +90,11 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
                   className="object-cover"
                 />
               </div>
-              <span className="text-xs font-semibold text-zinc-200">{p.provider_name}</span>
-            </div>
+              <span className="text-xs font-semibold text-zinc-200 group-hover:text-amber-300 transition-colors">
+                {p.provider_name}
+              </span>
+              <ExternalLink className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors" />
+            </a>
           );
         })}
       </div>
