@@ -27,6 +27,7 @@ import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
 import { getConsolidatedCustomLinks, saveGlobalCustomLink } from '@/lib/curatedLinks';
 import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
+import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import TrailerModal from './TrailerModal';
 
 interface CustomLinksManagerProps {
@@ -36,10 +37,12 @@ interface CustomLinksManagerProps {
 const CATEGORIES: CustomLink['category'][] = [
   'Recent',
   'Streaming',
+  'Download',
+  'ZipPack',
+  'SingleEpisode',
   'Subtitles',
   'Discussion',
   'Review',
-  'Download',
   'Official',
   'Other',
 ];
@@ -314,6 +317,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </div>
         )}
       </div>
+
+      {/* 1.5 TV Series Season & Episode Vault (For TV series: Zip/Pack & Weekly Single EP's) */}
+      {mediaType === 'tv' && (
+        <TVEpisodeLinksManager
+          titleDetails={titleDetails}
+          customLinks={userCustomLinks}
+          isAdmin={isAdmin}
+          onLinkAdded={() => setLinksRefresh((v) => v + 1)}
+        />
+      )}
 
       {/* 2. Official Trailer & Video Launchers */}
       <div className="space-y-3">

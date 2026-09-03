@@ -156,8 +156,14 @@ export interface CustomLink {
   id: string;
   title: string;
   url: string;
-  category: 'Recent' | 'Streaming' | 'Subtitles' | 'Discussion' | 'Review' | 'Download' | 'Official' | 'Other';
+  category: 'Recent' | 'Streaming' | 'Subtitles' | 'Discussion' | 'Review' | 'Download' | 'Official' | 'Other' | 'ZipPack' | 'SingleEpisode';
   createdAt: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  quality?: string; // '4K HDR' | '1080p' | '720p' | '480p' | '2160p HEVC' | 'BluRay'
+  audioLanguage?: string; // 'Hindi + English' | 'English' | 'Dual Audio'
+  size?: string; // '1.2 GB' | '4.5 GB' | '18 GB Zip'
+  linkType?: 'zip_pack' | 'single_episode' | 'general';
 }
 
 export interface WatchlistItem {
