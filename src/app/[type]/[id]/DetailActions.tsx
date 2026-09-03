@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Play, Plus, Check, Eye, Heart, Share2, CheckCheck, ListPlus, ExternalLink, Film, Tv } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import TrailerModal from '@/components/TrailerModal';
 import AddToListModal from '@/components/AddToListModal';
 
@@ -22,6 +23,19 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
   const isInWatchlist = !!existing;
   const isWatched = existing?.status === 'watched';
   const isFavorite = existing?.isFavorite || false;
+
+  const title = titleDetails.title || titleDetails.name || 'Untitled';
+  const imdbId = titleDetails.external_ids?.imdb_id;
+  const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
+
+  const { availableList } = useMemo(() => {
+    return getRealAvailableStreamingProviders(
+      titleDetails.id,
+      title,
+      mediaType as any,
+      titleDetails['watch/providers']?.results?.['IN']
+    );
+  }, [titleDetails.id, title, mediaType, titleDetails]);
 
   const handleWatchlistClick = () => {
     if (isInWatchlist && !isWatched) {
@@ -46,67 +60,70 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
     toggleFavorite(titleDetails.id);
   };
 
-  const handleShare = () => {
+  const handleShare = async () => {
     if (typeof window !== 'undefined') {
-      navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // fallback
+      }
     }
   };
 
-  const title = titleDetails.title || titleDetails.name || 'Untitled';
-  const imdbId = titleDetails.external_ids?.imdb_id;
-  const tmdbId = titleDetails.id;
-  const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
-
   return (
     <>
-      <div className="space-y-3 pt-3">
-        {/* Row 1: Primary Actions (Trailer, Watchlist, Watched, Save to List, Fav, Share) */}
+      <div className="flex flex-col gap-3 py-2">
+        {/* Row 1: Primary Action Buttons */}
         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5">
+          {/* Main Trailer Trigger */}
           {trailerKey && (
             <button
               onClick={() => setShowTrailer(true)}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs sm:text-sm transition-all shadow-lg shadow-amber-500/20 hover:scale-105 active:scale-95"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs sm:text-sm transition-all shadow-lg shadow-amber-500/20 hover:scale-105 active:scale-95"
+              title="Watch Official Trailer"
               suppressHydrationWarning
             >
               <Play className="w-4 h-4 fill-black" />
-              Watch Trailer
+              <span>Watch Trailer</span>
             </button>
           )}
 
-          {/* Watchlist button */}
+          {/* Watchlist toggle */}
           <button
             onClick={handleWatchlistClick}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border transition-all ${
               isInWatchlist && !isWatched
-                ? 'bg-amber-500 text-black border-amber-500 shadow-md shadow-amber-500/20'
-                : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border-zinc-700'
+                ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-md shadow-amber-500/10'
+                : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border-zinc-700 hover:border-zinc-500'
             }`}
+            title={isInWatchlist && !isWatched ? 'In your Watchlist' : 'Add to Watchlist'}
             suppressHydrationWarning
           >
-            {isInWatchlist && !isWatched ? <Check className="w-4 h-4 stroke-[3]" /> : <Plus className="w-4 h-4" />}
-            {isInWatchlist && !isWatched ? 'In Watchlist' : 'Add to Watchlist'}
+            {isInWatchlist && !isWatched ? <Check className="w-4 h-4 text-amber-400" /> : <Plus className="w-4 h-4" />}
+            <span>{isInWatchlist && !isWatched ? 'In Watchlist' : 'Watchlist'}</span>
           </button>
 
           {/* Watched toggle */}
           <button
             onClick={handleWatchedClick}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border transition-all ${
               isWatched
-                ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-600/20'
-                : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border-zinc-700'
+                ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400 shadow-md shadow-emerald-500/10'
+                : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border-zinc-700 hover:border-zinc-500'
             }`}
+            title={isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
             suppressHydrationWarning
           >
             <Eye className="w-4 h-4" />
-            {isWatched ? 'Watched' : 'Mark as Watched'}
+            <span>{isWatched ? 'Watched' : 'Mark Seen'}</span>
           </button>
 
-          {/* Custom Lists button */}
+          {/* Save to Custom List */}
           <button
             onClick={() => setShowListModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs sm:text-sm font-semibold transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700 hover:border-zinc-500 text-xs sm:text-sm font-medium transition-colors"
             title="Add to Custom List"
             suppressHydrationWarning
           >
@@ -119,8 +136,8 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
             onClick={handleFavoriteClick}
             className={`p-2.5 rounded-xl border transition-all ${
               isFavorite
-                ? 'bg-rose-600 border-rose-500 text-white shadow-md shadow-rose-600/20'
-                : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 border-zinc-700 hover:text-white'
+                ? 'bg-rose-600/20 border-rose-500 text-rose-400'
+                : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 border-zinc-700 hover:border-zinc-500 hover:text-white'
             }`}
             title={isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
             suppressHydrationWarning
@@ -131,7 +148,7 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
           {/* Share */}
           <button
             onClick={handleShare}
-            className="p-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700 transition-colors"
+            className="p-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700 hover:border-zinc-500 transition-colors"
             title="Share title link"
             suppressHydrationWarning
           >
@@ -139,33 +156,29 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
           </button>
         </div>
 
-        {/* Row 2: Multiple Direct External Link Buttons */}
+        {/* Row 2: Verified Direct Title Links */}
         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-1">
-          {/* Netflix Quick Link */}
-          <a
-            href={`https://www.netflix.com/search?q=${encodeURIComponent(title)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/10 hover:bg-red-600/25 text-red-400 border border-red-500/30 text-xs font-semibold transition-all hover:scale-105"
-          >
-            <span className="w-2 h-2 rounded-full bg-[#E50914]" />
-            <span>Netflix</span>
-            <ExternalLink className="w-3 h-3 text-red-400/80" />
-          </a>
+          {/* Active Verified Streaming Options */}
+          {availableList.map((opt) => (
+            <a
+              key={opt.key}
+              href={opt.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900/90 border border-zinc-700 ${opt.accentBorder} text-xs font-semibold text-zinc-200 transition-all hover:scale-105 group`}
+            >
+              <div
+                className="w-4 h-4 rounded flex items-center justify-center font-black text-white text-[9px]"
+                style={{ backgroundColor: opt.logoBg }}
+              >
+                {opt.logoText}
+              </div>
+              <span className={`${opt.accentText} transition-colors`}>{opt.name}</span>
+              <ExternalLink className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors" />
+            </a>
+          ))}
 
-          {/* Prime Video Quick Link */}
-          <a
-            href={`https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${encodeURIComponent(title)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/25 text-sky-400 border border-sky-500/30 text-xs font-semibold transition-all hover:scale-105"
-          >
-            <span className="w-2 h-2 rounded-full bg-[#00A8E1]" />
-            <span>Prime Video</span>
-            <ExternalLink className="w-3 h-3 text-sky-400/80" />
-          </a>
-
-          {/* IMDb Quick Link */}
+          {/* IMDb Direct Link */}
           {imdbId && (
             <a
               href={`https://www.imdb.com/title/${imdbId}`}
@@ -178,7 +191,7 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
             </a>
           )}
 
-          {/* SIMKL Quick Link */}
+          {/* SIMKL Direct Link */}
           <a
             href={`https://simkl.com/search/?q=${encodeURIComponent(title)}`}
             target="_blank"
@@ -188,30 +201,6 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
             <span className="w-2 h-2 rounded-full bg-sky-400" />
             <span>SIMKL</span>
             <ExternalLink className="w-3 h-3 text-sky-400/80" />
-          </a>
-
-          {/* MDBList Quick Link */}
-          <a
-            href={`https://mdblist.com/search/?q=${encodeURIComponent(title)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-all hover:scale-105"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>MDBList</span>
-            <ExternalLink className="w-3 h-3 text-emerald-400/80" />
-          </a>
-
-          {/* Letterboxd Quick Link */}
-          <a
-            href={`https://letterboxd.com/search/${encodeURIComponent(title)}/`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-all hover:scale-105"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Letterboxd</span>
-            <ExternalLink className="w-3 h-3 text-emerald-400/80" />
           </a>
         </div>
       </div>
