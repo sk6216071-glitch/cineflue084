@@ -25,7 +25,7 @@ import {
 import { TitleDetails, CustomLink, WatchProviderInfo } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
-import { getConsolidatedCustomLinks, saveGlobalCustomLink } from '@/lib/curatedLinks';
+import { getConsolidatedCustomLinks, saveGlobalCustomLink, deleteGlobalCustomLink } from '@/lib/curatedLinks';
 import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import TrailerModal from './TrailerModal';
@@ -209,14 +209,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </p>
         </div>
 
-        <button
-          onClick={() => setIsOpenForm(!isOpenForm)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95 self-start sm:self-auto"
-          suppressHydrationWarning
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Add Custom Link</span>
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setIsOpenForm(!isOpenForm)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95 self-start sm:self-auto"
+            suppressHydrationWarning
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Add Custom Link (Admin)</span>
+          </button>
+        )}
       </div>
 
       {/* 1. Streaming Links Section (Only Show Actually Available Platforms) */}
@@ -697,9 +699,12 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                   </a>
                   {isAdmin && (
                     <button
-                      onClick={() => removeCustomLink(titleDetails.id, custom.id)}
+                      onClick={() => {
+                        deleteGlobalCustomLink(titleDetails.id, custom.id);
+                        removeCustomLink(titleDetails.id, custom.id);
+                      }}
                       className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                      title="Admin: Remove link"
+                      title="Admin: Delete link permanently"
                       suppressHydrationWarning
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -710,8 +715,12 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             ))}
           </div>
         ) : (
-          <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1">
-            <p className="text-xs text-zinc-400">No custom links in this category yet.</p>
+          <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1.5">
+            <p className="text-xs text-zinc-400">
+              {isAdmin
+                ? 'No custom links added yet for this title.'
+                : 'No custom links published by Admin for this title yet.'}
+            </p>
             {isAdmin && (
               <button
                 onClick={() => setIsOpenForm(true)}

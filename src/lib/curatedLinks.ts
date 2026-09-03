@@ -172,17 +172,31 @@ export const BUILTIN_CURATED_LINKS: Record<number, CustomLink[]> = {
 
 /**
  * Get all consolidated custom links for a title across:
- * 1. Built-in curated catalog
+ * 1. Built-in curated catalog (if not deleted by Admin)
  * 2. LocalStorage global custom links added by Admin
- * 3. User watchlist personal links
+ * (NO fake or auto-generated search links!)
  */
 export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks?: CustomLink[]): CustomLink[] {
   const linksMap = new Map<string, CustomLink>();
+  let deletedIds = new Set<string>();
 
-  // 1. Built-in curated links
+  if (typeof window !== 'undefined') {
+    try {
+      const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+      if (delStored) {
+        deletedIds = new Set(JSON.parse(delStored));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 1. Built-in curated links (only if not deleted by Admin)
   const builtin = BUILTIN_CURATED_LINKS[titleId] || [];
   builtin.forEach((l) => {
-    linksMap.set(l.url, l);
+    if (!deletedIds.has(l.id)) {
+      linksMap.set(l.id, l);
+    }
   });
 
   // 2. Storage links added by Admin
@@ -194,7 +208,9 @@ export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks
         const forTitle = parsed[String(titleId)] || parsed[titleId];
         if (Array.isArray(forTitle)) {
           forTitle.forEach((l: CustomLink) => {
-            linksMap.set(l.url, l);
+            if (!deletedIds.has(l.id)) {
+              linksMap.set(l.id, l);
+            }
           });
         }
       }
@@ -203,49 +219,13 @@ export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks
     }
   }
 
-  // 3. User personal watchlist links
-  if (watchlistCustomLinks && Array.isArray(watchlistCustomLinks)) {
-    watchlistCustomLinks.forEach((l) => {
-      linksMap.set(l.url, l);
-    });
-  }
-
-  // If no specific links exist for this ID, synthesize active streaming & subtitle search links so user always sees working links!
-  if (linksMap.size === 0) {
-    const defaultSearchLinks: CustomLink[] = [
-      {
-        id: `auto-sub-${titleId}`,
-        title: 'Search English & Regional Subtitles (OpenSubtitles)',
-        url: `https://www.opensubtitles.org/en/search2/sublanguageid-all/moviename-${titleId}`,
-        category: 'Subtitles',
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: `auto-reddit-${titleId}`,
-        title: 'Reddit Community Discussion & Spoilers Thread',
-        url: `https://www.reddit.com/r/movies/search/?q=${encodeURIComponent('movie ' + titleId)}`,
-        category: 'Discussion',
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: `auto-imdb-${titleId}`,
-        title: 'IMDb User Reviews & Trivia Guide',
-        url: `https://www.imdb.com/find?q=${encodeURIComponent('title ' + titleId)}`,
-        category: 'Review',
-        createdAt: new Date().toISOString(),
-      },
-    ];
-
-    defaultSearchLinks.forEach((l) => linksMap.set(l.url, l));
-  }
-
   return Array.from(linksMap.values()).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
 
 /**
- * Save a new custom link into global storage
+ * Save a new custom link into global storage (Admin only)
  */
 export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
   if (typeof window === 'undefined') return;
@@ -254,10 +234,41 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
     const parsed = stored ? JSON.parse(stored) : {};
     const key = String(movieId);
     const existing = parsed[key] || [];
-    parsed[key] = [link, ...existing.filter((l: CustomLink) => l.url !== link.url)];
+    parsed[key] = [link, ...existing.filter((l: CustomLink) => l.id !== link.id && l.url !== link.url)];
     localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
     window.dispatchEvent(new Event('cinefuel_links_updated'));
   } catch (err) {
     console.error('Failed to save global custom link:', err);
+  }
+}
+
+/**
+ * Delete a custom link permanently (Admin only)
+ */
+export function deleteGlobalCustomLink(movieId: number, linkId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // 1. Mark as deleted in deleted links registry
+    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delList: string[] = delStored ? JSON.parse(delStored) : [];
+    if (!delList.includes(linkId)) {
+      delList.push(linkId);
+      localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(delList));
+    }
+
+    // 2. Remove from custom links storage
+    const stored = localStorage.getItem('cinefuel_custom_links');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const key = String(movieId);
+      if (parsed[key]) {
+        parsed[key] = parsed[key].filter((l: CustomLink) => l.id !== linkId);
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+      }
+    }
+
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
+  } catch (err) {
+    console.error('Failed to delete global custom link:', err);
   }
 }
