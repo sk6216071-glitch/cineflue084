@@ -8,6 +8,7 @@ import { getImageURL, getBackdropURL } from '@/lib/tmdb';
 import RatingComparator from '@/components/RatingComparator';
 import WhereToWatch from '@/components/WhereToWatch';
 import CustomLinksManager from '@/components/CustomLinksManager';
+import DigitalReleaseTracker from '@/components/DigitalReleaseTracker';
 import SectionCarousel from '@/components/SectionCarousel';
 import DetailActions from './DetailActions';
 
@@ -202,6 +203,13 @@ export default async function TitleDetailPage({ params }: PageProps) {
               </div>
             </div>
           )}
+
+          {/* Digital & OTT Release Schedule Tracker */}
+          <DigitalReleaseTracker
+            titleId={titleDetails.id}
+            releaseDate={releaseDate}
+            titleName={title}
+          />
 
           {/* Custom Links Management Section */}
           <CustomLinksManager titleDetails={titleDetails} />
