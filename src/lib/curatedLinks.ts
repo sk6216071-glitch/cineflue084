@@ -243,6 +243,32 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
 }
 
 /**
+ * Update an existing custom link (Admin only)
+ */
+export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const stored = localStorage.getItem('cinefuel_custom_links');
+    const parsed = stored ? JSON.parse(stored) : {};
+    const key = String(movieId);
+    const existing: CustomLink[] = parsed[key] || [];
+
+    const index = existing.findIndex((l) => l.id === updatedLink.id);
+    if (index >= 0) {
+      existing[index] = { ...existing[index], ...updatedLink };
+      parsed[key] = existing;
+    } else {
+      parsed[key] = [updatedLink, ...existing];
+    }
+
+    localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
+  } catch (err) {
+    console.error('Failed to update global custom link:', err);
+  }
+}
+
+/**
  * Delete a custom link permanently (Admin only)
  */
 export function deleteGlobalCustomLink(movieId: number, linkId: string): void {

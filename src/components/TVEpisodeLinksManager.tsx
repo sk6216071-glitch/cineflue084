@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Plus,
   Trash2,
+  Pencil,
   Tv,
   Layers,
   Sparkles,
@@ -14,7 +15,11 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
-import { saveGlobalCustomLink, deleteGlobalCustomLink } from '@/lib/curatedLinks';
+import {
+  saveGlobalCustomLink,
+  updateGlobalCustomLink,
+  deleteGlobalCustomLink,
+} from '@/lib/curatedLinks';
 import {
   detectSeasonNumber,
   detectEpisodeNumber,
@@ -52,6 +57,17 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [formQuality, setFormQuality] = useState<string>('1080p WEB-DL');
   const [formAudio, setFormAudio] = useState<string>('English (Original)');
   const [formSize, setFormSize] = useState<string>('1.2 GB');
+
+  // Form states for Admin editing an existing link
+  const [editingLink, setEditingLink] = useState<CustomLink | null>(null);
+  const [editSeason, setEditSeason] = useState<number>(1);
+  const [editType, setEditType] = useState<'zip_pack' | 'single_episode'>('zip_pack');
+  const [editEpisode, setEditEpisode] = useState<number>(1);
+  const [editTitle, setEditTitle] = useState<string>('');
+  const [editUrl, setEditUrl] = useState<string>('');
+  const [editQuality, setEditQuality] = useState<string>('');
+  const [editAudio, setEditAudio] = useState<string>('');
+  const [editSize, setEditSize] = useState<string>('');
 
   // Dynamically calculate all seasons present in TMDB metadata AND uploaded custom links (Auto S01, S02, S03...)
   const seasonsList = useMemo(() => {
@@ -172,6 +188,47 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     setIsOpenAddModal(false);
     setFormTitle('');
     setFormUrl('');
+    if (onLinkAdded) onLinkAdded();
+  };
+
+  const handleStartEdit = (link: CustomLink) => {
+    setEditingLink(link);
+    setEditSeason(link.seasonNumber || 1);
+    setEditType(link.linkType === 'single_episode' ? 'single_episode' : 'zip_pack');
+    setEditEpisode(link.episodeNumber || 1);
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+    setEditQuality(link.quality || '');
+    setEditAudio(link.audioLanguage || '');
+    setEditSize(link.size || '');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLink || !editTitle.trim() || !editUrl.trim()) return;
+
+    let finalUrl = editUrl.trim();
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+      finalUrl = `https://${finalUrl}`;
+    }
+
+    const parsed = parseFullMediaTitle(editTitle.trim());
+
+    const updatedLink: CustomLink = {
+      ...editingLink,
+      title: editTitle.trim(),
+      url: finalUrl,
+      category: editType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+      seasonNumber: editSeason,
+      episodeNumber: editType === 'single_episode' ? editEpisode : undefined,
+      quality: editQuality.trim() || parsed.quality || editingLink.quality,
+      audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.audioLanguage,
+      size: editSize.trim() || parsed.size || editingLink.size,
+      linkType: editType,
+    };
+
+    updateGlobalCustomLink(titleDetails.id, updatedLink);
+    setEditingLink(null);
     if (onLinkAdded) onLinkAdded();
   };
 
@@ -330,14 +387,24 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <span>Download Full Zip</span>
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
+
                     {isAdmin && (
-                      <button
-                        onClick={() => handleDelete(pack.id)}
-                        className="p-2 rounded-xl bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                        title="Delete Link"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleStartEdit(pack)}
+                          className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700 transition-colors"
+                          title="Admin: Edit TV Link"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(pack.id)}
+                          className="p-2 rounded-xl bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
+                          title="Admin: Delete TV Link"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -432,14 +499,24 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <span>Get Link</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
+
                     {isAdmin && (
-                      <button
-                        onClick={() => handleDelete(ep.id)}
-                        className="p-1.5 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                        title="Delete Link"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleStartEdit(ep)}
+                          className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700 transition-colors"
+                          title="Admin: Edit Episode Link"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(ep.id)}
+                          className="p-1.5 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
+                          title="Admin: Delete Episode Link"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -613,6 +690,144 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
                 >
                   Save Link
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Edit TV Link Modal */}
+      {isAdmin && editingLink && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#11141d] border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-amber-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Edit TV Link
+                </h4>
+              </div>
+              <button
+                onClick={() => setEditingLink(null)}
+                className="text-zinc-400 hover:text-white text-xs font-bold"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-3">
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                  Title / Release Name
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Season #</label>
+                  <select
+                    value={editSeason}
+                    onChange={(e) => setEditSeason(Number(e.target.value))}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    {seasonsList.map((s) => (
+                      <option key={s} value={s}>
+                        Season {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Link Type</label>
+                  <select
+                    value={editType}
+                    onChange={(e) => setEditType(e.target.value as any)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                  >
+                    <option value="zip_pack">🗜️ Zip / Batch Pack</option>
+                    <option value="single_episode">📥 Single Episode (Weekly)</option>
+                  </select>
+                </div>
+              </div>
+
+              {editType === 'single_episode' && (
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Episode #</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={editEpisode}
+                    onChange={(e) => setEditEpisode(Number(e.target.value))}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Download / Stream Destination URL</label>
+                <input
+                  type="text"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality / Format</label>
+                  <input
+                    type="text"
+                    value={editQuality}
+                    onChange={(e) => setEditQuality(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio / Language</label>
+                  <input
+                    type="text"
+                    value={editAudio}
+                    onChange={(e) => setEditAudio(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">File Size</label>
+                  <input
+                    type="text"
+                    value={editSize}
+                    onChange={(e) => setEditSize(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingLink(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

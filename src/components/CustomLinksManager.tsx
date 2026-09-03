@@ -7,6 +7,7 @@ import {
   Plus,
   ExternalLink,
   Trash2,
+  Pencil,
   Tag,
   Globe,
   MessageSquare,
@@ -21,11 +22,17 @@ import {
   BookOpen,
   Search,
   Clock,
+  X,
 } from 'lucide-react';
 import { TitleDetails, CustomLink, WatchProviderInfo } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
-import { getConsolidatedCustomLinks, saveGlobalCustomLink, deleteGlobalCustomLink } from '@/lib/curatedLinks';
+import {
+  getConsolidatedCustomLinks,
+  saveGlobalCustomLink,
+  updateGlobalCustomLink,
+  deleteGlobalCustomLink,
+} from '@/lib/curatedLinks';
 import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
@@ -39,45 +46,68 @@ const CATEGORIES: CustomLink['category'][] = [
   'Recent',
   'Streaming',
   'Download',
-  'ZipPack',
-  'SingleEpisode',
-  'Subtitles',
   'Discussion',
-  'Review',
+  'Subtitles',
   'Official',
-  'Other',
+  'Review',
 ];
 
 export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDetails }) => {
-  const { getItem, addCustomLink, removeCustomLink, addToWatchlist, settings, isMounted } = useWatchlist();
-  const existing = isMounted ? getItem(titleDetails.id) : undefined;
-
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [linksRefresh, setLinksRefresh] = useState(0);
+  const { watchlist, addCustomLink, removeCustomLink, isMounted, settings, addToWatchlist } = useWatchlist();
   const [isOpenForm, setIsOpenForm] = useState(false);
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('All');
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
-  const [category, setCategory] = useState<CustomLink['category']>('Recent');
-  const [activeCategoryFilter, setActiveCategoryFilter] = useState<'All' | CustomLink['category']>('All');
+  const [category, setCategory] = useState<CustomLink['category']>('Streaming');
   const [error, setError] = useState('');
   const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
+  const [linksRefresh, setLinksRefresh] = useState(0);
+
+  // Edit Modal State
+  const [editingLink, setEditingLink] = useState<CustomLink | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [editCategory, setEditCategory] = useState<CustomLink['category']>('Streaming');
+  const [editQuality, setEditQuality] = useState('');
+  const [editAudio, setEditAudio] = useState('');
+  const [editSize, setEditSize] = useState('');
+
+  const [isAdmin, setIsAdmin] = useState(false);
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
       const auth = sessionStorage.getItem('cinefuel_admin_auth');
-      setIsAdmin(auth === 'true');
-
-      const onUpdate = () => setLinksRefresh((v) => v + 1);
-      window.addEventListener('cinefuel_links_updated', onUpdate);
-      return () => window.removeEventListener('cinefuel_links_updated', onUpdate);
+      if (auth) {
+        try {
+          const parsed = JSON.parse(auth);
+          setIsAdmin(parsed?.isLoggedIn && parsed?.user === 'shyam');
+        } catch {
+          setIsAdmin(false);
+        }
+      }
     }
-  }, []);
+  }, [isMounted]);
 
+  // Consolidated Custom Links (Global Admin Storage + User LocalStorage)
   const userCustomLinks = useMemo(() => {
-    return getConsolidatedCustomLinks(titleDetails.id, existing?.customLinks);
-  }, [titleDetails.id, existing?.customLinks, isMounted, linksRefresh]);
+    if (!isMounted) return [];
+    return getConsolidatedCustomLinks(titleDetails.id);
+  }, [titleDetails.id, isMounted, linksRefresh]);
 
-  // 1. Title Metadata & IDs
+  // Filter links by category
+  const filteredCustomLinks = useMemo(() => {
+    if (activeCategoryFilter === 'All') return userCustomLinks;
+    if (activeCategoryFilter === 'Recent') {
+      const now = new Date().getTime();
+      const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
+      return userCustomLinks.filter(
+        (l) => new Date(l.createdAt).getTime() > threeDaysAgo
+      );
+    }
+    return userCustomLinks.filter((l) => l.category === activeCategoryFilter);
+  }, [userCustomLinks, activeCategoryFilter]);
+
+  const existing = isMounted ? watchlist.find((w) => w.id === titleDetails.id) : undefined;
   const imdbId = titleDetails.external_ids?.imdb_id;
   const tmdbId = titleDetails.id;
   const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
@@ -85,7 +115,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const releaseYear = (titleDetails.release_date || titleDetails.first_air_date || '').split('-')[0];
   const queryName = `${titleName} ${releaseYear}`.trim();
 
-  // 2. Gather Built-in Links
+  // Gather Built-in Links
   const region = settings.defaultRegion || 'IN';
 
   const { availableList, justwatchUrl, hasSubscription } = useMemo(() => {
@@ -146,6 +176,54 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     setUrl('');
     setError('');
     setIsOpenForm(false);
+    setLinksRefresh((v) => v + 1);
+  };
+
+  const handleStartEdit = (link: CustomLink) => {
+    setEditingLink(link);
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+    setEditCategory(link.category || 'Streaming');
+    setEditQuality(link.quality || '');
+    setEditAudio(link.audioLanguage || '');
+    setEditSize(link.size || '');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLink || !editTitle.trim() || !editUrl.trim()) return;
+
+    let finalUrl = editUrl.trim();
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+      finalUrl = `https://${finalUrl}`;
+    }
+
+    const parsed = parseFullMediaTitle(editTitle.trim());
+
+    const updatedLink: CustomLink = {
+      ...editingLink,
+      title: editTitle.trim(),
+      url: finalUrl,
+      category: editCategory,
+      seasonNumber: parsed.seasonNumber || editingLink.seasonNumber,
+      episodeNumber: parsed.episodeNumber !== undefined ? parsed.episodeNumber : editingLink.episodeNumber,
+      linkType: parsed.linkType || editingLink.linkType,
+      quality: editQuality.trim() || parsed.quality || editingLink.quality,
+      audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.audioLanguage,
+      size: editSize.trim() || parsed.size || editingLink.size,
+    };
+
+    updateGlobalCustomLink(titleDetails.id, updatedLink);
+    setEditingLink(null);
+    setLinksRefresh((v) => v + 1);
+  };
+
+  const handleDelete = (linkId: string) => {
+    if (confirm('Delete this custom link permanently?')) {
+      deleteGlobalCustomLink(titleDetails.id, linkId);
+      removeCustomLink(titleDetails.id, linkId);
+      setLinksRefresh((v) => v + 1);
+    }
   };
 
   const getCategoryIcon = (cat: CustomLink['category']) => {
@@ -163,49 +241,30 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
       case 'Review':
         return <Tag className="w-4 h-4 text-purple-400" />;
       case 'Official':
-        return <Globe className="w-4 h-4 text-indigo-400" />;
+        return <Globe className="w-4 h-4 text-sky-400" />;
       default:
-        return <Link2 className="w-4 h-4 text-zinc-400" />;
+        return <Link2 className="w-4 h-4 text-amber-400" />;
     }
   };
 
-  // Filtered and sorted custom links
-  const filteredCustomLinks = useMemo(() => {
-    // Sort newest first
-    const sorted = [...userCustomLinks].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-
-    if (activeCategoryFilter === 'All') return sorted;
-    if (activeCategoryFilter === 'Recent') {
-      // Recent category includes either category === 'Recent' or added in last 14 days
-      const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
-      return sorted.filter(
-        (l) => l.category === 'Recent' || new Date(l.createdAt).getTime() > twoWeeksAgo
-      );
-    }
-    return sorted.filter((l) => l.category === activeCategoryFilter);
-  }, [userCustomLinks, activeCategoryFilter]);
-
-  const formatRelativeTime = (isoString: string) => {
+  const formatRelativeTime = (dateStr?: string) => {
+    if (!dateStr) return 'Recently';
     try {
-      const diffMs = Date.now() - new Date(isoString).getTime();
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      if (diffDays < 7) return `${diffDays}d ago`;
-      return new Date(isoString).toLocaleDateString();
+      const now = new Date().getTime();
+      const diff = now - new Date(dateStr).getTime();
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      if (hours < 1) return 'Just now';
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 7) return `${days}d ago`;
+      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     } catch {
-      return 'Recent';
+      return 'Added';
     }
   };
 
   return (
-    <div className="bg-[#0f121a] border border-zinc-800/80 rounded-3xl p-5 sm:p-7 shadow-xl space-y-7">
+    <div className="bg-[#0f121a] border border-zinc-800/80 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-5">
         <div className="space-y-1">
@@ -214,18 +273,18 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             <h3 className="text-xl font-bold text-white">Title Links & Destinations</h3>
           </div>
           <p className="text-xs text-zinc-400">
-            Streaming platforms, trailers, review portals, subtitle sources, and custom user-saved links.
+            Streaming platforms, trailers, review portals, and verified admin custom links.
           </p>
         </div>
 
         {isAdmin && (
           <button
             onClick={() => setIsOpenForm(!isOpenForm)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95 self-start sm:self-auto"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95 self-start sm:self-auto"
             suppressHydrationWarning
           >
             <Plus className="w-4 h-4" />
-            <span>+ Add Custom Link (Admin)</span>
+            <span>+ Add Custom Link</span>
           </button>
         )}
       </div>
@@ -268,10 +327,10 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                       <span
                         className={`font-semibold px-1 rounded text-[9px] ${
                           item.tier === 'Subscription'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                             : item.tier === 'Rent'
-                            ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
-                            : 'bg-sky-500/10 text-sky-300 border border-sky-500/20'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                         }`}
                       >
                         {item.tier}
@@ -280,11 +339,11 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                     </div>
                   </div>
                 </div>
-                <ExternalLink className={`w-3.5 h-3.5 text-zinc-500 ${item.accentText} transition-colors shrink-0 ml-1`} />
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white transition-colors shrink-0" />
               </a>
             ))}
 
-            {/* JustWatch Direct Stream & Price Finder Hub */}
+            {/* JustWatch Live Finder */}
             <a
               href={justwatchUrl}
               target="_blank"
@@ -329,7 +388,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         )}
       </div>
 
-      {/* 1.5 TV Series Season & Episode Vault (For TV series: Zip/Pack & Weekly Single EP's) */}
+      {/* 1.5 TV Series Season & Episode Vault */}
       {mediaType === 'tv' && (
         <TVEpisodeLinksManager
           titleDetails={titleDetails}
@@ -378,24 +437,24 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                 </div>
                 <div>
                   <span className="text-xs font-bold text-white group-hover:text-red-400 transition-colors block">
-                    YouTube Trailer Search
+                    Search YouTube Trailer
                   </span>
-                  <span className="text-[10px] text-zinc-400">Official Channels</span>
+                  <span className="text-[10px] text-zinc-400">Video Search</span>
                 </div>
               </div>
               <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
             </a>
           )}
 
-          {/* Soundtrack Search */}
+          {/* Spotify Soundtrack */}
           <a
-            href={`https://open.spotify.com/search/${encodeURIComponent(queryName)}+soundtrack`}
+            href={`https://open.spotify.com/search/${encodeURIComponent(titleName + ' soundtrack')}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
+            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-500/60 hover:bg-zinc-800/90 transition-all group shadow-sm"
           >
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-xs shadow-md">
+              <div className="w-7 h-7 rounded-lg bg-[#1DB954]/20 text-[#1DB954] border border-[#1DB954]/40 flex items-center justify-center shadow-md font-black text-xs">
                 ♫
               </div>
               <div>
@@ -482,7 +541,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         </div>
       </div>
 
-      {/* 4. User Custom Attached Links with Category Filters */}
+      {/* 4. User Custom Attached Links with Category Filters & Admin Edit/Delete */}
       <div className="space-y-4 pt-2 border-t border-zinc-800/70">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -544,7 +603,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             {filteredCustomLinks.map((custom) => (
               <div
                 key={custom.id}
-                className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-amber-500/30 hover:border-amber-400/60 hover:bg-zinc-800/80 transition-all group shadow-md"
+                className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-amber-500/30 hover:border-amber-400/60 hover:bg-zinc-800/80 transition-all gap-3 group shadow-md"
               >
                 <div className="flex items-center gap-3 overflow-hidden">
                   <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
@@ -580,18 +639,27 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
+
                   {isAdmin && (
-                    <button
-                      onClick={() => {
-                        deleteGlobalCustomLink(titleDetails.id, custom.id);
-                        removeCustomLink(titleDetails.id, custom.id);
-                      }}
-                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                      title="Admin: Delete link permanently"
-                      suppressHydrationWarning
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleStartEdit(custom)}
+                        className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                        title="Admin: Edit link"
+                        suppressHydrationWarning
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(custom.id)}
+                        className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                        title="Admin: Delete link permanently"
+                        suppressHydrationWarning
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -617,7 +685,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         )}
       </div>
 
-      {/* Add More Links Interactive Form (Admin Only) */}
+      {/* Add Custom Link Interactive Form (Admin Only) */}
       {isAdmin && isOpenForm && (
         <form
           onSubmit={handleAddLink}
@@ -710,6 +778,128 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             </button>
           </div>
         </form>
+      )}
+
+      {/* Edit Custom Link Modal (Admin Only) */}
+      {isAdmin && editingLink && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#11141d] border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-amber-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Edit Custom Link
+                </h4>
+              </div>
+              <button
+                onClick={() => setEditingLink(null)}
+                className="text-zinc-400 hover:text-white text-xs font-bold"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                  Title / Label
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                  Destination URL
+                </label>
+                <input
+                  type="text"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1.5">
+                  Category Tag
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setEditCategory(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                        editCategory === cat
+                          ? 'bg-amber-500 text-black font-bold shadow-md shadow-amber-500/20'
+                          : 'bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/80'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 1080p, 4K"
+                    value={editQuality}
+                    onChange={(e) => setEditQuality(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Hindi, English"
+                    value={editAudio}
+                    onChange={(e) => setEditAudio(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Size</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 1.2 GB"
+                    value={editSize}
+                    onChange={(e) => setEditSize(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingLink(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Trailer Modal Trigger */}
