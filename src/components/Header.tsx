@@ -55,7 +55,6 @@ export const Header: React.FC = () => {
     { href: '/lists', label: 'Lists' },
     { href: '/watchlist', label: 'Watchlist' },
     { href: '/simkl', label: 'SIMKL' },
-    { href: '/mdblist', label: 'MDBList' },
   ];
 
   return (

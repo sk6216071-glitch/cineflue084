@@ -401,29 +401,29 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         </div>
       </div>
 
-      {/* 3. Databases, Reviews & Wikipedia Links */}
+      {/* 3. Official Databases & Reviews (IMDb, TMDB, SIMKL) */}
       <div className="space-y-3">
         <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5 text-amber-400" /> Databases & Reviews
+          <BookOpen className="w-3.5 h-3.5 text-amber-400" /> Databases & Reviews (IMDb • TMDB • SIMKL)
         </h4>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* IMDb */}
           <a
             href={imdbId ? `https://www.imdb.com/title/${imdbId}` : `https://www.imdb.com/find?q=${encodeURIComponent(queryName)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
+            className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
           >
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#f5c518] text-black flex items-center justify-center font-black text-[10px] shadow-md">
+              <div className="w-8 h-8 rounded-lg bg-[#f5c518] text-black flex items-center justify-center font-black text-xs shadow-md">
                 IMDb
               </div>
               <div>
                 <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors block">
-                  IMDb Title
+                  IMDb Database
                 </span>
-                <span className="text-[10px] text-zinc-400">Ratings & Trivia</span>
+                <span className="text-[10px] text-zinc-400">Official Cast, Trivia & Ratings</span>
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
@@ -434,20 +434,20 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             href={`https://www.themoviedb.org/${mediaType}/${tmdbId}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
+            className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
           >
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#01d277] text-black flex items-center justify-center font-black text-[9px] shadow-md">
+              <div className="w-8 h-8 rounded-lg bg-[#01d277] text-black flex items-center justify-center font-black text-[10px] shadow-md">
                 TMDB
               </div>
               <div>
-                <span className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors block">
+                <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors block">
                   TMDB Database
                 </span>
-                <span className="text-[10px] text-zinc-400">Cast & Metadata</span>
+                <span className="text-[10px] text-zinc-400">Community Metadata & Crew</span>
               </div>
             </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-sky-400 transition-colors" />
+            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
           </a>
 
           {/* SIMKL */}
@@ -455,146 +455,20 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             href={`https://simkl.com/search/?q=${encodeURIComponent(queryName)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-500/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
+            className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-500/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
           >
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#00A3FF] text-black flex items-center justify-center font-black text-xs shadow-md">
-                S
+              <div className="w-8 h-8 rounded-lg bg-[#00A3FF] text-black flex items-center justify-center font-black text-xs shadow-md">
+                SIMKL
               </div>
               <div>
                 <span className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors block">
-                  SIMKL
+                  SIMKL Vault
                 </span>
-                <span className="text-[10px] text-zinc-400">Track & Scrobble</span>
+                <span className="text-[10px] text-zinc-400">Watchlist Sync & Scrobbler</span>
               </div>
             </div>
             <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-sky-400 transition-colors" />
-          </a>
-
-          {/* MDBList */}
-          <a
-            href={`https://mdblist.com/search/?q=${encodeURIComponent(queryName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500 text-black flex items-center justify-center font-black text-xs shadow-md">
-                M
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors block">
-                  MDBList
-                </span>
-                <span className="text-[10px] text-zinc-400">Aggregated Ratings</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
-          </a>
-
-          {/* Letterboxd */}
-          <a
-            href={`https://letterboxd.com/search/${encodeURIComponent(titleName)}/`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#00e054] text-black flex items-center justify-center font-black text-xs shadow-md">
-                L
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors block">
-                  Letterboxd
-                </span>
-                <span className="text-[10px] text-zinc-400">Community Reviews</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
-          </a>
-
-          {/* Rotten Tomatoes */}
-          <a
-            href={`https://www.rottentomatoes.com/search?search=${encodeURIComponent(titleName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-red-500/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#FA320A] text-white flex items-center justify-center font-black text-xs shadow-md">
-                🍅
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-red-400 transition-colors block">
-                  Rotten Tomatoes
-                </span>
-                <span className="text-[10px] text-zinc-400">Tomatometer Score</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
-          </a>
-
-          {/* Wikipedia */}
-          <a
-            href={`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(queryName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-zinc-400 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-zinc-700 text-white flex items-center justify-center font-bold text-xs shadow-md">
-                W
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-zinc-200 transition-colors block">
-                  Wikipedia
-                </span>
-                <span className="text-[10px] text-zinc-400">Encyclopedia Entry</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 transition-colors" />
-          </a>
-
-          {/* Subtitles (OpenSubtitles) */}
-          <a
-            href={`https://www.opensubtitles.org/en/search2/sublanguageid-all/moviename-${encodeURIComponent(queryName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-sky-600/30 text-sky-400 border border-sky-500/40 flex items-center justify-center font-bold text-xs shadow-md">
-                <Subtitles className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors block">
-                  Subtitles
-                </span>
-                <span className="text-[10px] text-zinc-400">OpenSubtitles</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-sky-400 transition-colors" />
-          </a>
-
-          {/* Reddit Discussion */}
-          <a
-            href={`https://www.reddit.com/r/movies/search/?q=${encodeURIComponent(queryName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-orange-500/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#FF4500] text-white flex items-center justify-center font-black text-xs shadow-md">
-                r/
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-orange-400 transition-colors block">
-                  Reddit Discussions
-                </span>
-                <span className="text-[10px] text-zinc-400">r/movies & theories</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-orange-400 transition-colors" />
           </a>
         </div>
       </div>

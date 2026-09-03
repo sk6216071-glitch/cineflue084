@@ -57,8 +57,8 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
         <span className="text-xs text-zinc-400 uppercase tracking-wider">Multi-Source Intelligence</span>
       </div>
 
-      {/* Ratings Cards Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+      {/* Ratings Cards Grid (TMDB, IMDb, SIMKL, and User Rating) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {/* TMDB */}
         <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-500/30 transition-colors">
           <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
@@ -127,31 +127,6 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
             <div
               className="bg-sky-400 h-full rounded-full"
               style={{ width: `${Math.min(100, (Number(simklScore) || 0) * 10)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* MDBList */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-400/30 transition-colors">
-          <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
-            <span className="text-emerald-400 font-bold">MDBList</span>
-            <a
-              href={`https://mdblist.com/search/?q=${encodeURIComponent(titleName)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-zinc-400 hover:text-white flex items-center gap-0.5 text-[10px]"
-            >
-              Agg <ExternalLink className="w-2.5 h-2.5" />
-            </a>
-          </div>
-          <div className="my-2 flex items-baseline gap-1">
-            <span className="text-2xl sm:text-3xl font-black text-emerald-300">{mdblistScore}</span>
-            <span className="text-xs text-zinc-400">/ 100</span>
-          </div>
-          <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-emerald-400 h-full rounded-full"
-              style={{ width: `${Math.min(100, mdblistScore)}%` }}
             />
           </div>
         </div>
