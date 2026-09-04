@@ -41,6 +41,7 @@ import {
   Clock,
   Zap,
   ListPlus,
+  LayoutGrid,
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
@@ -121,8 +122,8 @@ export default function AdminPage() {
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [linkCategoryFilter, setLinkCategoryFilter] = useState('All');
 
-  // Mode in Manage Links: 'single' vs 'bulk'
-  const [addLinkMode, setAddLinkMode] = useState<'single' | 'bulk'>('single');
+  // Mode in Manage Links: 'single' vs 'bulk' vs 'grid'
+  const [addLinkMode, setAddLinkMode] = useState<'single' | 'bulk' | 'grid'>('single');
 
   // Universal Target Title Live Search & Selection State
   const [selectedTargetTitle, setSelectedTargetTitle] = useState<{
@@ -155,6 +156,26 @@ export default function AdminPage() {
   const [adminBulkRawText, setAdminBulkRawText] = useState('');
   const [adminBulkParsedItems, setAdminBulkParsedItems] = useState<ParsedBulkItem[]>([]);
   const [adminBulkSuccessMsg, setAdminBulkSuccessMsg] = useState('');
+
+  // Admin Dynamic Episode Grid State (N Containers)
+  const [adminGridSeason, setAdminGridSeason] = useState(1);
+  const [adminGridEpisodeCount, setAdminGridEpisodeCount] = useState(8);
+  const [adminGridBasePattern, setAdminGridBasePattern] = useState('');
+  const [adminGridQuality, setAdminGridQuality] = useState('2160p 4K');
+  const [adminGridAudio, setAdminGridAudio] = useState('Hindi + English 5.1');
+  const [adminGridSize, setAdminGridSize] = useState('');
+  const [adminGridBulkLinksText, setAdminGridBulkLinksText] = useState('');
+  const [adminGridEpisodes, setAdminGridEpisodes] = useState<
+    Array<{
+      episodeNumber: number;
+      title: string;
+      url: string;
+      quality: string;
+      audio: string;
+      size: string;
+    }>
+  >([]);
+  const [adminGridSuccessMsg, setAdminGridSuccessMsg] = useState('');
 
   // Edit Link Modal State
   const [editingLink, setEditingLink] = useState<{ movieId: number; link: CustomLink } | null>(null);
@@ -394,6 +415,7 @@ export default function AdminPage() {
     if (resolvedType === 'tv') {
       setNewLinkCategory('SingleEpisode');
       setNewLinkType('single_episode');
+      syncAdminGridSlots(adminGridEpisodeCount, adminGridSeason, adminGridBasePattern, adminGridQuality, adminGridAudio, adminGridSize, resolvedTitle);
     } else {
       setNewLinkCategory('Streaming');
       setNewLinkType('general');
@@ -665,6 +687,175 @@ export default function AdminPage() {
     setAdminBulkParsedItems([]);
 
     setTimeout(() => setAdminBulkSuccessMsg(''), 3500);
+  };
+
+  // Helper to format admin episode title
+  const formatAdminGridEpTitle = (
+    epNum: number,
+    pattern: string,
+    season: number,
+    targetTitle: string,
+    quality: string,
+    audio: string
+  ) => {
+    const epStr = epNum < 10 ? `0${epNum}` : `${epNum}`;
+    const sStr = season < 10 ? `0${season}` : `${season}`;
+    if (pattern && pattern.trim()) {
+      return pattern
+        .replace(/{title}/gi, targetTitle || 'Series')
+        .replace(/{season}/gi, sStr)
+        .replace(/{s}/gi, sStr)
+        .replace(/{episode}/gi, epStr)
+        .replace(/{ep}/gi, epStr)
+        .replace(/{quality}/gi, quality || '')
+        .replace(/{audio}/gi, audio || '')
+        .trim();
+    }
+    return `${targetTitle || 'Series'} S${sStr}E${epStr} ${quality || '2160p WEB-DL'} [${audio || 'Hindi + English'}]`;
+  };
+
+  // Sync grid episode slots whenever count, season, or title changes
+  const syncAdminGridSlots = (
+    count: number,
+    season: number,
+    pattern: string,
+    quality: string,
+    audio: string,
+    size: string,
+    titleName?: string
+  ) => {
+    const seriesTitle = titleName || selectedTargetTitle?.title || 'Series';
+    setAdminGridEpisodes((prev) => {
+      const newSlots = [];
+      for (let i = 1; i <= count; i++) {
+        const existing = prev.find((p) => p.episodeNumber === i);
+        newSlots.push({
+          episodeNumber: i,
+          title:
+            existing?.title && existing.title.trim().length > 3
+              ? existing.title
+              : formatAdminGridEpTitle(i, pattern, season, seriesTitle, quality, audio),
+          url: existing?.url || '',
+          quality: existing?.quality || quality || '2160p 4K',
+          audio: existing?.audio || audio || 'Hindi + English 5.1',
+          size: existing?.size || size || '',
+        });
+      }
+      return newSlots;
+    });
+  };
+
+  // Initialize or open admin grid
+  const handleOpenAdminGrid = (targetCount?: number, targetSeason?: number, titleName?: string) => {
+    const count = targetCount || adminGridEpisodeCount || 8;
+    const season = targetSeason || adminGridSeason || 1;
+    setAdminGridEpisodeCount(count);
+    setAdminGridSeason(season);
+    syncAdminGridSlots(count, season, adminGridBasePattern, adminGridQuality, adminGridAudio, adminGridSize, titleName);
+  };
+
+  // Distribute links pasted into admin grid
+  const handleDistributeAdminGridUrls = (text: string) => {
+    setAdminGridBulkLinksText(text);
+    const urls = text.match(/(https?:\/\/[^\s<>"']+)/gi) || [];
+    if (urls.length > 0) {
+      setAdminGridEpisodes((prev) =>
+        prev.map((slot, index) => {
+          if (urls[index]) {
+            return { ...slot, url: urls[index] };
+          }
+          return slot;
+        })
+      );
+    }
+  };
+
+  // Update a single episode slot in admin grid
+  const handleUpdateAdminGridSlot = (
+    epNum: number,
+    field: 'title' | 'url' | 'quality' | 'audio' | 'size',
+    value: string
+  ) => {
+    setAdminGridEpisodes((prev) =>
+      prev.map((slot) => (slot.episodeNumber === epNum ? { ...slot, [field]: value } : slot))
+    );
+  };
+
+  // Apply pattern to all titles in admin grid
+  const handleApplyAdminPatternToAll = () => {
+    const seriesTitle = selectedTargetTitle?.title || 'Series';
+    setAdminGridEpisodes((prev) =>
+      prev.map((slot) => ({
+        ...slot,
+        title: formatAdminGridEpTitle(
+          slot.episodeNumber,
+          adminGridBasePattern,
+          adminGridSeason,
+          seriesTitle,
+          adminGridQuality,
+          adminGridAudio
+        ),
+      }))
+    );
+  };
+
+  // Save all admin grid episode containers
+  const handleSaveAllAdminGridEpisodes = () => {
+    if (!selectedTargetTitle) {
+      alert('Please select a target title first.');
+      return;
+    }
+
+    const valid = adminGridEpisodes.filter((e) => e.url.trim() && e.title.trim());
+    if (valid.length === 0) {
+      alert('Please fill in at least one episode container link before saving.');
+      return;
+    }
+
+    const createdObjs: CustomLink[] = [];
+    valid.forEach((ep, index) => {
+      let finalUrl = ep.url.trim();
+      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        finalUrl = `https://${finalUrl}`;
+      }
+
+      const newLink: CustomLink = {
+        id: `admin-grid-${Date.now()}-${ep.episodeNumber}-${index}`,
+        title: ep.title.trim(),
+        url: finalUrl,
+        category: 'SingleEpisode',
+        createdAt: new Date(Date.now() - index * 1000).toISOString(),
+        seasonNumber: adminGridSeason,
+        episodeNumber: ep.episodeNumber,
+        quality: ep.quality.trim() || adminGridQuality || '2160p 4K',
+        audioLanguage: ep.audio.trim() || adminGridAudio || 'Hindi + English 5.1',
+        size: ep.size.trim() || adminGridSize || undefined,
+        linkType: 'single_episode',
+      };
+
+      saveGlobalCustomLink(selectedTargetTitle.id, newLink);
+      createdObjs.push(newLink);
+    });
+
+    setCustomLinksMap((prev) => {
+      const existing = prev[String(selectedTargetTitle.id)] || [];
+      const updated = {
+        ...prev,
+        [String(selectedTargetTitle.id)]: [...createdObjs, ...existing],
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    const count = valid.length;
+    setAdminGridSuccessMsg(`🎉 Successfully saved ${count} episode container${count > 1 ? 's' : ''} to Season ${adminGridSeason} for "${selectedTargetTitle.title}"!`);
+    addLog(`Admin saved ${count} episode grid containers for "${selectedTargetTitle.title}" (Season ${adminGridSeason})`, 'success');
+
+    setTimeout(() => {
+      setAdminGridSuccessMsg('');
+    }, 3500);
   };
 
   // Open Edit Link Modal
@@ -1240,7 +1431,7 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* Mode Toggle Pills (Single vs Bulk Auto-Detector) */}
+              {/* Mode Toggle Pills (Single vs Bulk vs Episode Grid) */}
               <div className="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-2xl border border-zinc-800 shrink-0">
                 <button
                   type="button"
@@ -1263,6 +1454,20 @@ export default function AdminPage() {
                   }`}
                 >
                   <Zap className="w-3.5 h-3.5 fill-current" /> Bulk Auto-Detector
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddLinkMode('grid');
+                    handleOpenAdminGrid();
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all ${
+                    addLinkMode === 'grid'
+                      ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" /> Episode Grid ({adminGridEpisodeCount} EPs)
                 </button>
               </div>
             </div>
@@ -1668,6 +1873,245 @@ export default function AdminPage() {
                     <CheckCircle2 className="w-4 h-4" /> {adminBulkSuccessMsg}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* VIEW C: DYNAMIC EPISODE GRID CONTAINER (N TITLE & N LINK CONTAINERS) */}
+            {addLinkMode === 'grid' && (
+              <div className="space-y-4 pt-3 border-t border-zinc-800/80">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-zinc-300 block">
+                    2. Dynamic Episode Containers for &quot;{selectedTargetTitle?.title}&quot;:
+                  </label>
+                  <span className="text-[11px] text-sky-400 font-mono font-bold">
+                    {adminGridEpisodes.length} Title Containers & {adminGridEpisodes.length} Link Containers Open
+                  </span>
+                </div>
+
+                {/* Season & Episode Count Selector */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-zinc-900/90 p-4 rounded-2xl border border-zinc-800/80">
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-300 block mb-1">Target Season:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={adminGridSeason}
+                      onChange={(e) => {
+                        const s = Math.max(1, parseInt(e.target.value) || 1);
+                        setAdminGridSeason(s);
+                        syncAdminGridSlots(adminGridEpisodeCount, s, adminGridBasePattern, adminGridQuality, adminGridAudio, adminGridSize);
+                      }}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-300 block mb-1">
+                      Episode Count <span className="text-sky-400">({adminGridEpisodeCount} Containers)</span>:
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={adminGridEpisodeCount}
+                        onChange={(e) => {
+                          const c = Math.max(1, parseInt(e.target.value) || 1);
+                          setAdminGridEpisodeCount(c);
+                          syncAdminGridSlots(c, adminGridSeason, adminGridBasePattern, adminGridQuality, adminGridAudio, adminGridSize);
+                        }}
+                        className="w-20 bg-zinc-950 border border-zinc-700 rounded-xl px-2.5 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500"
+                      />
+                      <div className="flex flex-wrap items-center gap-1">
+                        {[6, 8, 10, 12, 16, 24].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => {
+                              setAdminGridEpisodeCount(n);
+                              syncAdminGridSlots(n, adminGridSeason, adminGridBasePattern, adminGridQuality, adminGridAudio, adminGridSize);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                              adminGridEpisodeCount === n
+                                ? 'bg-sky-500 text-black shadow-md'
+                                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-300 block mb-1">Default Quality:</label>
+                    <input
+                      type="text"
+                      value={adminGridQuality}
+                      onChange={(e) => setAdminGridQuality(e.target.value)}
+                      placeholder="e.g. 2160p 4K, 1080p WEB-DL"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-300 block mb-1">Default Audio:</label>
+                    <input
+                      type="text"
+                      value={adminGridAudio}
+                      onChange={(e) => setAdminGridAudio(e.target.value)}
+                      placeholder="e.g. Hindi + English 5.1"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Base Pattern Template & URL Distributor */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-zinc-300 block">
+                        Title Pattern Template <span className="text-zinc-500 font-normal">(Tokens: {'{title}'}, {'{season}'}, {'{ep}'}, {'{quality}'}, {'{audio}'})</span>:
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleApplyAdminPatternToAll}
+                        className="text-[10px] text-sky-400 hover:text-sky-300 font-bold bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/30 transition-colors"
+                      >
+                        ⚡ Apply Pattern to All {adminGridEpisodes.length} Titles
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={adminGridBasePattern}
+                      onChange={(e) => setAdminGridBasePattern(e.target.value)}
+                      placeholder="{title} S{season}E{ep} {quality} [{audio}]"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-zinc-300 block">
+                        Paste Multiple URLs to Auto-Distribute into Containers:
+                      </label>
+                      <span className="text-[10px] text-zinc-500">1 URL per line</span>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={adminGridBulkLinksText}
+                      onChange={(e) => handleDistributeAdminGridUrls(e.target.value)}
+                      placeholder="Paste up to 8+ links here (one per line) — auto-fills into Link containers below!"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-sky-500 font-mono resize-none shadow-inner"
+                    />
+                  </div>
+                </div>
+
+                {/* The N Title and N Link Containers Grid */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                      Episode Containers ({adminGridEpisodes.length} Episodes):
+                    </span>
+                    <span className="text-[11px] text-zinc-400">
+                      Filled: {adminGridEpisodes.filter((e) => e.url.trim()).length} / {adminGridEpisodes.length} Links
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+                    {adminGridEpisodes.map((ep) => (
+                      <div
+                        key={ep.episodeNumber}
+                        className={`p-3.5 rounded-2xl border transition-all ${
+                          ep.url.trim()
+                            ? 'bg-zinc-900/90 border-sky-500/40 shadow-sm'
+                            : 'bg-zinc-950/70 border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                          {/* Badge */}
+                          <div className="md:col-span-2 flex items-center gap-2">
+                            <span className="px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 font-black text-xs font-mono border border-sky-500/30 whitespace-nowrap">
+                              EP {ep.episodeNumber < 10 ? `0${ep.episodeNumber}` : ep.episodeNumber}
+                            </span>
+                            <span className="text-[11px] font-bold text-zinc-400 hidden sm:inline">
+                              S{adminGridSeason < 10 ? `0${adminGridSeason}` : adminGridSeason}
+                            </span>
+                          </div>
+
+                          {/* Title Container */}
+                          <div className="md:col-span-5">
+                            <label className="text-[10px] text-zinc-400 block mb-0.5 font-bold uppercase tracking-wider">
+                              Title Container #{ep.episodeNumber}
+                            </label>
+                            <input
+                              type="text"
+                              value={ep.title}
+                              onChange={(e) => handleUpdateAdminGridSlot(ep.episodeNumber, 'title', e.target.value)}
+                              placeholder={`Episode ${ep.episodeNumber} Title`}
+                              className="w-full bg-zinc-900/80 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-sky-500"
+                            />
+                          </div>
+
+                          {/* Link Container */}
+                          <div className="md:col-span-5">
+                            <label className="text-[10px] text-zinc-400 block mb-0.5 font-bold uppercase tracking-wider">
+                              Link Container #{ep.episodeNumber}
+                            </label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={ep.url}
+                                onChange={(e) => handleUpdateAdminGridSlot(ep.episodeNumber, 'url', e.target.value)}
+                                placeholder={`https://... / Drive link for Ep ${ep.episodeNumber}`}
+                                className={`w-full bg-zinc-900/80 border rounded-xl px-3 py-2 text-xs font-mono placeholder-zinc-500 focus:outline-none ${
+                                  ep.url.trim()
+                                    ? 'border-emerald-500/50 text-emerald-300'
+                                    : 'border-zinc-700 text-white focus:border-sky-500'
+                                }`}
+                              />
+                              {ep.url.trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateAdminGridSlot(ep.episodeNumber, 'url', '')}
+                                  className="text-zinc-500 hover:text-rose-400 px-1 text-xs"
+                                  title="Clear URL"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Success Message */}
+                {adminGridSuccessMsg && (
+                  <p className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4" /> {adminGridSuccessMsg}
+                  </p>
+                )}
+
+                {/* Footer Save Button */}
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+                  <span className="text-xs text-zinc-400">
+                    Saving will attach episode links to <strong className="text-white">{selectedTargetTitle?.title}</strong> under <strong className="text-white">Season {adminGridSeason}</strong>.
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveAllAdminGridEpisodes}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-2"
+                  >
+                    <ListPlus className="w-4 h-4" />
+                    <span>🚀 Save All ({adminGridEpisodes.filter((e) => e.url.trim()).length} of {adminGridEpisodes.length}) Episode Containers</span>
+                  </button>
+                </div>
               </div>
             )}
 

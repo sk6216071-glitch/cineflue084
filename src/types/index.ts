@@ -92,6 +92,14 @@ export interface TitleDetails {
   episode_run_time?: number[];
   number_of_seasons?: number;
   number_of_episodes?: number;
+  seasons?: Array<{
+    id: number;
+    name: string;
+    season_number: number;
+    episode_count: number;
+    poster_path?: string | null;
+    air_date?: string;
+  }>;
   tagline?: string;
   status?: string;
   budget?: number;

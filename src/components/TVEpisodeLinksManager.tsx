@@ -18,6 +18,7 @@ import {
   X,
   FileText,
   ListPlus,
+  LayoutGrid,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import {
@@ -82,6 +83,27 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [editAudio, setEditAudio] = useState<string>('');
   const [editSize, setEditSize] = useState<string>('');
 
+  // --- Dynamic Episode Grid State (e.g. 8 episodes -> opens 8 title and 8 link containers) ---
+  const [isOpenGridContainer, setIsOpenGridContainer] = useState<boolean>(false);
+  const [gridSeason, setGridSeason] = useState<number>(1);
+  const [gridEpisodeCount, setGridEpisodeCount] = useState<number>(8);
+  const [gridBasePattern, setGridBasePattern] = useState<string>('');
+  const [gridQuality, setGridQuality] = useState<string>('2160p 4K');
+  const [gridAudio, setGridAudio] = useState<string>('Hindi + English 5.1');
+  const [gridSize, setGridSize] = useState<string>('');
+  const [gridBulkLinksText, setGridBulkLinksText] = useState<string>('');
+  const [gridSuccessMsg, setGridSuccessMsg] = useState<string>('');
+  const [gridEpisodes, setGridEpisodes] = useState<
+    Array<{
+      episodeNumber: number;
+      title: string;
+      url: string;
+      quality: string;
+      audio: string;
+      size: string;
+    }>
+  >([]);
+
   // Dynamically calculate all seasons present in TMDB metadata AND uploaded custom links (Auto S01, S02, S03...)
   const seasonsList = useMemo(() => {
     const detectedSeasons = new Set<number>();
@@ -114,6 +136,160 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     const parsed = parseBulkLinksInput(bulkRawText, selectedSeason);
     setBulkParsedItems(parsed);
   }, [bulkRawText, selectedSeason]);
+
+  // Helper to format an episode title based on season, ep, and base pattern
+  const formatGridEpTitle = (
+    epNum: number,
+    pattern: string,
+    season: number,
+    quality: string,
+    audio: string
+  ) => {
+    const epStr = epNum < 10 ? `0${epNum}` : `${epNum}`;
+    const sStr = season < 10 ? `0${season}` : `${season}`;
+    const showName = titleDetails.name || titleDetails.title || 'Series';
+
+    if (pattern && pattern.trim()) {
+      let t = pattern.trim();
+      if (t.includes('{ep}') || t.includes('{s}')) {
+        return t.replace(/{ep}/g, epStr).replace(/{s}/g, sStr);
+      }
+      if (/s\d{1,2}e\d{1,3}/i.test(t)) {
+        return t.replace(/s(\d{1,2})e\d{1,3}/i, `S$1E${epStr}`);
+      }
+      return `${t} S${sStr}E${epStr}`;
+    }
+
+    return `${showName} S${sStr}E${epStr} ${quality} [${audio}]`;
+  };
+
+  // Re-generate or resize grid slots
+  const syncGridSlots = (
+    count: number,
+    season: number,
+    pattern: string,
+    quality: string,
+    audio: string,
+    size: string
+  ) => {
+    setGridEpisodes((prev) => {
+      const newSlots: Array<{
+        episodeNumber: number;
+        title: string;
+        url: string;
+        quality: string;
+        audio: string;
+        size: string;
+      }> = [];
+
+      for (let i = 1; i <= count; i++) {
+        const existing = prev.find((p) => p.episodeNumber === i);
+        newSlots.push({
+          episodeNumber: i,
+          title:
+            existing?.title && existing.title.trim().length > 3
+              ? existing.title
+              : formatGridEpTitle(i, pattern, season, quality, audio),
+          url: existing?.url || '',
+          quality: existing?.quality || quality || '2160p 4K',
+          audio: existing?.audio || audio || 'Hindi + English 5.1',
+          size: existing?.size || size || '',
+        });
+      }
+      return newSlots;
+    });
+  };
+
+  // Open grid with detected season episode count
+  const handleOpenGrid = (targetSeason?: number) => {
+    const s = targetSeason || selectedSeason;
+    setGridSeason(s);
+    const tmdbSeason = titleDetails.seasons?.find((item) => item.season_number === s);
+    const count = tmdbSeason?.episode_count && tmdbSeason.episode_count > 0 ? tmdbSeason.episode_count : (gridEpisodeCount || 8);
+    setGridEpisodeCount(count);
+    syncGridSlots(count, s, gridBasePattern, gridQuality, gridAudio, gridSize);
+    setIsOpenGridContainer(true);
+  };
+
+  // Distribute multi-line pasted links across the containers
+  const handleDistributeGridUrls = (text: string) => {
+    setGridBulkLinksText(text);
+    const urls = text.match(/(https?:\/\/[^\s<>"']+)/gi) || [];
+    if (urls.length > 0) {
+      setGridEpisodes((prev) =>
+        prev.map((slot, index) => {
+          if (urls[index]) {
+            return { ...slot, url: urls[index] };
+          }
+          return slot;
+        })
+      );
+    }
+  };
+
+  // Update a single episode slot
+  const handleUpdateGridSlot = (
+    epNum: number,
+    field: 'title' | 'url' | 'quality' | 'audio' | 'size',
+    value: string
+  ) => {
+    setGridEpisodes((prev) =>
+      prev.map((slot) => (slot.episodeNumber === epNum ? { ...slot, [field]: value } : slot))
+    );
+  };
+
+  // Apply base pattern to all episode titles
+  const handleApplyPatternToAll = () => {
+    setGridEpisodes((prev) =>
+      prev.map((slot) => ({
+        ...slot,
+        title: formatGridEpTitle(slot.episodeNumber, gridBasePattern, gridSeason, gridQuality, gridAudio),
+      }))
+    );
+  };
+
+  // Save all grid episodes
+  const handleSaveAllGridEpisodes = () => {
+    const valid = gridEpisodes.filter((e) => e.url.trim() && e.title.trim());
+    if (valid.length === 0) {
+      alert('Please fill in at least one episode link before saving.');
+      return;
+    }
+
+    valid.forEach((ep, index) => {
+      let finalUrl = ep.url.trim();
+      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        finalUrl = `https://${finalUrl}`;
+      }
+
+      const newLink: CustomLink = {
+        id: `tv-grid-${Date.now()}-${ep.episodeNumber}-${index}`,
+        title: ep.title.trim(),
+        url: finalUrl,
+        category: 'SingleEpisode',
+        createdAt: new Date(Date.now() - index * 1000).toISOString(),
+        seasonNumber: gridSeason,
+        episodeNumber: ep.episodeNumber,
+        quality: ep.quality.trim() || gridQuality || '1080p WEB-DL',
+        audioLanguage: ep.audio.trim() || gridAudio || 'Hindi + English 5.1',
+        size: ep.size.trim() || gridSize || undefined,
+        linkType: 'single_episode',
+      };
+
+      saveGlobalCustomLink(titleDetails.id, newLink);
+    });
+
+    const count = valid.length;
+    setGridSuccessMsg(`🎉 Successfully saved ${count} episode container${count > 1 ? 's' : ''} to Season ${gridSeason}!`);
+    setActiveMode('single_episodes');
+    setSelectedSeason(gridSeason);
+    if (onLinkAdded) onLinkAdded();
+
+    setTimeout(() => {
+      setGridSuccessMsg('');
+      setIsOpenGridContainer(false);
+    }, 2800);
+  };
 
   // Enrich each custom link with smart auto-detected season, episode, quality, audio, and type
   const enrichedLinks = useMemo(() => {
@@ -347,6 +523,20 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         {isAdmin && (
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <button
+              onClick={() => {
+                if (!isOpenGridContainer) {
+                  handleOpenGrid(selectedSeason);
+                } else {
+                  setIsOpenGridContainer(false);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-xs transition-all shadow-md hover:scale-105"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>⚡ Season Episode Grid ({gridEpisodeCount} EPs)</span>
+            </button>
+
+            <button
               onClick={() => setIsOpenBulkContainer(!isOpenBulkContainer)}
               className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
             >
@@ -367,6 +557,265 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           </div>
         )}
       </div>
+
+      {/* --- DYNAMIC EPISODE GRID CONTAINER (N TITLE & N LINK CONTAINERS) --- */}
+      {isAdmin && isOpenGridContainer && (
+        <div className="bg-gradient-to-b from-[#111625] to-[#0a0d14] border-2 border-sky-500/50 rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl animate-fadeIn">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold">
+                <LayoutGrid className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                  Dynamic Episode Containers ({gridEpisodes.length} Title & {gridEpisodes.length} Link Slots)
+                </h4>
+                <p className="text-[11px] text-zinc-400">
+                  Select episode count (e.g. 8) to open dedicated Title and Link containers for every episode. Customize or paste in bulk!
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsOpenGridContainer(false)}
+              className="text-xs text-zinc-400 hover:text-white px-2 py-1"
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          {/* Season & Episode Count Selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-zinc-900/90 p-4 rounded-2xl border border-zinc-800/80">
+            <div>
+              <label className="text-[11px] font-bold text-zinc-300 block mb-1">Target Season:</label>
+              <select
+                value={gridSeason}
+                onChange={(e) => {
+                  const s = Number(e.target.value);
+                  setGridSeason(s);
+                  const tmdbSeason = titleDetails.seasons?.find((item) => item.season_number === s);
+                  const count = tmdbSeason?.episode_count && tmdbSeason.episode_count > 0 ? tmdbSeason.episode_count : gridEpisodeCount;
+                  setGridEpisodeCount(count);
+                  syncGridSlots(count, s, gridBasePattern, gridQuality, gridAudio, gridSize);
+                }}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+              >
+                {seasonsList.map((s) => (
+                  <option key={s} value={s}>
+                    Season {s} {titleDetails.seasons?.find((item) => item.season_number === s)?.episode_count ? `(${titleDetails.seasons?.find((item) => item.season_number === s)?.episode_count} Episodes)` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-zinc-300 block mb-1">
+                Episode Count <span className="text-sky-400">({gridEpisodeCount} Containers)</span>:
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={gridEpisodeCount}
+                  onChange={(e) => {
+                    const c = Math.max(1, parseInt(e.target.value) || 1);
+                    setGridEpisodeCount(c);
+                    syncGridSlots(c, gridSeason, gridBasePattern, gridQuality, gridAudio, gridSize);
+                  }}
+                  className="w-20 bg-zinc-950 border border-zinc-700 rounded-xl px-2.5 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500"
+                />
+                <div className="flex flex-wrap items-center gap-1">
+                  {[6, 8, 10, 12, 16, 24].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => {
+                        setGridEpisodeCount(n);
+                        syncGridSlots(n, gridSeason, gridBasePattern, gridQuality, gridAudio, gridSize);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                        gridEpisodeCount === n
+                          ? 'bg-sky-500 text-black shadow-md'
+                          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-zinc-300 block mb-1">Default Quality:</label>
+              <input
+                type="text"
+                value={gridQuality}
+                onChange={(e) => setGridQuality(e.target.value)}
+                placeholder="e.g. 2160p 4K, 1080p WEB-DL"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-zinc-300 block mb-1">Default Audio:</label>
+              <input
+                type="text"
+                value={gridAudio}
+                onChange={(e) => setGridAudio(e.target.value)}
+                placeholder="e.g. Hindi + English 5.1"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+              />
+            </div>
+          </div>
+
+          {/* Quick Base Pattern & URL Distributor */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-zinc-300 block">
+                  Title Pattern Template <span className="text-zinc-500 font-normal">(Tokens: {'{title}'}, {'{season}'}, {'{ep}'}, {'{quality}'}, {'{audio}'})</span>:
+                </label>
+                <button
+                  type="button"
+                  onClick={handleApplyPatternToAll}
+                  className="text-[10px] text-sky-400 hover:text-sky-300 font-bold bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/30 transition-colors"
+                >
+                  ⚡ Apply Pattern to All {gridEpisodes.length} Titles
+                </button>
+              </div>
+              <input
+                type="text"
+                value={gridBasePattern}
+                onChange={(e) => setGridBasePattern(e.target.value)}
+                placeholder="{title} S{season}E{ep} {quality} [{audio}]"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-zinc-300 block">
+                  Paste Multiple URLs to Auto-Distribute into Containers:
+                </label>
+                <span className="text-[10px] text-zinc-500">1 URL per line</span>
+              </div>
+              <textarea
+                rows={2}
+                value={gridBulkLinksText}
+                onChange={(e) => handleDistributeGridUrls(e.target.value)}
+                placeholder="Paste up to 8+ links here (one per line) — auto-fills into Link containers below!"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-sky-500 font-mono resize-none shadow-inner"
+              />
+            </div>
+          </div>
+
+          {/* The N Title and N Link Containers Grid */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                Episode Containers ({gridEpisodes.length} Episodes):
+              </span>
+              <span className="text-[11px] text-zinc-400">
+                Filled: {gridEpisodes.filter((e) => e.url.trim()).length} / {gridEpisodes.length} Links
+              </span>
+            </div>
+
+            <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
+              {gridEpisodes.map((ep) => (
+                <div
+                  key={ep.episodeNumber}
+                  className={`p-3.5 rounded-2xl border transition-all ${
+                    ep.url.trim()
+                      ? 'bg-zinc-900/90 border-sky-500/40 shadow-sm'
+                      : 'bg-zinc-950/70 border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                    {/* Badge */}
+                    <div className="md:col-span-2 flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 font-black text-xs font-mono border border-sky-500/30 whitespace-nowrap">
+                        EP {ep.episodeNumber < 10 ? `0${ep.episodeNumber}` : ep.episodeNumber}
+                      </span>
+                      <span className="text-[11px] font-bold text-zinc-400 hidden sm:inline">
+                        S{gridSeason < 10 ? `0${gridSeason}` : gridSeason}
+                      </span>
+                    </div>
+
+                    {/* Title Container */}
+                    <div className="md:col-span-5">
+                      <label className="text-[10px] text-zinc-400 block mb-0.5 font-bold uppercase tracking-wider">
+                        Title Container #{ep.episodeNumber}
+                      </label>
+                      <input
+                        type="text"
+                        value={ep.title}
+                        onChange={(e) => handleUpdateGridSlot(ep.episodeNumber, 'title', e.target.value)}
+                        placeholder={`Episode ${ep.episodeNumber} Title`}
+                        className="w-full bg-zinc-900/80 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+
+                    {/* Link Container */}
+                    <div className="md:col-span-5">
+                      <label className="text-[10px] text-zinc-400 block mb-0.5 font-bold uppercase tracking-wider">
+                        Link Container #{ep.episodeNumber}
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={ep.url}
+                          onChange={(e) => handleUpdateGridSlot(ep.episodeNumber, 'url', e.target.value)}
+                          placeholder={`https://hubcloud... / Drive link for Ep ${ep.episodeNumber}`}
+                          className={`w-full bg-zinc-900/80 border rounded-xl px-3 py-2 text-xs font-mono placeholder-zinc-500 focus:outline-none ${
+                            ep.url.trim()
+                              ? 'border-emerald-500/50 text-emerald-300'
+                              : 'border-zinc-700 text-white focus:border-sky-500'
+                          }`}
+                        />
+                        {ep.url.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateGridSlot(ep.episodeNumber, 'url', '')}
+                            className="text-zinc-500 hover:text-rose-400 px-1 text-xs"
+                            title="Clear URL"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Success Message */}
+          {gridSuccessMsg && (
+            <p className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-fadeIn">
+              <CheckCircle2 className="w-4 h-4" /> {gridSuccessMsg}
+            </p>
+          )}
+
+          {/* Footer Save Button */}
+          <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+            <span className="text-xs text-zinc-400">
+              Saving will create individual episode links under <strong className="text-white">Season {gridSeason}</strong>.
+            </span>
+
+            <button
+              type="button"
+              onClick={handleSaveAllGridEpisodes}
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-2"
+            >
+              <ListPlus className="w-4 h-4" />
+              <span>🚀 Save All ({gridEpisodes.filter((e) => e.url.trim()).length} of {gridEpisodes.length}) Episode Containers</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* --- NEW: BULK MULTI-LINK AUTO-DETECTOR CONTAINER (ADMIN ONLY) --- */}
       {isAdmin && isOpenBulkContainer && (
