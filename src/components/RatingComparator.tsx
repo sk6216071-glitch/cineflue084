@@ -174,6 +174,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
                 onClick={() => handleRate(starVal)}
                 className="p-1 hover:scale-125 transition-transform focus:outline-none"
                 aria-label={`Rate ${starVal} out of 10`}
+                suppressHydrationWarning
               >
                 <Star
                   className={`w-5 h-5 sm:w-6 sm:h-6 transition-colors ${

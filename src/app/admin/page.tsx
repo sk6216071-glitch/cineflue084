@@ -66,15 +66,15 @@ interface PinnedTitle {
 const PINNED_TITLES: PinnedTitle[] = [
   { id: 872585, title: 'Oppenheimer', media_type: 'movie', year: '2023', poster_path: '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg' },
   { id: 693134, title: 'Dune: Part Two', media_type: 'movie', year: '2024', poster_path: '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg' },
-  { id: 61889, title: "Marvel's Daredevil", media_type: 'tv', year: '2015', poster_path: '/QWbPaDxiB6LW2xq5Xx1z7v2qG3.jpg' },
-  { id: 88396, title: 'Loki', media_type: 'tv', year: '2021', poster_path: '/voHUmluzUP599026n3nJzW3P7I9.jpg' },
-  { id: 108978, title: 'Reacher', media_type: 'tv', year: '2022', poster_path: '/j1m34Zq85XkMh1Z3L21fG4L9wR9.jpg' },
-  { id: 113962, title: 'Special Ops: Lioness', media_type: 'tv', year: '2023', poster_path: '/r2J02Z2OpNTctfOSN1Ydg3xA5IW.jpg' },
-  { id: 1396, title: 'Breaking Bad', media_type: 'tv', year: '2008', poster_path: '/ggFHVNu6YYI5L9pCfOacjizRGt.jpg' },
+  { id: 61889, title: "Marvel's Daredevil", media_type: 'tv', year: '2015', poster_path: null },
+  { id: 88396, title: 'Loki', media_type: 'tv', year: '2021', poster_path: '/kEl2t3OhXc3cm9hwvGuh8sqNVeb.jpg' },
+  { id: 108978, title: 'Reacher', media_type: 'tv', year: '2022', poster_path: null },
+  { id: 113962, title: 'Special Ops: Lioness', media_type: 'tv', year: '2023', poster_path: null },
+  { id: 1396, title: 'Breaking Bad', media_type: 'tv', year: '2008', poster_path: '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg' },
   { id: 157336, title: 'Interstellar', media_type: 'movie', year: '2014', poster_path: '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg' },
   { id: 155, title: 'The Dark Knight', media_type: 'movie', year: '2008', poster_path: '/qJ2tW6WMUDux911r6m7haRef0WH.jpg' },
   { id: 27205, title: 'Inception', media_type: 'movie', year: '2010', poster_path: '/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg' },
-  { id: 579974, title: 'RRR', media_type: 'movie', year: '2022', poster_path: '/nEufeZlyAOLqO2brrs0ye210m0m.jpg' },
+  { id: 579974, title: 'RRR', media_type: 'movie', year: '2022', poster_path: '/nEufeZlyAOLqO2brrs0yeBEoo0R.jpg' },
 ];
 
 export default function AdminPage() {
