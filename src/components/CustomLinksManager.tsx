@@ -77,16 +77,30 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
       const auth = sessionStorage.getItem('cinefuel_admin_auth');
-      if (auth) {
+      const user = sessionStorage.getItem('cinefuel_admin_user');
+      if (auth === 'true' && (user === 'shyam' || !user)) {
+        setIsAdmin(true);
+      } else if (auth) {
         try {
           const parsed = JSON.parse(auth);
-          setIsAdmin(parsed?.isLoggedIn && parsed?.user === 'shyam');
+          setIsAdmin(parsed === true || (parsed?.isLoggedIn && parsed?.user === 'shyam'));
         } catch {
-          setIsAdmin(false);
+          setIsAdmin(auth === 'true');
         }
+      } else {
+        setIsAdmin(false);
       }
     }
   }, [isMounted]);
+
+  // Listen to cross-app link updates to immediately refresh links
+  React.useEffect(() => {
+    const handleLinksUpdated = () => {
+      setLinksRefresh((v) => v + 1);
+    };
+    window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
+    return () => window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
+  }, []);
 
   // Consolidated Custom Links (Global Admin Storage + User LocalStorage)
   const userCustomLinks = useMemo(() => {

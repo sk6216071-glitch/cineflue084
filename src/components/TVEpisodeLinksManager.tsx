@@ -21,6 +21,7 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
+import { useWatchlist } from '@/context/WatchlistContext';
 import {
   saveGlobalCustomLink,
   updateGlobalCustomLink,
@@ -52,6 +53,19 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   isAdmin,
   onLinkAdded,
 }) => {
+  const { removeCustomLink } = useWatchlist();
+  const [sessionAdmin, setSessionAdmin] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const auth = sessionStorage.getItem('cinefuel_admin_auth');
+      const user = sessionStorage.getItem('cinefuel_admin_user');
+      setSessionAdmin(auth === 'true' && (user === 'shyam' || !user));
+    }
+  }, []);
+
+  const isEffectiveAdmin = isAdmin || sessionAdmin;
+
   const [activeMode, setActiveMode] = useState<'zip_pack' | 'single_episodes'>('zip_pack');
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [isOpenAddModal, setIsOpenAddModal] = useState<boolean>(false);
@@ -502,6 +516,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const handleDelete = (linkId: string) => {
     if (confirm('Delete this TV link permanently?')) {
       deleteGlobalCustomLink(titleDetails.id, linkId);
+      removeCustomLink(titleDetails.id, linkId);
       if (onLinkAdded) onLinkAdded();
     }
   };
@@ -520,7 +535,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           </p>
         </div>
 
-        {isAdmin && (
+        {isEffectiveAdmin && (
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <button
               onClick={() => {
@@ -559,7 +574,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       </div>
 
       {/* --- DYNAMIC EPISODE GRID CONTAINER (N TITLE & N LINK CONTAINERS) --- */}
-      {isAdmin && isOpenGridContainer && (
+      {isEffectiveAdmin && isOpenGridContainer && (
         <div className="bg-gradient-to-b from-[#111625] to-[#0a0d14] border-2 border-sky-500/50 rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl animate-fadeIn">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
@@ -818,7 +833,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       )}
 
       {/* --- NEW: BULK MULTI-LINK AUTO-DETECTOR CONTAINER (ADMIN ONLY) --- */}
-      {isAdmin && isOpenBulkContainer && (
+      {isEffectiveAdmin && isOpenBulkContainer && (
         <div className="bg-gradient-to-b from-[#131722] to-[#0d1017] border-2 border-amber-500/40 rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl animate-fadeIn">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
@@ -1086,7 +1101,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
 
-                    {isAdmin && (
+                    {isEffectiveAdmin && (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleStartEdit(pack)}
@@ -1118,12 +1133,12 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   No Zip / Batch Packs Uploaded Yet for Season {selectedSeason}
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-sm mx-auto">
-                  {isAdmin
+                  {isEffectiveAdmin
                     ? `As an Admin, use the Bulk Importer or click below to add Season ${selectedSeason} zip batch links.`
                     : `Download packs for Season ${selectedSeason} will appear here once published by the admin.`}
                 </p>
               </div>
-              {isAdmin && (
+              {isEffectiveAdmin && (
                 <div className="flex items-center justify-center gap-2 pt-2">
                   <button
                     onClick={() => setIsOpenBulkContainer(true)}
@@ -1206,7 +1221,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <ExternalLink className="w-3 h-3" />
                     </a>
 
-                    {isAdmin && (
+                    {isEffectiveAdmin && (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleStartEdit(ep)}
@@ -1238,12 +1253,12 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   No Single Episode Links Uploaded Yet for Season {selectedSeason}
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-sm mx-auto">
-                  {isAdmin
+                  {isEffectiveAdmin
                     ? `As an Admin, paste multiple links at once using the Bulk Importer or add one by one.`
                     : `Episode links for Season ${selectedSeason} will appear here as soon as published by the admin.`}
                 </p>
               </div>
-              {isAdmin && (
+              {isEffectiveAdmin && (
                 <div className="flex items-center justify-center gap-2 pt-2">
                   <button
                     onClick={() => setIsOpenBulkContainer(true)}

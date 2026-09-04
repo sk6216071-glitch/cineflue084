@@ -48,7 +48,7 @@ import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
-import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink } from '@/lib/curatedLinks';
+import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, deleteGlobalCustomLink, getDeletedLinkIds } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
 
 const DEFAULT_ADMIN_USER = 'shyam';
@@ -121,6 +121,7 @@ export default function AdminPage() {
   // Links Moderation Filter & Search
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [linkCategoryFilter, setLinkCategoryFilter] = useState('All');
+  const [deletedCuratedLinkIds, setDeletedCuratedLinkIds] = useState<Set<string>>(new Set());
 
   // Mode in Manage Links: 'single' vs 'bulk' vs 'grid'
   const [addLinkMode, setAddLinkMode] = useState<'single' | 'bulk' | 'grid'>('single');
@@ -254,6 +255,22 @@ export default function AdminPage() {
 
       if (simklConfig?.clientId) setSimklClientId(simklConfig.clientId);
       if (mdblistConfig?.apiKey) setMdblistKey(mdblistConfig.apiKey);
+
+      setDeletedCuratedLinkIds(getDeletedLinkIds());
+
+      const handleLinksUpdated = () => {
+        setDeletedCuratedLinkIds(getDeletedLinkIds());
+        const links = localStorage.getItem('cinefuel_custom_links');
+        if (links) {
+          try {
+            setCustomLinksMap(JSON.parse(links));
+          } catch {
+            // ignore
+          }
+        }
+      };
+      window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
+      return () => window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
     }
   }, [simklConfig, mdblistConfig]);
 
@@ -926,7 +943,13 @@ export default function AdminPage() {
   // Delete Link
   const handleDeleteLink = (movieId: number, linkId: string, linkTitle: string) => {
     if (!confirm(`Delete link "${linkTitle}" permanently?`)) return;
+    deleteGlobalCustomLink(movieId, linkId);
     removeCustomLink(movieId, linkId);
+    setDeletedCuratedLinkIds((prev) => {
+      const updated = new Set(prev);
+      updated.add(linkId);
+      return updated;
+    });
     setCustomLinksMap((prev) => {
       const movieIdStr = String(movieId);
       const existing = prev[movieIdStr] || [];
@@ -1019,12 +1042,12 @@ export default function AdminPage() {
   const allFlattenedLinks: Array<{ movieId: number; movieName: string; mediaType: 'movie' | 'tv'; link: CustomLink }> = [];
   const seenLinkIds = new Set<string>();
 
-  // 1. Built-in Curated Links
+  // 1. Built-in Curated Links (Filtered by deletedCuratedLinkIds)
   Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
     const numId = Number(movieIdStr);
     const info = resolveTitleInfo(numId);
     links.forEach((l) => {
-      if (!seenLinkIds.has(l.id)) {
+      if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
         seenLinkIds.add(l.id);
         allFlattenedLinks.push({
           movieId: numId,
@@ -1036,11 +1059,11 @@ export default function AdminPage() {
     });
   });
 
-  // 2. Watchlist Links
+  // 2. Watchlist Links (Filtered by deletedCuratedLinkIds)
   watchlist.forEach((w) => {
     if (w.customLinks && Array.isArray(w.customLinks)) {
       w.customLinks.forEach((l) => {
-        if (!seenLinkIds.has(l.id)) {
+        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
           seenLinkIds.add(l.id);
           allFlattenedLinks.push({
             movieId: w.id,
@@ -1053,13 +1076,13 @@ export default function AdminPage() {
     }
   });
 
-  // 3. Dynamic LocalStorage Custom Links
+  // 3. Dynamic LocalStorage Custom Links (Filtered by deletedCuratedLinkIds)
   Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
     if (Array.isArray(links)) {
       const numId = Number(movieIdStr);
       const info = resolveTitleInfo(numId);
       links.forEach((l: CustomLink) => {
-        if (!seenLinkIds.has(l.id)) {
+        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
           seenLinkIds.add(l.id);
           allFlattenedLinks.push({
             movieId: numId,

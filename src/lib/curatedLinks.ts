@@ -442,6 +442,22 @@ export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink)
 }
 
 /**
+ * Get the set of permanently deleted link IDs
+ */
+export function getDeletedLinkIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    if (delStored) {
+      return new Set(JSON.parse(delStored));
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+}
+
+/**
  * Delete a custom link permanently (Admin only)
  */
 export function deleteGlobalCustomLink(movieId: number, linkId: string): void {
@@ -463,6 +479,28 @@ export function deleteGlobalCustomLink(movieId: number, linkId: string): void {
       if (parsed[key]) {
         parsed[key] = parsed[key].filter((l: CustomLink) => l.id !== linkId);
         localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+      }
+    }
+
+    // 3. Also remove from watchlist storage if present
+    const watchStored = localStorage.getItem('cinefuel_watchlist');
+    if (watchStored) {
+      try {
+        const watchParsed = JSON.parse(watchStored);
+        if (Array.isArray(watchParsed)) {
+          const updatedWatch = watchParsed.map((item: any) => {
+            if (item.id === movieId && Array.isArray(item.customLinks)) {
+              return {
+                ...item,
+                customLinks: item.customLinks.filter((l: CustomLink) => l.id !== linkId),
+              };
+            }
+            return item;
+          });
+          localStorage.setItem('cinefuel_watchlist', JSON.stringify(updatedWatch));
+        }
+      } catch {
+        // ignore
       }
     }
 
