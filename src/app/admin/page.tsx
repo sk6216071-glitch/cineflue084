@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -37,16 +37,42 @@ import {
   Eye,
   UserCheck,
   X,
+  ChevronDown,
+  Clock,
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
-import { getImageURL } from '@/lib/tmdb';
+import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink } from '@/lib/curatedLinks';
+import { parseFullMediaTitle } from '@/lib/seasonParser';
 
 const DEFAULT_ADMIN_USER = 'shyam';
 const DEFAULT_ADMIN_PASS = 'shyam081';
+
+interface PinnedTitle {
+  id: number;
+  title: string;
+  media_type: 'movie' | 'tv';
+  year: string;
+  poster_path?: string | null;
+}
+
+// Initial Quick-Select Titles for 1-Click Access
+const PINNED_TITLES: PinnedTitle[] = [
+  { id: 872585, title: 'Oppenheimer', media_type: 'movie', year: '2023', poster_path: '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg' },
+  { id: 693134, title: 'Dune: Part Two', media_type: 'movie', year: '2024', poster_path: '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg' },
+  { id: 61889, title: "Marvel's Daredevil", media_type: 'tv', year: '2015', poster_path: '/QWbPaDxiB6LW2xq5Xx1z7v2qG3.jpg' },
+  { id: 88396, title: 'Loki', media_type: 'tv', year: '2021', poster_path: '/voHUmluzUP599026n3nJzW3P7I9.jpg' },
+  { id: 108978, title: 'Reacher', media_type: 'tv', year: '2022', poster_path: '/j1m34Zq85XkMh1Z3L21fG4L9wR9.jpg' },
+  { id: 113962, title: 'Special Ops: Lioness', media_type: 'tv', year: '2023', poster_path: '/r2J02Z2OpNTctfOSN1Ydg3xA5IW.jpg' },
+  { id: 1396, title: 'Breaking Bad', media_type: 'tv', year: '2008', poster_path: '/ggFHVNu6YYI5L9pCfOacjizRGt.jpg' },
+  { id: 157336, title: 'Interstellar', media_type: 'movie', year: '2014', poster_path: '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg' },
+  { id: 155, title: 'The Dark Knight', media_type: 'movie', year: '2008', poster_path: '/qJ2tW6WMUDux911r6m7haRef0WH.jpg' },
+  { id: 27205, title: 'Inception', media_type: 'movie', year: '2010', poster_path: '/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg' },
+  { id: 579974, title: 'RRR', media_type: 'movie', year: '2022', poster_path: '/nEufeZlyAOLqO2brrs0ye210m0m.jpg' },
+];
 
 export default function AdminPage() {
   const {
@@ -66,6 +92,9 @@ export default function AdminPage() {
   // Local state for standalone custom links map & custom lists
   const [customLinksMap, setCustomLinksMap] = useState<Record<string, CustomLink[]>>({});
   const [customLists, setCustomLists] = useState<CustomList[]>([]);
+
+  // Known title metadata cache (maps TMDB ID to Title Info)
+  const [knownTitlesCache, setKnownTitlesCache] = useState<Record<number, { title: string; poster_path?: string | null; media_type?: 'movie' | 'tv'; year?: string }>>({});
 
   // Admin Auth Gate State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -90,11 +119,28 @@ export default function AdminPage() {
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [linkCategoryFilter, setLinkCategoryFilter] = useState('All');
 
+  // --- NEW: Universal Target Title Live Search & Selection State ---
+  const [selectedTargetTitle, setSelectedTargetTitle] = useState<{
+    id: number;
+    title: string;
+    media_type: 'movie' | 'tv';
+    poster_path?: string | null;
+    year?: string;
+  }>(PINNED_TITLES[0]);
+
+  const [targetSearchQuery, setTargetSearchQuery] = useState('');
+  const [targetSearchResults, setTargetSearchResults] = useState<TitleDetails[]>([]);
+  const [isSearchingTarget, setIsSearchingTarget] = useState(false);
+  const [isTargetDropdownOpen, setIsTargetDropdownOpen] = useState(false);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+
   // New Link Quick Add State
-  const [newLinkMovieId, setNewLinkMovieId] = useState<number>(872585);
   const [newLinkTitle, setNewLinkTitle] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
   const [newLinkCategory, setNewLinkCategory] = useState<'Streaming' | 'Subtitles' | 'Discussion' | 'Review' | 'Download' | 'Official' | 'Recent'>('Streaming');
+  const [newLinkQuality, setNewLinkQuality] = useState('');
+  const [newLinkAudio, setNewLinkAudio] = useState('');
+  const [newLinkSize, setNewLinkSize] = useState('');
   const [addLinkSuccess, setAddLinkSuccess] = useState(false);
 
   // Edit Link Modal State
@@ -102,14 +148,19 @@ export default function AdminPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editUrl, setEditUrl] = useState('');
   const [editCategory, setEditCategory] = useState<CustomLink['category']>('Streaming');
+  const [editQuality, setEditQuality] = useState('');
+  const [editAudio, setEditAudio] = useState('');
+  const [editSize, setEditSize] = useState('');
 
-  // Titles Search
+  // --- Manage Titles Tab Live Search State ---
   const [titleSearchQuery, setTitleSearchQuery] = useState('');
+  const [manageTitlesResults, setManageTitlesResults] = useState<TitleDetails[]>([]);
+  const [isSearchingManageTitles, setIsSearchingManageTitles] = useState(false);
 
   // Diagnostics logs
   const [systemLogs, setSystemLogs] = useState<Array<{ timestamp: string; level: 'info' | 'success' | 'warn'; message: string }>>([
     { timestamp: 'Just now', level: 'success', message: 'Admin session initialized for Shyam.' },
-    { timestamp: '1m ago', level: 'info', message: 'Role separation enforced: Users view/click only, Admin manages.' },
+    { timestamp: '1m ago', level: 'info', message: 'Universal TMDB Multi-Search ready for any movie or TV series.' },
     { timestamp: '2m ago', level: 'info', message: 'TMDB, SIMKL & MDBList engines operational.' },
   ]);
 
@@ -155,10 +206,177 @@ export default function AdminPage() {
         }
       }
 
+      const storedTitlesCache = localStorage.getItem('cinefuel_known_titles_cache');
+      if (storedTitlesCache) {
+        try {
+          setKnownTitlesCache(JSON.parse(storedTitlesCache));
+        } catch {
+          // ignore
+        }
+      }
+
       if (simklConfig?.clientId) setSimklClientId(simklConfig.clientId);
       if (mdblistConfig?.apiKey) setMdblistKey(mdblistConfig.apiKey);
     }
   }, [simklConfig, mdblistConfig]);
+
+  // Pre-seed known titles cache with pinned titles and mock titles
+  useEffect(() => {
+    const initialMap: Record<number, { title: string; poster_path?: string | null; media_type?: 'movie' | 'tv'; year?: string }> = { ...knownTitlesCache };
+    PINNED_TITLES.forEach((pt) => {
+      if (!initialMap[pt.id]) {
+        initialMap[pt.id] = { title: pt.title, poster_path: pt.poster_path, media_type: pt.media_type, year: pt.year };
+      }
+    });
+    Object.values(MOCK_TITLES).forEach((m) => {
+      if (!initialMap[m.id]) {
+        const year = (m.release_date || m.first_air_date || '').split('-')[0];
+        initialMap[m.id] = { title: m.title || m.name || `Title #${m.id}`, poster_path: m.poster_path, media_type: ((m.media_type as any) || (m.name ? 'tv' : 'movie')) as 'movie' | 'tv', year };
+      }
+    });
+    setKnownTitlesCache(initialMap);
+  }, []);
+
+  // Save cache helper
+  const cacheTitle = (id: number, data: { title: string; poster_path?: string | null; media_type?: 'movie' | 'tv'; year?: string }) => {
+    setKnownTitlesCache((prev) => {
+      const updated = { ...prev, [id]: data };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_known_titles_cache', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  // Close search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node)) {
+        setIsTargetDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Debounced TMDB Live Search for Target Title Picker in "Add Custom Link"
+  useEffect(() => {
+    const query = targetSearchQuery.trim();
+    if (!query) {
+      setTargetSearchResults([]);
+      setIsSearchingTarget(false);
+      return;
+    }
+
+    // Direct TMDB ID or TMDB URL detection
+    const numericMatch = query.match(/^\d+$/) || query.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
+    if (numericMatch) {
+      const detectedId = Number(numericMatch[2] || numericMatch[0]);
+      const detectedType = (numericMatch[1] as 'movie' | 'tv') || 'movie';
+      setIsSearchingTarget(true);
+      getTitleDetails(detectedType, detectedId).then((res) => {
+        setIsSearchingTarget(false);
+        if (res && (res.title || res.name)) {
+          setTargetSearchResults([res]);
+        }
+      });
+      return;
+    }
+
+    setIsSearchingTarget(true);
+    const handler = setTimeout(async () => {
+      try {
+        const data = await searchMulti(query, 1);
+        if (data && data.results) {
+          const filtered = data.results.filter(
+            (item): item is TitleDetails =>
+              (item as any).media_type === 'movie' || (item as any).media_type === 'tv'
+          );
+          setTargetSearchResults(filtered);
+        } else {
+          setTargetSearchResults([]);
+        }
+      } catch (err) {
+        console.error('Target search failed:', err);
+      } finally {
+        setIsSearchingTarget(false);
+      }
+    }, 280);
+
+    return () => clearTimeout(handler);
+  }, [targetSearchQuery]);
+
+  // Debounced TMDB Live Search for "Manage Titles" Tab
+  useEffect(() => {
+    const query = titleSearchQuery.trim();
+    if (!query) {
+      setManageTitlesResults([]);
+      setIsSearchingManageTitles(false);
+      return;
+    }
+
+    setIsSearchingManageTitles(true);
+    const handler = setTimeout(async () => {
+      try {
+        const data = await searchMulti(query, 1);
+        if (data && data.results) {
+          const filtered = data.results.filter(
+            (item): item is TitleDetails =>
+              (item as any).media_type === 'movie' || (item as any).media_type === 'tv'
+          );
+          setManageTitlesResults(filtered);
+        } else {
+          setManageTitlesResults([]);
+        }
+      } catch (err) {
+        console.error('Manage titles search failed:', err);
+      } finally {
+        setIsSearchingManageTitles(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(handler);
+  }, [titleSearchQuery]);
+
+  // Handle Target Title Selection
+  const handleSelectTargetTitle = (item: {
+    id: number;
+    title?: string;
+    name?: string;
+    media_type?: string;
+    poster_path?: string | null;
+    release_date?: string;
+    first_air_date?: string;
+  }) => {
+    const resolvedTitle = item.title || item.name || `Title #${item.id}`;
+    const resolvedType = (item.media_type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
+    const resolvedYear = (item.release_date || item.first_air_date || '').split('-')[0];
+
+    const targetObj = {
+      id: item.id,
+      title: resolvedTitle,
+      media_type: resolvedType,
+      poster_path: item.poster_path || null,
+      year: resolvedYear,
+    };
+
+    setSelectedTargetTitle(targetObj);
+    cacheTitle(item.id, targetObj);
+    setIsTargetDropdownOpen(false);
+    setTargetSearchQuery('');
+    addLog(`Target title switched to "${resolvedTitle}" (ID: ${item.id})`, 'info');
+  };
+
+  // Auto-parse release title for quick link add
+  const handleNewLinkTitleChange = (val: string) => {
+    setNewLinkTitle(val);
+    if (val.trim().length > 3) {
+      const parsed = parseFullMediaTitle(val);
+      if (parsed.quality) setNewLinkQuality(parsed.quality);
+      if (parsed.audioLanguage) setNewLinkAudio(parsed.audioLanguage);
+      if (parsed.size) setNewLinkSize(parsed.size);
+    }
+  };
 
   // Handle Admin Login
   const handleLogin = (e: React.FormEvent) => {
@@ -242,18 +460,14 @@ export default function AdminPage() {
   // Handle Quick Add Custom Link
   const handleQuickAddLink = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLinkTitle.trim() || !newLinkUrl.trim()) return;
+    if (!newLinkTitle.trim() || !newLinkUrl.trim() || !selectedTargetTitle) return;
 
     let url = newLinkUrl.trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://' + url;
     }
 
-    addCustomLink(newLinkMovieId, {
-      title: newLinkTitle.trim(),
-      url,
-      category: newLinkCategory,
-    });
+    const parsed = parseFullMediaTitle(newLinkTitle.trim());
 
     const newLinkObj: CustomLink = {
       id: `link-${Date.now()}`,
@@ -261,15 +475,27 @@ export default function AdminPage() {
       url,
       category: newLinkCategory,
       createdAt: new Date().toISOString(),
+      seasonNumber: parsed.seasonNumber,
+      episodeNumber: parsed.episodeNumber,
+      linkType: parsed.linkType,
+      quality: newLinkQuality.trim() || parsed.quality,
+      audioLanguage: newLinkAudio.trim() || parsed.audioLanguage,
+      size: newLinkSize.trim() || parsed.size,
     };
 
-    saveGlobalCustomLink(newLinkMovieId, newLinkObj);
+    saveGlobalCustomLink(selectedTargetTitle.id, newLinkObj);
+
+    addCustomLink(selectedTargetTitle.id, {
+      title: newLinkTitle.trim(),
+      url,
+      category: newLinkCategory,
+    });
 
     setCustomLinksMap((prev) => {
-      const existing = prev[String(newLinkMovieId)] || [];
+      const existing = prev[String(selectedTargetTitle.id)] || [];
       const updated = {
         ...prev,
-        [String(newLinkMovieId)]: [newLinkObj, ...existing],
+        [String(selectedTargetTitle.id)]: [newLinkObj, ...existing],
       };
       if (typeof window !== 'undefined') {
         localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
@@ -279,8 +505,11 @@ export default function AdminPage() {
 
     setNewLinkTitle('');
     setNewLinkUrl('');
+    setNewLinkQuality('');
+    setNewLinkAudio('');
+    setNewLinkSize('');
     setAddLinkSuccess(true);
-    addLog(`Admin added custom link "${newLinkTitle}" for movie ID ${newLinkMovieId}`, 'success');
+    addLog(`Admin added custom link "${newLinkTitle}" for "${selectedTargetTitle.title}" (ID: ${selectedTargetTitle.id})`, 'success');
     setTimeout(() => setAddLinkSuccess(false), 3000);
   };
 
@@ -290,6 +519,9 @@ export default function AdminPage() {
     setEditTitle(link.title);
     setEditUrl(link.url);
     setEditCategory(link.category);
+    setEditQuality(link.quality || '');
+    setEditAudio(link.audioLanguage || '');
+    setEditSize(link.size || '');
   };
 
   // Save Edited Link
@@ -302,11 +534,19 @@ export default function AdminPage() {
       url = 'https://' + url;
     }
 
+    const parsed = parseFullMediaTitle(editTitle.trim());
+
     const updatedLinkObj: CustomLink = {
       ...editingLink.link,
       title: editTitle.trim(),
       url,
       category: editCategory,
+      seasonNumber: parsed.seasonNumber || editingLink.link.seasonNumber,
+      episodeNumber: parsed.episodeNumber !== undefined ? parsed.episodeNumber : editingLink.link.episodeNumber,
+      linkType: parsed.linkType || editingLink.link.linkType,
+      quality: editQuality.trim() || parsed.quality || editingLink.link.quality,
+      audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.link.audioLanguage,
+      size: editSize.trim() || parsed.size || editingLink.link.size,
     };
 
     saveGlobalCustomLink(editingLink.movieId, updatedLinkObj);
@@ -340,6 +580,7 @@ export default function AdminPage() {
 
   // Delete Link
   const handleDeleteLink = (movieId: number, linkId: string, linkTitle: string) => {
+    if (!confirm(`Delete link "${linkTitle}" permanently?`)) return;
     removeCustomLink(movieId, linkId);
     setCustomLinksMap((prev) => {
       const movieIdStr = String(movieId);
@@ -364,6 +605,7 @@ export default function AdminPage() {
       watchlist,
       customLists,
       customLinks: customLinksMap,
+      knownTitles: knownTitlesCache,
       simklConfig,
       mdblistConfig,
       adminNotes: 'CineFuel Master Database Export',
@@ -392,6 +634,7 @@ export default function AdminPage() {
         if (parsed.watchlist) localStorage.setItem('cinefuel_watchlist', JSON.stringify(parsed.watchlist));
         if (parsed.customLists) localStorage.setItem('cinefuel_custom_lists', JSON.stringify(parsed.customLists));
         if (parsed.customLinks) localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed.customLinks));
+        if (parsed.knownTitles) localStorage.setItem('cinefuel_known_titles_cache', JSON.stringify(parsed.knownTitles));
         if (parsed.simklConfig) localStorage.setItem('cinefuel_simkl_config', JSON.stringify(parsed.simklConfig));
         if (parsed.mdblistConfig) localStorage.setItem('cinefuel_mdblist_config', JSON.stringify(parsed.mdblistConfig));
 
@@ -405,21 +648,43 @@ export default function AdminPage() {
     reader.readAsText(file);
   };
 
+  // Helper to resolve title name from cache, watchlist, or fallback
+  const resolveTitleInfo = (movieId: number) => {
+    if (knownTitlesCache[movieId]) return knownTitlesCache[movieId];
+    const inWatchlist = watchlist.find((w) => w.id === movieId);
+    if (inWatchlist) {
+      return {
+        title: inWatchlist.title || `Title #${movieId}`,
+        poster_path: inWatchlist.poster_path,
+        media_type: inWatchlist.mediaType,
+      };
+    }
+    const inMock = Object.values(MOCK_TITLES).find((m) => m.id === movieId);
+    if (inMock) {
+      return {
+        title: inMock.title || inMock.name || `Title #${movieId}`,
+        poster_path: inMock.poster_path,
+        media_type: ((inMock.media_type as any) || (inMock.name ? 'tv' : 'movie')) as 'movie' | 'tv',
+      };
+    }
+    return { title: `Title #${movieId}` };
+  };
+
   // Flatten all custom links across all movie IDs for the moderation table
-  const allFlattenedLinks: Array<{ movieId: number; movieName: string; link: CustomLink }> = [];
+  const allFlattenedLinks: Array<{ movieId: number; movieName: string; mediaType: 'movie' | 'tv'; link: CustomLink }> = [];
   const seenLinkIds = new Set<string>();
 
   // 1. Built-in Curated Links
   Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
     const numId = Number(movieIdStr);
-    const matchedMovie = Object.values(MOCK_TITLES).find((m) => m.id === numId);
-    const movieName = matchedMovie ? (matchedMovie.title || matchedMovie.name || `Title #${numId}`) : `Title #${numId}`;
+    const info = resolveTitleInfo(numId);
     links.forEach((l) => {
       if (!seenLinkIds.has(l.id)) {
         seenLinkIds.add(l.id);
         allFlattenedLinks.push({
           movieId: numId,
-          movieName,
+          movieName: info.title,
+          mediaType: info.media_type || 'movie',
           link: l,
         });
       }
@@ -435,6 +700,7 @@ export default function AdminPage() {
           allFlattenedLinks.push({
             movieId: w.id,
             movieName: w.title || `Title #${w.id}`,
+            mediaType: w.mediaType || 'movie',
             link: l,
           });
         }
@@ -446,14 +712,14 @@ export default function AdminPage() {
   Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
     if (Array.isArray(links)) {
       const numId = Number(movieIdStr);
-      const matchedMovie = Object.values(MOCK_TITLES).find((m) => m.id === numId);
-      const movieName = matchedMovie ? (matchedMovie.title || matchedMovie.name || `Title #${numId}`) : `Title #${numId}`;
+      const info = resolveTitleInfo(numId);
       links.forEach((l: CustomLink) => {
         if (!seenLinkIds.has(l.id)) {
           seenLinkIds.add(l.id);
           allFlattenedLinks.push({
             movieId: numId,
-            movieName,
+            movieName: info.title,
+            mediaType: info.media_type || 'movie',
             link: l,
           });
         }
@@ -471,11 +737,26 @@ export default function AdminPage() {
     return matchesCat && matchesSearch;
   });
 
-  // Filtered titles for Manage Titles tab
-  const allKnownTitles = Object.values(MOCK_TITLES);
-  const filteredTitles = allKnownTitles.filter((t) =>
-    (t.title || t.name || '').toLowerCase().includes(titleSearchQuery.toLowerCase())
-  );
+  // Displayed titles for Manage Titles tab (combines live search or catalog)
+  const displayedCatalogTitles = useMemo(() => {
+    if (titleSearchQuery.trim() && manageTitlesResults.length > 0) {
+      return manageTitlesResults;
+    }
+    // Default catalog list
+    const combined: PinnedTitle[] = [...PINNED_TITLES];
+    Object.values(MOCK_TITLES).forEach((m) => {
+      if (!combined.some((c) => c.id === m.id)) {
+        combined.push({
+          id: m.id,
+          title: m.title || m.name || 'Untitled',
+          media_type: ((m.media_type as any) || (m.name ? 'tv' : 'movie')) as 'movie' | 'tv',
+          year: (m.release_date || m.first_air_date || '').split('-')[0],
+          poster_path: m.poster_path,
+        });
+      }
+    });
+    return combined;
+  }, [titleSearchQuery, manageTitlesResults]);
 
   // -------------------------------------------------------------
   // 1. Password Lock Gate (If not authenticated)
@@ -488,10 +769,10 @@ export default function AdminPage() {
             <Lock className="w-8 h-8" />
           </div>
 
-          <div className="space-y-1.5">
-            <h1 className="text-2xl font-black text-white">Admin Control Panel</h1>
+          <div className="space-y-1">
+            <h2 className="text-2xl font-black text-white tracking-tight">CineFuel Master Control</h2>
             <p className="text-xs text-zinc-400">
-              Master administration vault for CineFuel. Enter your admin name and password to access controls.
+              Enter Administrator Credentials to access backend catalog, links, and system controls.
             </p>
           </div>
 
@@ -629,7 +910,7 @@ export default function AdminPage() {
           }`}
           suppressHydrationWarning
         >
-          <Film className="w-4 h-4" /> Manage Titles
+          <Film className="w-4 h-4" /> Manage Titles & Search
         </button>
 
         <button
@@ -700,77 +981,89 @@ export default function AdminPage() {
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Custom Lists</span>
-              <p className="text-3xl font-black text-sky-400" suppressHydrationWarning>{isMounted ? customLists.length : 0}</p>
-              <span className="text-[11px] text-zinc-400 font-medium">Curated collections</span>
+              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Cached Titles</span>
+              <p className="text-3xl font-black text-emerald-400">{Object.keys(knownTitlesCache).length}</p>
+              <span className="text-[11px] text-emerald-400 font-medium">TMDB Fast Indexed</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Logged In Session</span>
-              <p className="text-base font-bold text-emerald-400 truncate">
-                {isLoggedIn ? (userProfile?.displayName || userProfile?.email) : 'Guest / Local Session'}
-              </p>
-              <span className="text-[11px] text-zinc-400 font-medium">Firebase Auth status</span>
+              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Active Admin</span>
+              <p className="text-3xl font-black text-sky-400">Shyam</p>
+              <span className="text-[11px] text-sky-400 font-medium">Master Security Level</span>
             </div>
           </div>
 
-          {/* Engine Status Cards */}
-          <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
-            <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-              <Globe className="w-4 h-4 text-amber-400" /> Active Sync Engines & Health
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> TMDB Engine
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
-                    Connected
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400">Live metadata, posters, backdrops, and official YouTube trailers.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Film className="w-4 h-4 text-amber-400" /> Quick Title Jump & Manage
+                </h3>
+                <button
+                  onClick={() => setActiveTab('titles')}
+                  className="text-xs text-amber-400 font-bold hover:underline"
+                >
+                  View All Titles →
+                </button>
               </div>
 
-              <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${simklConfig?.userToken ? 'bg-emerald-400' : 'bg-amber-400'}`} /> SIMKL Sync
+              <div className="grid grid-cols-2 gap-2.5">
+                {PINNED_TITLES.slice(0, 6).map((pt) => (
+                  <button
+                    key={pt.id}
+                    onClick={() => {
+                      setSelectedTargetTitle(pt);
+                      setActiveTab('links');
+                    }}
+                    className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-amber-500/50 flex items-center gap-2.5 transition-all text-left group"
+                  >
+                    <div className="w-8 h-10 rounded bg-zinc-800 relative overflow-hidden shrink-0">
+                      {pt.poster_path && (
+                        <Image src={getImageURL(pt.poster_path, 'w200')} alt={pt.title} fill className="object-cover" sizes="32px" />
+                      )}
+                    </div>
+                    <div className="overflow-hidden">
+                      <span className="text-xs font-bold text-white group-hover:text-amber-400 truncate block">
+                        {pt.title}
+                      </span>
+                      <span className="text-[10px] text-zinc-400 block font-mono">
+                        {pt.media_type.toUpperCase()} • {pt.year}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
+              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Server className="w-4 h-4 text-amber-400" /> Service Status
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> TMDB Universal Search
                   </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                    simklConfig?.userToken ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  }`}>
-                    {simklConfig?.userToken ? 'Synced' : 'PIN Ready'}
+                  <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                    Live Operational
                   </span>
                 </div>
-                <p className="text-xs text-zinc-400">Watchlist, ratings (1–10), and anime/show progress tracker.</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${mdblistConfig?.apiKey ? 'bg-emerald-400' : 'bg-amber-400'}`} /> MDBList Hub
+                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> SIMKL Sync Engine
                   </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                    mdblistConfig?.apiKey ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  }`}>
-                    {mdblistConfig?.apiKey ? 'API Active' : 'Demo Mode'}
+                  <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                    Ready
                   </span>
                 </div>
-                <p className="text-xs text-zinc-400">Rotten Tomatoes Tomatometer, Metacritic, and Letterboxd scores.</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> Edge CDN
+                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
+                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> TV Season Parser Engine (S01/S02)
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                  <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
                     Active
                   </span>
                 </div>
-                <p className="text-xs text-zinc-400">Global cache, image optimization, and instant DNS routing.</p>
               </div>
             </div>
           </div>
@@ -778,87 +1071,283 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 2: MANAGE LINKS (ADD, EDIT, DELETE) */}
+      {/* TAB 2: MANAGE LINKS (UNIVERSAL TITLE SEARCH + ADD/EDIT/DELETE) */}
       {/* ========================================================= */}
       {activeTab === 'links' && (
         <div className="space-y-6">
-          {/* Quick Add Custom Link Box */}
-          <div className="p-6 rounded-3xl bg-[#0f121a] border border-amber-500/20 space-y-4">
-            <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-              <Plus className="w-4 h-4 text-amber-400" /> Add Custom Link to Title
-            </h3>
-
-            <form onSubmit={handleQuickAddLink} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Quick Add Custom Link Box with Universal Title Search */}
+          <div className="p-6 sm:p-7 rounded-3xl bg-[#0f121a] border border-amber-500/30 space-y-5 shadow-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
               <div>
-                <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Target Movie / Show</label>
-                <select
-                  value={newLinkMovieId}
-                  onChange={(e) => setNewLinkMovieId(Number(e.target.value))}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
-                >
-                  <option value={872585}>Oppenheimer (872585)</option>
-                  <option value={693134}>Dune: Part Two (693134)</option>
-                  <option value={157336}>Interstellar (157336)</option>
-                  <option value={579974}>RRR (579974)</option>
-                  <option value={1396}>Breaking Bad (1396)</option>
-                  <option value={155}>The Dark Knight (155)</option>
-                  <option value={27205}>Inception (27205)</option>
-                </select>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-amber-400" /> Add Custom Link to Title
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Search any movie or TV series from TMDB, select it, and attach your verified streaming or download link.
+                </p>
               </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Link Title / Label</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 4K IMAX Making of Doc"
-                  value={newLinkTitle}
-                  onChange={(e) => setNewLinkTitle(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                  required
-                />
+              {/* Selected Title Badge / Pill */}
+              {selectedTargetTitle && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 self-start sm:self-auto">
+                  <div className="w-6 h-8 rounded bg-zinc-800 relative overflow-hidden shrink-0">
+                    {selectedTargetTitle.poster_path ? (
+                      <Image
+                        src={getImageURL(selectedTargetTitle.poster_path, 'w200')}
+                        alt={selectedTargetTitle.title}
+                        fill
+                        className="object-cover"
+                        sizes="24px"
+                      />
+                    ) : (
+                      <Film className="w-4 h-4 text-zinc-500 m-auto" />
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-white block leading-tight">
+                      {selectedTargetTitle.title}
+                    </span>
+                    <span className="text-[10px] text-amber-400 font-mono">
+                      ID: {selectedTargetTitle.id} • {selectedTargetTitle.media_type.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Target Title Search & Picker */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-300 block">
+                1. Search & Select Target Title <span className="text-amber-400 font-normal">(Search any movie, show, or TMDB ID)</span>:
+              </label>
+
+              <div className="relative" ref={searchDropdownRef}>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Type title name (e.g. Daredevil, Loki, Reacher, Breaking Bad, Inception) or enter TMDB ID..."
+                    value={targetSearchQuery}
+                    onChange={(e) => {
+                      setTargetSearchQuery(e.target.value);
+                      setIsTargetDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsTargetDropdownOpen(true)}
+                    className="w-full bg-zinc-900 border border-zinc-700 focus:border-amber-500 rounded-2xl pl-10 pr-10 py-3 text-xs text-white placeholder-zinc-500 focus:outline-none shadow-inner"
+                  />
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  {isSearchingTarget ? (
+                    <RefreshCw className="w-4 h-4 text-amber-400 animate-spin absolute right-3.5 top-1/2 -translate-y-1/2" />
+                  ) : targetSearchQuery ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTargetSearchQuery('');
+                        setTargetSearchResults([]);
+                      }}
+                      className="text-zinc-400 hover:text-white absolute right-3.5 top-1/2 -translate-y-1/2 text-xs"
+                    >
+                      ✕
+                    </button>
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-zinc-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  )}
+                </div>
+
+                {/* Auto-suggest Search Dropdown */}
+                {isTargetDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-[#11141d] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto">
+                    {targetSearchResults.length > 0 ? (
+                      <div className="divide-y divide-zinc-800">
+                        {targetSearchResults.map((item) => {
+                          const title = item.title || item.name || 'Untitled';
+                          const type = (item.media_type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
+                          const year = (item.release_date || item.first_air_date || '').split('-')[0];
+                          const poster = getImageURL(item.poster_path, 'w200');
+
+                          return (
+                            <button
+                              key={`${type}-${item.id}`}
+                              type="button"
+                              onClick={() => handleSelectTargetTitle(item)}
+                              className="w-full flex items-center justify-between p-3 hover:bg-zinc-800/80 transition-colors text-left group"
+                            >
+                              <div className="flex items-center gap-3 overflow-hidden">
+                                <div className="w-9 h-12 rounded bg-zinc-800 relative overflow-hidden shrink-0">
+                                  <Image src={poster} alt={title} fill className="object-cover" sizes="36px" />
+                                </div>
+                                <div className="overflow-hidden">
+                                  <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors block truncate">
+                                    {title}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-mono">
+                                    <span className={`px-1.5 py-0.2 rounded font-black ${type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                                      {type.toUpperCase()}
+                                    </span>
+                                    {year && <span>• {year}</span>}
+                                    <span>• ID: {item.id}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <span className="text-[11px] text-amber-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
+                                Select ➔
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : targetSearchQuery.trim() ? (
+                      <div className="p-4 text-center text-xs text-zinc-500">
+                        {isSearchingTarget ? 'Searching TMDB catalog...' : `No titles found matching "${targetSearchQuery}".`}
+                      </div>
+                    ) : (
+                      <div className="p-3">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block px-2 pb-2">
+                          Popular / Quick Pinned Titles:
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {PINNED_TITLES.map((pt) => (
+                            <button
+                              key={pt.id}
+                              type="button"
+                              onClick={() => handleSelectTargetTitle(pt)}
+                              className="flex items-center gap-2 p-2 rounded-xl hover:bg-zinc-800 transition-colors text-left"
+                            >
+                              <div className="w-7 h-9 rounded bg-zinc-800 relative overflow-hidden shrink-0">
+                                {pt.poster_path && (
+                                  <Image src={getImageURL(pt.poster_path, 'w200')} alt={pt.title} fill className="object-cover" sizes="28px" />
+                                )}
+                              </div>
+                              <div className="overflow-hidden">
+                                <span className="text-xs font-bold text-white block truncate">{pt.title}</span>
+                                <span className="text-[9px] text-zinc-400 font-mono">{pt.media_type.toUpperCase()} • {pt.year}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Destination URL</label>
-                <input
-                  type="text"
-                  placeholder="https://..."
-                  value={newLinkUrl}
-                  onChange={(e) => setNewLinkUrl(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
-                  required
-                />
+              {/* Quick Suggestion Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10px] text-zinc-500 font-semibold">Quick pick:</span>
+                {PINNED_TITLES.map((pt) => (
+                  <button
+                    key={pt.id}
+                    type="button"
+                    onClick={() => handleSelectTargetTitle(pt)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                      selectedTargetTitle?.id === pt.id
+                        ? 'bg-amber-500 text-black shadow-sm'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                    }`}
+                  >
+                    {pt.title} ({pt.id})
+                  </button>
+                ))}
               </div>
+            </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Category</label>
-                <div className="flex gap-2">
+            {/* Link Details Form */}
+            <form onSubmit={handleQuickAddLink} className="space-y-4 pt-3 border-t border-zinc-800/80">
+              <label className="text-xs font-bold text-zinc-300 block">
+                2. Enter Link Details for &quot;{selectedTargetTitle?.title || 'Selected Title'}&quot;:
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="lg:col-span-2">
+                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">
+                    Link Title / Release Label <span className="text-amber-400 text-[10px]">(Auto-detects quality & audio)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 4K IMAX BluRay [Hindi + English Atmos], 1080p WEB-DL, JioCinema..."
+                    value={newLinkTitle}
+                    onChange={(e) => handleNewLinkTitleChange(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    required
+                  />
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Destination URL</label>
+                  <input
+                    type="text"
+                    placeholder="https://..."
+                    value={newLinkUrl}
+                    onChange={(e) => setNewLinkUrl(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Category</label>
                   <select
                     value={newLinkCategory}
                     onChange={(e) => setNewLinkCategory(e.target.value as any)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
                   >
                     <option value="Streaming">🎬 Streaming</option>
+                    <option value="Download">📥 Download</option>
                     <option value="Subtitles">🌐 Subtitles</option>
                     <option value="Discussion">💬 Discussion</option>
                     <option value="Review">📝 Review</option>
-                    <option value="Download">📥 Download</option>
                     <option value="Official">🏛️ Official</option>
                     <option value="Recent">⚡ Recent</option>
                   </select>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs transition-all shadow-md shrink-0 flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add
-                  </button>
                 </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Quality / Resolution</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 2160p 4K, 1080p"
+                    value={newLinkQuality}
+                    onChange={(e) => setNewLinkQuality(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Audio / Dub</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Hindi + English, Dual Audio"
+                    value={newLinkAudio}
+                    onChange={(e) => setNewLinkAudio(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">File Size</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 16.8 GB, 1.2 GB"
+                    value={newLinkSize}
+                    onChange={(e) => setNewLinkSize(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-md shadow-amber-500/20 flex items-center gap-1.5 hover:scale-105"
+                >
+                  <Plus className="w-4 h-4" /> Attach Custom Link to {selectedTargetTitle?.title || 'Title'}
+                </button>
               </div>
             </form>
 
             {addLinkSuccess && (
-              <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Link published to catalog and title page successfully!
+              <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 pt-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Link published to &quot;{selectedTargetTitle?.title}&quot; catalog and title page successfully!
               </p>
             )}
           </div>
@@ -867,17 +1356,17 @@ export default function AdminPage() {
           <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                <Layers className="w-4 h-4 text-amber-400" /> All Saved Links ({filteredLinks.length})
+                <Layers className="w-4 h-4 text-amber-400" /> All Saved Custom Links ({filteredLinks.length})
               </h3>
 
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search links..."
+                    placeholder="Search links, titles..."
                     value={linkSearchQuery}
                     onChange={(e) => setLinkSearchQuery(e.target.value)}
-                    className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-44"
+                    className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-48"
                   />
                   <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 </div>
@@ -889,10 +1378,10 @@ export default function AdminPage() {
                 >
                   <option value="All">All Categories</option>
                   <option value="Streaming">Streaming</option>
+                  <option value="Download">Download</option>
                   <option value="Subtitles">Subtitles</option>
                   <option value="Discussion">Discussion</option>
                   <option value="Review">Review</option>
-                  <option value="Download">Download</option>
                   <option value="Official">Official</option>
                   <option value="Recent">Recent</option>
                 </select>
@@ -904,8 +1393,8 @@ export default function AdminPage() {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-zinc-800 text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
-                      <th className="py-3 px-3">Title / Movie</th>
-                      <th className="py-3 px-3">Link Name</th>
+                      <th className="py-3 px-3">Target Title</th>
+                      <th className="py-3 px-3">Link Name / Release</th>
                       <th className="py-3 px-3">Category</th>
                       <th className="py-3 px-3">URL</th>
                       <th className="py-3 px-3 text-right">Actions</th>
@@ -915,11 +1404,23 @@ export default function AdminPage() {
                     {filteredLinks.map((item) => (
                       <tr key={item.link.id} className="hover:bg-zinc-900/40 transition-colors">
                         <td className="py-3 px-3 font-semibold text-white">
-                          <Link href={`/movie/${item.movieId}`} className="hover:text-amber-400 transition-colors">
-                            {item.movieName}
+                          <Link
+                            href={`/${item.mediaType || 'movie'}/${item.movieId}`}
+                            target="_blank"
+                            className="hover:text-amber-400 transition-colors flex items-center gap-1.5"
+                          >
+                            <span>{item.movieName}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">({item.movieId})</span>
                           </Link>
                         </td>
-                        <td className="py-3 px-3 font-bold text-amber-300">{item.link.title}</td>
+                        <td className="py-3 px-3 font-bold text-amber-300">
+                          <div>{item.link.title}</div>
+                          {(item.link.quality || item.link.audioLanguage) && (
+                            <div className="text-[10px] text-zinc-400 font-normal">
+                              {item.link.quality} {item.link.audioLanguage ? `• ${item.link.audioLanguage}` : ''}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 px-3">
                           <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20 text-[10px]">
                             {item.link.category}
@@ -968,63 +1469,87 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 3: MANAGE TITLES */}
+      {/* TAB 3: MANAGE TITLES & LIVE CATALOG SEARCH */}
       {/* ========================================================= */}
       {activeTab === 'titles' && (
-        <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-6 sm:p-7 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
             <div>
               <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                <Film className="w-4 h-4 text-amber-400" /> Title & Catalog Directory
+                <Film className="w-4 h-4 text-amber-400" /> TMDB Universal Title & Catalog Search
               </h3>
               <p className="text-xs text-zinc-400">
-                Browse catalog titles, check links attached to each movie, and manage metadata.
+                Search ANY movie or TV series across TMDB in real-time, view page, or attach custom links.
               </p>
             </div>
 
-            <div className="relative">
+            <div className="relative w-full sm:w-72">
               <input
                 type="text"
-                placeholder="Search catalog titles..."
+                placeholder="Search TMDB catalog (e.g. Daredevil, Loki, Avatar)..."
                 value={titleSearchQuery}
                 onChange={(e) => setTitleSearchQuery(e.target.value)}
-                className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-56"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-8 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
               />
               <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              {isSearchingManageTitles && (
+                <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin absolute right-2.5 top-1/2 -translate-y-1/2" />
+              )}
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredTitles.map((t) => {
+            {displayedCatalogTitles.map((t) => {
               const poster = getImageURL(t.poster_path, 'w200');
-              const linksCount = (customLinksMap[String(t.id)] || []).length;
+              const linksCount = (customLinksMap[String(t.id)] || []).length + (BUILTIN_CURATED_LINKS[t.id] || []).length;
+              const titleText = t.title || (t as any).name || 'Title';
+              const mediaType = t.media_type || ((t as any).name ? 'tv' : 'movie');
+              const yearText = (t as any).year || ((t as any).release_date || (t as any).first_air_date || '').split('-')[0];
+
               return (
-                <div key={t.id} className="flex gap-3 p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all">
-                  <div className="relative w-14 h-20 rounded-xl overflow-hidden bg-zinc-800 shrink-0">
-                    <Image src={poster} alt={t.title || 'Title'} fill className="object-cover" sizes="56px" />
+                <div key={`${mediaType}-${t.id}`} className="flex gap-3.5 p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 hover:border-amber-500/50 transition-all group shadow-md">
+                  <div className="relative w-16 h-24 rounded-xl overflow-hidden bg-zinc-800 shrink-0">
+                    <Image src={poster} alt={titleText} fill className="object-cover" sizes="64px" />
                   </div>
-                  <div className="flex-1 overflow-hidden space-y-1">
-                    <h4 className="text-xs font-bold text-white truncate">{t.title || t.name}</h4>
-                    <span className="text-[10px] text-zinc-400 block font-mono">ID: {t.id} • {t.media_type?.toUpperCase()}</span>
+                  <div className="flex-1 overflow-hidden space-y-1.5">
+                    <h4 className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors truncate">
+                      {titleText}
+                    </h4>
+                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-mono">
+                      <span className={`px-1.5 py-0.2 rounded font-black ${mediaType === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                        {mediaType.toUpperCase()}
+                      </span>
+                      {yearText && <span>• {yearText}</span>}
+                      <span>• ID: {t.id}</span>
+                    </div>
+
                     <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20 inline-block">
-                      {linksCount} Custom Links
+                      {linksCount} Custom Link{linksCount !== 1 ? 's' : ''}
                     </span>
-                    <div className="flex items-center gap-2 pt-1">
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/80">
                       <Link
-                        href={`/${t.media_type || 'movie'}/${t.id}`}
+                        href={`/${mediaType}/${t.id}`}
                         target="_blank"
-                        className="text-[10px] text-zinc-400 hover:text-white flex items-center gap-1 font-semibold"
+                        className="text-[10px] text-zinc-300 hover:text-white flex items-center gap-1 font-semibold"
                       >
                         <Eye className="w-3 h-3" /> View Page
                       </Link>
                       <button
                         onClick={() => {
-                          setNewLinkMovieId(t.id);
+                          handleSelectTargetTitle({
+                            id: t.id,
+                            title: titleText,
+                            media_type: mediaType,
+                            poster_path: t.poster_path,
+                            release_date: (t as any).release_date,
+                            first_air_date: (t as any).first_air_date,
+                          });
                           setActiveTab('links');
                         }}
                         className="text-[10px] text-amber-400 hover:underline font-bold"
                       >
-                        + Add Link
+                        + Add Custom Link
                       </button>
                     </div>
                   </div>
@@ -1301,21 +1826,58 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-zinc-300 block mb-1">Category</label>
-                <select
-                  value={editCategory}
-                  onChange={(e) => setEditCategory(e.target.value as any)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
-                >
-                  <option value="Streaming">🎬 Streaming</option>
-                  <option value="Subtitles">🌐 Subtitles</option>
-                  <option value="Discussion">💬 Discussion</option>
-                  <option value="Review">📝 Review</option>
-                  <option value="Download">📥 Download</option>
-                  <option value="Official">🏛️ Official</option>
-                  <option value="Recent">⚡ Recent</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-300 block mb-1">Category</label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as any)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                  >
+                    <option value="Streaming">🎬 Streaming</option>
+                    <option value="Download">📥 Download</option>
+                    <option value="Subtitles">🌐 Subtitles</option>
+                    <option value="Discussion">💬 Discussion</option>
+                    <option value="Review">📝 Review</option>
+                    <option value="Official">🏛️ Official</option>
+                    <option value="Recent">⚡ Recent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-300 block mb-1">Quality</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 2160p 4K, 1080p"
+                    value={editQuality}
+                    onChange={(e) => setEditQuality(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-300 block mb-1">Audio Dub</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Hindi + English"
+                    value={editAudio}
+                    onChange={(e) => setEditAudio(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-300 block mb-1">Size</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 16.8 GB"
+                    value={editSize}
+                    onChange={(e) => setEditSize(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
