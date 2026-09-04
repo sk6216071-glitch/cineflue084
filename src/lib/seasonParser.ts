@@ -7,27 +7,44 @@ export interface ParsedMediaMeta {
   quality?: string;
   audioLanguage?: string;
   size?: string;
+  category: 'ZipPack' | 'SingleEpisode';
 }
 
 /**
  * Auto-detect Season Number from title, filename, or link metadata
  */
 export function detectSeasonNumber(link: { title?: string; seasonNumber?: number }): number {
+  if (link.seasonNumber && link.seasonNumber > 0) {
+    return link.seasonNumber;
+  }
+
   if (link.title) {
-    // 1. Check patterns like S02, S2, s02, S.02, S-02, S_02
+    // 1. Check patterns like 1x01, 02x05 (Season x Episode)
+    const xMatch = link.title.match(/(?:^|[\s._\-[\]()])(\d{1,2})x\d{1,3}(?:[\s._\-[\]()]|\b)/i);
+    if (xMatch && xMatch[1]) {
+      return parseInt(xMatch[1], 10);
+    }
+
+    // 2. Check patterns like S02, S2, s02, S.02, S-02, S_02, [S01]
     const sMatch = link.title.match(/(?:^|[\s._\-[\]()])s0*(\d{1,2})(?:[\s._\-[\]()]|e\d|\b)/i);
     if (sMatch && sMatch[1]) {
       return parseInt(sMatch[1], 10);
     }
 
-    // 2. Check patterns like Season 2, Season 02, Season.2, Season_2
+    // 3. Check patterns like Season 2, Season 02, Season.2, Season_2, Season-2
     const seasonMatch = link.title.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,2})/i);
     if (seasonMatch && seasonMatch[1]) {
       return parseInt(seasonMatch[1], 10);
     }
+
+    // 4. Check ordinal patterns like 1st Season, 2nd Season
+    const ordinalMatch = link.title.match(/(\d{1,2})(?:st|nd|rd|th)\s*season/i);
+    if (ordinalMatch && ordinalMatch[1]) {
+      return parseInt(ordinalMatch[1], 10);
+    }
   }
 
-  return link.seasonNumber && link.seasonNumber > 0 ? link.seasonNumber : 1;
+  return 1;
 }
 
 /**
@@ -39,10 +56,34 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
   }
 
   if (link.title) {
-    // Check patterns like E01, E1, EP01, EP 1, Episode 1, Episode 01, Ep.01
-    const epMatch = link.title.match(/(?:^|[\s._\-[\]()]|s\d{1,2})(?:ep|episode|e)[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
+    // 1. Check patterns like 1x05, 01x13 (Season x Episode)
+    const xMatch = link.title.match(/(?:^|[\s._\-[\]()])\d{1,2}x0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
+    if (xMatch && xMatch[1]) {
+      return parseInt(xMatch[1], 10);
+    }
+
+    // 2. Check patterns like S01E05, S1E1, s01e13, S02-E04, S02_E04, S02.E04
+    const sEpMatch = link.title.match(/s\d{1,2}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
+    if (sEpMatch && sEpMatch[1]) {
+      return parseInt(sEpMatch[1], 10);
+    }
+
+    // 3. Check patterns like Episode 01, Episode 1, Episode.01, Episode-01, Episode_01
+    const episodeMatch = link.title.match(/(?:^|[\s._\-[\]()])episode[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
+    if (episodeMatch && episodeMatch[1]) {
+      return parseInt(episodeMatch[1], 10);
+    }
+
+    // 4. Check patterns like EP01, EP 01, EP.01, EP-01, Ep01, Ep 1, Ep.01, Ep-01, Ep_01
+    const epMatch = link.title.match(/(?:^|[\s._\-[\]()])ep[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
     if (epMatch && epMatch[1]) {
       return parseInt(epMatch[1], 10);
+    }
+
+    // 5. Check standalone E01, E1, E.01, E-01, E_01 (must not match 2160p, 1080p, etc.)
+    const eMatch = link.title.match(/(?:^|[\s._\-[\]()])e0*(\d{1,3})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i);
+    if (eMatch && eMatch[1]) {
+      return parseInt(eMatch[1], 10);
     }
   }
 
@@ -60,15 +101,26 @@ export function detectLinkType(link: { title?: string; linkType?: string; catego
     return 'zip_pack';
   }
 
+  const title = link.title || '';
+
+  // Explicit Zip / Archive file indicators
+  const isExplicitZip = /(?:\.zip|\.rar|\.7z|\.tar|\.gz|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bfull\s*season\b)/i.test(title);
+
   const ep = detectEpisodeNumber(link);
+
   if (ep !== undefined && ep > 0) {
-    // If title specifically mentions complete/zip/pack even with E01-E10, it's a pack
-    if (link.title && /(?:complete|pack|zip|batch|all\s*episodes|season\s*\d+\s*complete)/i.test(link.title)) {
+    // If it mentions specific episode E01-E13 complete pack, treat as zip_pack
+    if (isExplicitZip && /(?:complete|pack|zip|batch|all\s*episodes)/i.test(title)) {
       return 'zip_pack';
     }
     return 'single_episode';
   }
 
+  if (isExplicitZip) {
+    return 'zip_pack';
+  }
+
+  // If no episode number was detected, default to zip_pack for whole season releases
   return 'zip_pack';
 }
 
@@ -76,7 +128,7 @@ export function detectLinkType(link: { title?: string; linkType?: string; catego
  * Auto-extract Quality/Resolution format tags from title
  */
 export function detectQuality(title: string, defaultQuality?: string): string {
-  if (!title) return defaultQuality || '1080p';
+  if (!title) return defaultQuality || '1080p WEB-DL';
 
   const tags: string[] = [];
 
@@ -89,15 +141,17 @@ export function detectQuality(title: string, defaultQuality?: string): string {
   // Source / Codec
   if (/remux/i.test(title)) tags.push('REMUX');
   else if (/bluray|blu-ray|bdrip/i.test(title)) tags.push('BluRay');
+  else if (/dsnp/i.test(title)) tags.push('DSNP');
   else if (/web-dl|webrip|web/i.test(title)) tags.push('WEB-DL');
   else if (/hdtv/i.test(title)) tags.push('HDTV');
 
   // HDR / Color
-  if (/dv\s*hdr|dolby\s*vision/i.test(title)) tags.push('DV HDR');
+  if (/hybrid\s*dv\s*hdr|dv\s*hdr|dolby\s*vision/i.test(title)) tags.push('DV HDR');
   else if (/hdr10\+|hdr10|hdr/i.test(title)) tags.push('HDR');
 
   if (/10bit/i.test(title)) tags.push('10bit');
   if (/hevc|x265/i.test(title)) tags.push('HEVC');
+  else if (/x264|h264|avc/i.test(title)) tags.push('x264');
 
   if (tags.length > 0) {
     return tags.join(' • ');
@@ -129,6 +183,7 @@ export function detectAudio(title: string, defaultAudio?: string): string {
   const hasTelugu = /telugu|tel/i.test(title);
   const hasJapanese = /japanese|jap/i.test(title);
   const hasKorean = /korean|kor/i.test(title);
+  const hasSpanish = /spanish|spa/i.test(title);
 
   if (hasHindi && hasEnglish) {
     const atmos = /atmos|truehd/i.test(title) ? 'Atmos' : '';
@@ -142,6 +197,7 @@ export function detectAudio(title: string, defaultAudio?: string): string {
   if (hasTelugu) languages.push('Telugu');
   if (hasJapanese) languages.push('Japanese Sub');
   if (hasKorean) languages.push('Korean Sub');
+  if (hasSpanish) languages.push('Spanish');
 
   if (languages.length > 0) {
     return languages.join(' • ');
@@ -151,7 +207,7 @@ export function detectAudio(title: string, defaultAudio?: string): string {
 }
 
 /**
- * Auto-extract File Size from title (e.g. 16.8 GB, 7.4 GB, 850 MB)
+ * Auto-extract File Size from title (e.g. 16.8 GB, 7.4 GB, 850 MB, 6.36 GB)
  */
 export function detectSize(title: string, defaultSize?: string): string | undefined {
   if (!title) return defaultSize;
@@ -172,6 +228,7 @@ export function parseFullMediaTitle(title: string): ParsedMediaMeta {
   const quality = detectQuality(title);
   const audioLanguage = detectAudio(title);
   const size = detectSize(title);
+  const category: 'ZipPack' | 'SingleEpisode' = linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode';
 
   return {
     seasonNumber,
@@ -180,6 +237,7 @@ export function parseFullMediaTitle(title: string): ParsedMediaMeta {
     quality,
     audioLanguage,
     size,
+    category,
   };
 }
 
@@ -254,7 +312,7 @@ export function parseBulkLinksInput(rawText: string, fallbackSeason: number = 1)
         quality: meta.quality || '1080p WEB-DL',
         audioLanguage: meta.audioLanguage || 'English',
         size: meta.size,
-        category: meta.linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+        category: meta.category,
       });
       i++;
     } else {
@@ -276,7 +334,7 @@ export function parseBulkLinksInput(rawText: string, fallbackSeason: number = 1)
             quality: meta.quality || '1080p WEB-DL',
             audioLanguage: meta.audioLanguage || 'English',
             size: meta.size,
-            category: meta.linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+            category: meta.category,
           });
           i += 2;
           continue;

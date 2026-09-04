@@ -247,6 +247,36 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     }, 2800);
   };
 
+  // Toggle type of individual item in bulk preview
+  const handleToggleBulkItemType = (id: string) => {
+    setBulkParsedItems((prev) =>
+      prev.map((item) => {
+        if (item.id === id) {
+          const isSingle = item.linkType === 'single_episode';
+          return {
+            ...item,
+            linkType: isSingle ? 'zip_pack' : 'single_episode',
+            category: isSingle ? 'ZipPack' : 'SingleEpisode',
+            episodeNumber: isSingle ? undefined : item.episodeNumber || 1,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // Convert all items in bulk preview to single episodes or zip packs
+  const handleSetAllBulkType = (type: 'single_episode' | 'zip_pack') => {
+    setBulkParsedItems((prev) =>
+      prev.map((item, index) => ({
+        ...item,
+        linkType: type,
+        category: type === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+        episodeNumber: type === 'single_episode' ? (item.episodeNumber || index + 1) : undefined,
+      }))
+    );
+  };
+
   // Remove single item from parsed bulk preview before saving
   const handleRemoveParsedItem = (id: string) => {
     setBulkParsedItems((prev) => prev.filter((item) => item.id !== id));
@@ -380,28 +410,48 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           {/* Live Auto-Detection Preview */}
           {bulkParsedItems.length > 0 && (
             <div className="space-y-3 pt-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/80 p-3 rounded-2xl border border-zinc-800">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/80 p-3.5 rounded-2xl border border-zinc-800">
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5" /> {bulkParsedItems.length} Links Auto-Detected:
                   </span>
                   <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold">
-                      🗜️ {bulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
-                    </span>
                     <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold">
                       📥 {bulkParsedItems.filter((i) => i.linkType === 'single_episode').length} Single Episodes
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold">
+                      🗜️ {bulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
                     </span>
                   </div>
                 </div>
 
-                <button
-                  onClick={handleImportBulkLinks}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-1.5"
-                >
-                  <ListPlus className="w-4 h-4" />
-                  <span>🚀 Import & Auto-Arrange All ({bulkParsedItems.length}) Links</span>
-                </button>
+                {/* Quick Batch Controls & Import Button */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllBulkType('single_episode')}
+                    className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-[10px] font-bold transition-colors"
+                    title="Convert all items to Single Episodes"
+                  >
+                    📥 Set All as Episodes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllBulkType('zip_pack')}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold transition-colors"
+                    title="Convert all items to Zip Packs"
+                  >
+                    🗜️ Set All as Zip Packs
+                  </button>
+
+                  <button
+                    onClick={handleImportBulkLinks}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-1.5 ml-2"
+                  >
+                    <ListPlus className="w-4 h-4" />
+                    <span>🚀 Import All ({bulkParsedItems.length}) Links</span>
+                  </button>
+                </div>
               </div>
 
               {/* Detected Items Grid */}
@@ -416,17 +466,22 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-black text-[9px] font-mono">
                           SEASON {item.seasonNumber}
                         </span>
-                        <span
-                          className={`px-1.5 py-0.2 rounded font-black text-[9px] font-mono ${
+
+                        {/* Interactive Clickable Badge to toggle between Episode and Zip Pack */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBulkItemType(item.id)}
+                          className={`px-2 py-0.5 rounded font-black text-[9px] font-mono transition-all hover:scale-105 ${
                             item.linkType === 'zip_pack'
-                              ? 'bg-amber-500/20 text-amber-300'
-                              : 'bg-sky-500/20 text-sky-300'
+                              ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40'
+                              : 'bg-sky-500/30 text-sky-200 border border-sky-500/40'
                           }`}
+                          title="Click to toggle between Episode and Zip Pack"
                         >
                           {item.linkType === 'zip_pack'
-                            ? '🗜️ ZIP PACK'
-                            : `📥 EP ${item.episodeNumber || '?'}`}
-                        </span>
+                            ? '🗜️ ZIP PACK (Click to switch)'
+                            : `📥 EP ${item.episodeNumber ? (item.episodeNumber < 10 ? '0' + item.episodeNumber : item.episodeNumber) : '?'} (Click to switch)`}
+                        </button>
                       </div>
                       <p className="font-bold text-white truncate text-[11px]">{item.title}</p>
                       <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
@@ -438,7 +493,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
                     <button
                       onClick={() => handleRemoveParsedItem(item.id)}
-                      className="p-1 rounded-lg bg-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
                       title="Remove from batch"
                     >
                       <X className="w-3.5 h-3.5" />
