@@ -195,3 +195,97 @@ export function getQualityWeight(qualityStr: string = ''): number {
   if (q.includes('480') || q.includes('sd')) return 100;
   return 250;
 }
+
+export interface ParsedBulkItem {
+  id: string;
+  title: string;
+  url: string;
+  linkType: 'zip_pack' | 'single_episode';
+  seasonNumber: number;
+  episodeNumber?: number;
+  quality: string;
+  audioLanguage: string;
+  size?: string;
+  category: 'ZipPack' | 'SingleEpisode';
+}
+
+/**
+ * Intelligently parse raw bulk/multi-line text into structured season, episode, and zip pack links
+ */
+export function parseBulkLinksInput(rawText: string, fallbackSeason: number = 1): ParsedBulkItem[] {
+  if (!rawText || !rawText.trim()) return [];
+
+  const items: ParsedBulkItem[] = [];
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  const urlRegex = /(https?:\/\/[^\s<>"']+)/i;
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const match = line.match(urlRegex);
+
+    if (match) {
+      const url = match[1];
+      let titlePart = line.replace(url, '').trim();
+      titlePart = titlePart.replace(/^[-|:•\s\t>\])]+|[-|:•\s\t<\[(]+$/g, '').trim();
+
+      if (!titlePart || titlePart.length < 3) {
+        try {
+          const urlObj = new URL(url);
+          const pathname = decodeURIComponent(urlObj.pathname);
+          const filename = pathname.split('/').pop() || '';
+          titlePart = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[._-]/g, ' ').trim();
+        } catch {
+          titlePart = `Link ${items.length + 1}`;
+        }
+      }
+
+      const meta = parseFullMediaTitle(titlePart);
+      const sNum = meta.seasonNumber || fallbackSeason;
+
+      items.push({
+        id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
+        title: titlePart || `Episode / Pack ${items.length + 1}`,
+        url,
+        linkType: meta.linkType,
+        seasonNumber: sNum,
+        episodeNumber: meta.episodeNumber,
+        quality: meta.quality || '1080p WEB-DL',
+        audioLanguage: meta.audioLanguage || 'English',
+        size: meta.size,
+        category: meta.linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+      });
+      i++;
+    } else {
+      if (i + 1 < lines.length && urlRegex.test(lines[i + 1])) {
+        const titlePart = line.replace(/^[-|:•\s\t>\])]+|[-|:•\s\t<\[(]+$/g, '').trim();
+        const nextUrlMatch = lines[i + 1].match(urlRegex);
+        if (nextUrlMatch) {
+          const url = nextUrlMatch[1];
+          const meta = parseFullMediaTitle(titlePart);
+          const sNum = meta.seasonNumber || fallbackSeason;
+
+          items.push({
+            id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
+            title: titlePart || `Episode / Pack ${items.length + 1}`,
+            url,
+            linkType: meta.linkType,
+            seasonNumber: sNum,
+            episodeNumber: meta.episodeNumber,
+            quality: meta.quality || '1080p WEB-DL',
+            audioLanguage: meta.audioLanguage || 'English',
+            size: meta.size,
+            category: meta.linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+          });
+          i += 2;
+          continue;
+        }
+      }
+      i++;
+    }
+  }
+
+  return items;
+}
+

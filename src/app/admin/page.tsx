@@ -39,6 +39,8 @@ import {
   X,
   ChevronDown,
   Clock,
+  Zap,
+  ListPlus,
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
@@ -46,7 +48,7 @@ import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink } from '@/lib/curatedLinks';
-import { parseFullMediaTitle } from '@/lib/seasonParser';
+import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
 
 const DEFAULT_ADMIN_USER = 'shyam';
 const DEFAULT_ADMIN_PASS = 'shyam081';
@@ -119,7 +121,10 @@ export default function AdminPage() {
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [linkCategoryFilter, setLinkCategoryFilter] = useState('All');
 
-  // --- NEW: Universal Target Title Live Search & Selection State ---
+  // Mode in Manage Links: 'single' vs 'bulk'
+  const [addLinkMode, setAddLinkMode] = useState<'single' | 'bulk'>('single');
+
+  // Universal Target Title Live Search & Selection State
   const [selectedTargetTitle, setSelectedTargetTitle] = useState<{
     id: number;
     title: string;
@@ -143,6 +148,11 @@ export default function AdminPage() {
   const [newLinkSize, setNewLinkSize] = useState('');
   const [addLinkSuccess, setAddLinkSuccess] = useState(false);
 
+  // Bulk Multi-Link Importer State
+  const [adminBulkRawText, setAdminBulkRawText] = useState('');
+  const [adminBulkParsedItems, setAdminBulkParsedItems] = useState<ParsedBulkItem[]>([]);
+  const [adminBulkSuccessMsg, setAdminBulkSuccessMsg] = useState('');
+
   // Edit Link Modal State
   const [editingLink, setEditingLink] = useState<{ movieId: number; link: CustomLink } | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -152,7 +162,7 @@ export default function AdminPage() {
   const [editAudio, setEditAudio] = useState('');
   const [editSize, setEditSize] = useState('');
 
-  // --- Manage Titles Tab Live Search State ---
+  // Manage Titles Tab Live Search State
   const [titleSearchQuery, setTitleSearchQuery] = useState('');
   const [manageTitlesResults, setManageTitlesResults] = useState<TitleDetails[]>([]);
   const [isSearchingManageTitles, setIsSearchingManageTitles] = useState(false);
@@ -160,7 +170,7 @@ export default function AdminPage() {
   // Diagnostics logs
   const [systemLogs, setSystemLogs] = useState<Array<{ timestamp: string; level: 'info' | 'success' | 'warn'; message: string }>>([
     { timestamp: 'Just now', level: 'success', message: 'Admin session initialized for Shyam.' },
-    { timestamp: '1m ago', level: 'info', message: 'Universal TMDB Multi-Search ready for any movie or TV series.' },
+    { timestamp: '1m ago', level: 'info', message: 'Bulk Multi-Link Auto-Detector Engine ready for batch episodes & zip packs.' },
     { timestamp: '2m ago', level: 'info', message: 'TMDB, SIMKL & MDBList engines operational.' },
   ]);
 
@@ -268,7 +278,6 @@ export default function AdminPage() {
       return;
     }
 
-    // Direct TMDB ID or TMDB URL detection
     const numericMatch = query.match(/^\d+$/) || query.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
     if (numericMatch) {
       const detectedId = Number(numericMatch[2] || numericMatch[0]);
@@ -337,6 +346,16 @@ export default function AdminPage() {
 
     return () => clearTimeout(handler);
   }, [titleSearchQuery]);
+
+  // Real-time bulk parsing on admin textarea change
+  useEffect(() => {
+    if (!adminBulkRawText.trim()) {
+      setAdminBulkParsedItems([]);
+      return;
+    }
+    const parsed = parseBulkLinksInput(adminBulkRawText, 1);
+    setAdminBulkParsedItems(parsed);
+  }, [adminBulkRawText]);
 
   // Handle Target Title Selection
   const handleSelectTargetTitle = (item: {
@@ -457,7 +476,7 @@ export default function AdminPage() {
     setTimeout(() => setApiSaveSuccess(false), 3500);
   };
 
-  // Handle Quick Add Custom Link
+  // Handle Quick Add Single Custom Link
   const handleQuickAddLink = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLinkTitle.trim() || !newLinkUrl.trim() || !selectedTargetTitle) return;
@@ -513,6 +532,50 @@ export default function AdminPage() {
     setTimeout(() => setAddLinkSuccess(false), 3000);
   };
 
+  // Handle Bulk Links Import
+  const handleAdminImportBulk = () => {
+    if (adminBulkParsedItems.length === 0 || !selectedTargetTitle) return;
+
+    const createdObjs: CustomLink[] = [];
+    adminBulkParsedItems.forEach((item, index) => {
+      const newObj: CustomLink = {
+        id: `bulk-admin-${Date.now()}-${index}`,
+        title: item.title,
+        url: item.url,
+        category: item.category,
+        createdAt: new Date(Date.now() - index * 1000).toISOString(),
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        quality: item.quality,
+        audioLanguage: item.audioLanguage,
+        size: item.size,
+        linkType: item.linkType,
+      };
+      saveGlobalCustomLink(selectedTargetTitle.id, newObj);
+      createdObjs.push(newObj);
+    });
+
+    setCustomLinksMap((prev) => {
+      const existing = prev[String(selectedTargetTitle.id)] || [];
+      const updated = {
+        ...prev,
+        [String(selectedTargetTitle.id)]: [...createdObjs, ...existing],
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    const count = adminBulkParsedItems.length;
+    setAdminBulkSuccessMsg(`🎉 Successfully imported and auto-arranged ${count} links for "${selectedTargetTitle.title}"!`);
+    addLog(`Admin bulk imported ${count} links for "${selectedTargetTitle.title}"`, 'success');
+    setAdminBulkRawText('');
+    setAdminBulkParsedItems([]);
+
+    setTimeout(() => setAdminBulkSuccessMsg(''), 3500);
+  };
+
   // Open Edit Link Modal
   const openEditModal = (movieId: number, link: CustomLink) => {
     setEditingLink({ movieId, link });
@@ -551,17 +614,14 @@ export default function AdminPage() {
 
     saveGlobalCustomLink(editingLink.movieId, updatedLinkObj);
 
-    // 1. Remove old link from Watchlist Context
     removeCustomLink(editingLink.movieId, editingLink.link.id);
 
-    // 2. Add updated link
     addCustomLink(editingLink.movieId, {
       title: editTitle.trim(),
       url,
       category: editCategory,
     });
 
-    // 3. Update local standalone map
     setCustomLinksMap((prev) => {
       const movieIdStr = String(editingLink.movieId);
       const existing = prev[movieIdStr] || [];
@@ -742,7 +802,6 @@ export default function AdminPage() {
     if (titleSearchQuery.trim() && manageTitlesResults.length > 0) {
       return manageTitlesResults;
     }
-    // Default catalog list
     const combined: PinnedTitle[] = [...PINNED_TITLES];
     Object.values(MOCK_TITLES).forEach((m) => {
       if (!combined.some((c) => c.id === m.id)) {
@@ -1071,55 +1130,61 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
-      {/* TAB 2: MANAGE LINKS (UNIVERSAL TITLE SEARCH + ADD/EDIT/DELETE) */}
+      {/* TAB 2: MANAGE LINKS (UNIVERSAL TITLE SEARCH + SINGLE / BULK IMPORTER) */}
       {/* ========================================================= */}
       {activeTab === 'links' && (
         <div className="space-y-6">
-          {/* Quick Add Custom Link Box with Universal Title Search */}
+          {/* Add Custom Link Box with Universal Title Search & Mode Toggle */}
           <div className="p-6 sm:p-7 rounded-3xl bg-[#0f121a] border border-amber-500/30 space-y-5 shadow-2xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
               <div>
                 <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-amber-400" /> Add Custom Link to Title
+                  <Plus className="w-4 h-4 text-amber-400" /> Add / Import Custom Links
                 </h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Search any movie or TV series from TMDB, select it, and attach your verified streaming or download link.
+                  Select any title across TMDB, then add links one-by-one or use the Bulk Importer to auto-detect all episodes & zip packs.
                 </p>
               </div>
 
-              {/* Selected Title Badge / Pill */}
-              {selectedTargetTitle && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 self-start sm:self-auto">
-                  <div className="w-6 h-8 rounded bg-zinc-800 relative overflow-hidden shrink-0">
-                    {selectedTargetTitle.poster_path ? (
-                      <Image
-                        src={getImageURL(selectedTargetTitle.poster_path, 'w200')}
-                        alt={selectedTargetTitle.title}
-                        fill
-                        className="object-cover"
-                        sizes="24px"
-                      />
-                    ) : (
-                      <Film className="w-4 h-4 text-zinc-500 m-auto" />
-                    )}
-                  </div>
-                  <div>
-                    <span className="text-xs font-black text-white block leading-tight">
-                      {selectedTargetTitle.title}
-                    </span>
-                    <span className="text-[10px] text-amber-400 font-mono">
-                      ID: {selectedTargetTitle.id} • {selectedTargetTitle.media_type.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-              )}
+              {/* Mode Toggle Pills (Single vs Bulk Auto-Detector) */}
+              <div className="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-2xl border border-zinc-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAddLinkMode('single')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${
+                    addLinkMode === 'single'
+                      ? 'bg-amber-500 text-black shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Single Link
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddLinkMode('bulk')}
+                  className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all ${
+                    addLinkMode === 'bulk'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" /> Bulk Auto-Detector
+                </button>
+              </div>
             </div>
 
             {/* Target Title Search & Picker */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-300 block">
-                1. Search & Select Target Title <span className="text-amber-400 font-normal">(Search any movie, show, or TMDB ID)</span>:
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-300 block">
+                  1. Search & Select Target Title <span className="text-amber-400 font-normal">(Search any movie, show, or TMDB ID)</span>:
+                </label>
+                {selectedTargetTitle && (
+                  <span className="text-[10px] text-amber-400 font-mono font-bold">
+                    Target: {selectedTargetTitle.title} ({selectedTargetTitle.id})
+                  </span>
+                )}
+              </div>
 
               <div className="relative" ref={searchDropdownRef}>
                 <div className="relative">
@@ -1251,99 +1316,190 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Link Details Form */}
-            <form onSubmit={handleQuickAddLink} className="space-y-4 pt-3 border-t border-zinc-800/80">
-              <label className="text-xs font-bold text-zinc-300 block">
-                2. Enter Link Details for &quot;{selectedTargetTitle?.title || 'Selected Title'}&quot;:
-              </label>
+            {/* VIEW A: SINGLE LINK FORM */}
+            {addLinkMode === 'single' && (
+              <form onSubmit={handleQuickAddLink} className="space-y-4 pt-3 border-t border-zinc-800/80">
+                <label className="text-xs font-bold text-zinc-300 block">
+                  2. Enter Link Details for &quot;{selectedTargetTitle?.title || 'Selected Title'}&quot;:
+                </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="lg:col-span-2">
-                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">
-                    Link Title / Release Label <span className="text-amber-400 text-[10px]">(Auto-detects quality & audio)</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 4K IMAX BluRay [Hindi + English Atmos], 1080p WEB-DL, JioCinema..."
-                    value={newLinkTitle}
-                    onChange={(e) => handleNewLinkTitleChange(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                    required
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="lg:col-span-2">
+                    <label className="text-[11px] font-semibold text-zinc-400 block mb-1">
+                      Link Title / Release Label <span className="text-amber-400 text-[10px]">(Auto-detects quality & audio)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 4K IMAX BluRay [Hindi + English Atmos], 1080p WEB-DL, JioCinema..."
+                      value={newLinkTitle}
+                      onChange={(e) => handleNewLinkTitleChange(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Destination URL</label>
+                    <input
+                      type="text"
+                      placeholder="https://..."
+                      value={newLinkUrl}
+                      onChange={(e) => setNewLinkUrl(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Category</label>
+                    <select
+                      value={newLinkCategory}
+                      onChange={(e) => setNewLinkCategory(e.target.value as any)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                    >
+                      <option value="Streaming">🎬 Streaming</option>
+                      <option value="Download">📥 Download</option>
+                      <option value="Subtitles">🌐 Subtitles</option>
+                      <option value="Discussion">💬 Discussion</option>
+                      <option value="Review">📝 Review</option>
+                      <option value="Official">🏛️ Official</option>
+                      <option value="Recent">⚡ Recent</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Quality / Resolution</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 2160p 4K, 1080p"
+                      value={newLinkQuality}
+                      onChange={(e) => setNewLinkQuality(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Audio / Dub</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Hindi + English, Dual Audio"
+                      value={newLinkAudio}
+                      onChange={(e) => setNewLinkAudio(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-400 block mb-1">File Size</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 16.8 GB, 1.2 GB"
+                      value={newLinkSize}
+                      onChange={(e) => setNewLinkSize(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </div>
 
-                <div className="lg:col-span-2">
-                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Destination URL</label>
-                  <input
-                    type="text"
-                    placeholder="https://..."
-                    value={newLinkUrl}
-                    onChange={(e) => setNewLinkUrl(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Category</label>
-                  <select
-                    value={newLinkCategory}
-                    onChange={(e) => setNewLinkCategory(e.target.value as any)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-md shadow-amber-500/20 flex items-center gap-1.5 hover:scale-105"
                   >
-                    <option value="Streaming">🎬 Streaming</option>
-                    <option value="Download">📥 Download</option>
-                    <option value="Subtitles">🌐 Subtitles</option>
-                    <option value="Discussion">💬 Discussion</option>
-                    <option value="Review">📝 Review</option>
-                    <option value="Official">🏛️ Official</option>
-                    <option value="Recent">⚡ Recent</option>
-                  </select>
+                    <Plus className="w-4 h-4" /> Attach Custom Link to {selectedTargetTitle?.title || 'Title'}
+                  </button>
                 </div>
+              </form>
+            )}
 
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Quality / Resolution</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 2160p 4K, 1080p"
-                    value={newLinkQuality}
-                    onChange={(e) => setNewLinkQuality(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+            {/* VIEW B: BULK MULTI-LINK AUTO-DETECTOR CONTAINER */}
+            {addLinkMode === 'bulk' && (
+              <div className="space-y-4 pt-3 border-t border-zinc-800/80">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-zinc-300 block flex items-center justify-between">
+                    <span>2. Paste Multiple Episode & Zip Pack Links for &quot;{selectedTargetTitle?.title}&quot;:</span>
+                    <span className="text-[10px] text-amber-400 font-mono">Auto-detects S01/S02, Zip Packs vs Single EPs</span>
+                  </label>
+                  <textarea
+                    rows={5}
+                    placeholder={`Paste multiple release lines or download URLs at once! Examples:\n${selectedTargetTitle?.title} S01E01 1080p WEB-DL Hindi DDP 5.1 - https://drive.google.com/file/d/1...\n${selectedTargetTitle?.title} S01E02 1080p WEB-DL Hindi DDP 5.1 - https://drive.google.com/file/d/2...\n${selectedTargetTitle?.title} S01 Complete 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/3...`}
+                    value={adminBulkRawText}
+                    onChange={(e) => setAdminBulkRawText(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-2xl p-3.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500 leading-relaxed shadow-inner"
+                    autoFocus
                   />
                 </div>
 
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Audio / Dub</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Hindi + English, Dual Audio"
-                    value={newLinkAudio}
-                    onChange={(e) => setNewLinkAudio(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
+                {/* Real-time Parsed Results Preview */}
+                {adminBulkParsedItems.length > 0 && (
+                  <div className="space-y-3 bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-black text-white">
+                          {adminBulkParsedItems.length} Links Auto-Detected:
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold text-[10px]">
+                          🗜️ {adminBulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold text-[10px]">
+                          📥 {adminBulkParsedItems.filter((i) => i.linkType === 'single_episode').length} Episodes
+                        </span>
+                      </div>
 
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-400 block mb-1">File Size</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 16.8 GB, 1.2 GB"
-                    value={newLinkSize}
-                    onChange={(e) => setNewLinkSize(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
+                      <button
+                        type="button"
+                        onClick={handleAdminImportBulk}
+                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-1.5"
+                      >
+                        <ListPlus className="w-4 h-4" />
+                        <span>🚀 Import All ({adminBulkParsedItems.length}) Links to {selectedTargetTitle?.title}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                      {adminBulkParsedItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="overflow-hidden space-y-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-black text-[9px] font-mono">
+                                SEASON {item.seasonNumber}
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.2 rounded font-black text-[9px] font-mono ${
+                                  item.linkType === 'zip_pack' ? 'bg-amber-500/20 text-amber-300' : 'bg-sky-500/20 text-sky-300'
+                                }`}
+                              >
+                                {item.linkType === 'zip_pack' ? '🗜️ ZIP PACK' : `📥 EP ${item.episodeNumber || '?'}`}
+                              </span>
+                            </div>
+                            <p className="font-bold text-white truncate text-[11px]">{item.title}</p>
+                            <span className="text-[10px] text-zinc-400 block truncate">{item.quality} • {item.audioLanguage}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setAdminBulkParsedItems((prev) => prev.filter((i) => i.id !== item.id))}
+                            className="p-1 text-zinc-500 hover:text-rose-400"
+                            title="Remove"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminBulkSuccessMsg && (
+                  <p className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4" /> {adminBulkSuccessMsg}
+                  </p>
+                )}
               </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-md shadow-amber-500/20 flex items-center gap-1.5 hover:scale-105"
-                >
-                  <Plus className="w-4 h-4" /> Attach Custom Link to {selectedTargetTitle?.title || 'Title'}
-                </button>
-              </div>
-            </form>
+            )}
 
             {addLinkSuccess && (
               <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1 pt-1">
@@ -1379,6 +1535,8 @@ export default function AdminPage() {
                   <option value="All">All Categories</option>
                   <option value="Streaming">Streaming</option>
                   <option value="Download">Download</option>
+                  <option value="ZipPack">ZipPack</option>
+                  <option value="SingleEpisode">SingleEpisode</option>
                   <option value="Subtitles">Subtitles</option>
                   <option value="Discussion">Discussion</option>
                   <option value="Review">Review</option>
@@ -1836,6 +1994,8 @@ export default function AdminPage() {
                   >
                     <option value="Streaming">🎬 Streaming</option>
                     <option value="Download">📥 Download</option>
+                    <option value="ZipPack">ZipPack</option>
+                    <option value="SingleEpisode">SingleEpisode</option>
                     <option value="Subtitles">🌐 Subtitles</option>
                     <option value="Discussion">💬 Discussion</option>
                     <option value="Review">📝 Review</option>

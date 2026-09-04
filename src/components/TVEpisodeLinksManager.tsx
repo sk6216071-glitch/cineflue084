@@ -13,6 +13,11 @@ import {
   Sparkles,
   Info,
   SlidersHorizontal,
+  Zap,
+  CheckCircle2,
+  X,
+  FileText,
+  ListPlus,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import {
@@ -29,6 +34,8 @@ import {
   detectSize,
   getQualityWeight,
   parseFullMediaTitle,
+  parseBulkLinksInput,
+  ParsedBulkItem,
 } from '@/lib/seasonParser';
 
 interface TVEpisodeLinksManagerProps {
@@ -47,8 +54,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [activeMode, setActiveMode] = useState<'zip_pack' | 'single_episodes'>('zip_pack');
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [isOpenAddModal, setIsOpenAddModal] = useState<boolean>(false);
+  const [isOpenBulkContainer, setIsOpenBulkContainer] = useState<boolean>(false);
 
-  // Form states for Admin adding episode / zip links
+  // Form states for Admin adding single episode / zip link
   const [formSeason, setFormSeason] = useState<number>(1);
   const [formType, setFormType] = useState<'zip_pack' | 'single_episode'>('zip_pack');
   const [formEpisode, setFormEpisode] = useState<number>(1);
@@ -57,6 +65,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [formQuality, setFormQuality] = useState<string>('1080p WEB-DL');
   const [formAudio, setFormAudio] = useState<string>('English (Original)');
   const [formSize, setFormSize] = useState<string>('1.2 GB');
+
+  // Bulk Multi-Link Importer States
+  const [bulkRawText, setBulkRawText] = useState<string>('');
+  const [bulkParsedItems, setBulkParsedItems] = useState<ParsedBulkItem[]>([]);
+  const [bulkSuccessMsg, setBulkSuccessMsg] = useState<string>('');
 
   // Form states for Admin editing an existing link
   const [editingLink, setEditingLink] = useState<CustomLink | null>(null);
@@ -91,6 +104,16 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       setSelectedSeason(seasonsList[0]);
     }
   }, [seasonsList, selectedSeason]);
+
+  // Auto-parse bulk text whenever user types/pastes
+  useEffect(() => {
+    if (!bulkRawText.trim()) {
+      setBulkParsedItems([]);
+      return;
+    }
+    const parsed = parseBulkLinksInput(bulkRawText, selectedSeason);
+    setBulkParsedItems(parsed);
+  }, [bulkRawText, selectedSeason]);
 
   // Enrich each custom link with smart auto-detected season, episode, quality, audio, and type
   const enrichedLinks = useMemo(() => {
@@ -191,6 +214,44 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     if (onLinkAdded) onLinkAdded();
   };
 
+  // Handle Bulk Import Action
+  const handleImportBulkLinks = () => {
+    if (bulkParsedItems.length === 0) return;
+
+    bulkParsedItems.forEach((item, index) => {
+      const newLink: CustomLink = {
+        id: `tv-bulk-${Date.now()}-${index}`,
+        title: item.title,
+        url: item.url,
+        category: item.category,
+        createdAt: new Date(Date.now() - index * 1000).toISOString(),
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        quality: item.quality,
+        audioLanguage: item.audioLanguage,
+        size: item.size,
+        linkType: item.linkType,
+      };
+      saveGlobalCustomLink(titleDetails.id, newLink);
+    });
+
+    const count = bulkParsedItems.length;
+    setBulkSuccessMsg(`🎉 Successfully imported and auto-arranged ${count} link${count > 1 ? 's' : ''}!`);
+    setBulkRawText('');
+    setBulkParsedItems([]);
+    if (onLinkAdded) onLinkAdded();
+
+    setTimeout(() => {
+      setBulkSuccessMsg('');
+      setIsOpenBulkContainer(false);
+    }, 2800);
+  };
+
+  // Remove single item from parsed bulk preview before saving
+  const handleRemoveParsedItem = (id: string) => {
+    setBulkParsedItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
   const handleStartEdit = (link: CustomLink) => {
     setEditingLink(link);
     setEditSeason(link.seasonNumber || 1);
@@ -241,7 +302,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   return (
     <div className="bg-[#0f121a] border border-zinc-800/80 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-6">
-      {/* Top Header & Admin Trigger */}
+      {/* Top Header & Admin Triggers */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-5">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -254,17 +315,147 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         </div>
 
         {isAdmin && (
-          <button
-            onClick={() => {
-              setFormSeason(selectedSeason);
-              setIsOpenAddModal(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs transition-all shadow-md shrink-0 self-start sm:self-auto hover:scale-105"
-          >
-            <Plus className="w-4 h-4" /> Add TV Season / Episode Link
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <button
+              onClick={() => setIsOpenBulkContainer(!isOpenBulkContainer)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
+            >
+              <Zap className="w-3.5 h-3.5 fill-black" />
+              <span>Bulk Multi-Link Importer</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setFormSeason(selectedSeason);
+                setIsOpenAddModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-white font-bold text-xs transition-all hover:bg-zinc-800"
+            >
+              <Plus className="w-3.5 h-3.5 text-amber-400" />
+              <span>+ Add Single Link</span>
+            </button>
+          </div>
         )}
       </div>
+
+      {/* --- NEW: BULK MULTI-LINK AUTO-DETECTOR CONTAINER (ADMIN ONLY) --- */}
+      {isAdmin && isOpenBulkContainer && (
+        <div className="bg-gradient-to-b from-[#131722] to-[#0d1017] border-2 border-amber-500/40 rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl animate-fadeIn">
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                <Zap className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                  Bulk Multi-Link Auto-Detector Container
+                </h4>
+                <p className="text-[11px] text-zinc-400">
+                  Paste multiple release filenames and links at once — auto-detects S01/S02, Zip Packs vs Single Episodes, Qualities, and Dubs!
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsOpenBulkContainer(false)}
+              className="text-xs text-zinc-400 hover:text-white px-2 py-1"
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-300 block">
+              Paste Raw Multi-Link Release Text:
+            </label>
+            <textarea
+              rows={5}
+              placeholder={`Paste any number of episode/zip links at once, for example:\nLoki S02E01 1080p WEB-DL Hindi DDP 5.1 - https://drive.google.com/file/d/1...\nLoki S02E02 1080p WEB-DL Hindi DDP 5.1 - https://drive.google.com/file/d/2...\nLoki S02 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/3...`}
+              value={bulkRawText}
+              onChange={(e) => setBulkRawText(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-700 rounded-2xl p-3.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500 leading-relaxed shadow-inner"
+              autoFocus
+            />
+          </div>
+
+          {/* Live Auto-Detection Preview */}
+          {bulkParsedItems.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/80 p-3 rounded-2xl border border-zinc-800">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-black text-amber-400 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5" /> {bulkParsedItems.length} Links Auto-Detected:
+                  </span>
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold">
+                      🗜️ {bulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold">
+                      📥 {bulkParsedItems.filter((i) => i.linkType === 'single_episode').length} Single Episodes
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleImportBulkLinks}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-1.5"
+                >
+                  <ListPlus className="w-4 h-4" />
+                  <span>🚀 Import & Auto-Arrange All ({bulkParsedItems.length}) Links</span>
+                </button>
+              </div>
+
+              {/* Detected Items Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
+                {bulkParsedItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="overflow-hidden space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-black text-[9px] font-mono">
+                          SEASON {item.seasonNumber}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded font-black text-[9px] font-mono ${
+                            item.linkType === 'zip_pack'
+                              ? 'bg-amber-500/20 text-amber-300'
+                              : 'bg-sky-500/20 text-sky-300'
+                          }`}
+                        >
+                          {item.linkType === 'zip_pack'
+                            ? '🗜️ ZIP PACK'
+                            : `📥 EP ${item.episodeNumber || '?'}`}
+                        </span>
+                      </div>
+                      <p className="font-bold text-white truncate text-[11px]">{item.title}</p>
+                      <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                        <span>{item.quality}</span>
+                        {item.audioLanguage && <span>• {item.audioLanguage}</span>}
+                        {item.size && <span className="text-zinc-500 font-mono">• {item.size}</span>}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleRemoveParsedItem(item.id)}
+                      className="p-1 rounded-lg bg-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                      title="Remove from batch"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {bulkSuccessMsg && (
+            <p className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-fadeIn">
+              <CheckCircle2 className="w-4 h-4" /> {bulkSuccessMsg}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Season Selector Bar (S01, S02, S03...) */}
       <div className="space-y-2">
@@ -421,21 +612,29 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-sm mx-auto">
                   {isAdmin
-                    ? `As an Admin, click below to add Season ${selectedSeason} zip batch links.`
+                    ? `As an Admin, use the Bulk Importer or click below to add Season ${selectedSeason} zip batch links.`
                     : `Download packs for Season ${selectedSeason} will appear here once published by the admin.`}
                 </p>
               </div>
               {isAdmin && (
-                <button
-                  onClick={() => {
-                    setFormSeason(selectedSeason);
-                    setFormType('zip_pack');
-                    setIsOpenAddModal(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs transition-transform hover:scale-105"
-                >
-                  <Plus className="w-4 h-4" /> Add Season {selectedSeason} Zip Pack
-                </button>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    onClick={() => setIsOpenBulkContainer(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs transition-transform hover:scale-105"
+                  >
+                    <Zap className="w-3.5 h-3.5 fill-black" /> Bulk Multi-Link Importer
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormSeason(selectedSeason);
+                      setFormType('zip_pack');
+                      setIsOpenAddModal(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Single Pack
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -507,14 +706,14 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                           className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700 transition-colors"
                           title="Admin: Edit Episode Link"
                         >
-                          <Pencil className="w-3 h-3" />
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDelete(ep.id)}
                           className="p-1.5 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
                           title="Admin: Delete Episode Link"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     )}
@@ -533,28 +732,36 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-sm mx-auto">
                   {isAdmin
-                    ? `As an Admin, click below to add weekly episodes for Season ${selectedSeason}.`
+                    ? `As an Admin, paste multiple links at once using the Bulk Importer or add one by one.`
                     : `Episode links for Season ${selectedSeason} will appear here as soon as published by the admin.`}
                 </p>
               </div>
               {isAdmin && (
-                <button
-                  onClick={() => {
-                    setFormSeason(selectedSeason);
-                    setFormType('single_episode');
-                    setIsOpenAddModal(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-bold text-xs transition-transform hover:scale-105"
-                >
-                  <Plus className="w-4 h-4" /> Add Episode for Season {selectedSeason}
-                </button>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    onClick={() => setIsOpenBulkContainer(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-white font-black text-xs transition-transform hover:scale-105"
+                  >
+                    <Zap className="w-3.5 h-3.5 fill-white" /> Bulk Import Multiple Episodes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormSeason(selectedSeason);
+                      setFormType('single_episode');
+                      setIsOpenAddModal(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Single Episode
+                  </button>
+                </div>
               )}
             </div>
           )}
         </div>
       )}
 
-      {/* Admin Add Custom Episode / Zip Link Modal */}
+      {/* Admin Add Single Custom Episode / Zip Link Modal */}
       {isAdmin && isOpenAddModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#11141d] border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
