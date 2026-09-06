@@ -94,21 +94,58 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     }
   }, [isMounted]);
 
+  const [liveServerLinks, setLiveServerLinks] = useState<CustomLink[]>([]);
+
   // Listen to cross-app link updates to immediately refresh links
   React.useEffect(() => {
-    syncServerLinks(titleDetails.id);
+    let active = true;
+
+    const fetchLiveLinks = async () => {
+      try {
+        const res = await fetch(`/api/curated-links?movieId=${titleDetails.id}&_t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (active && Array.isArray(data.links)) {
+            setLiveServerLinks(data.links);
+          }
+        }
+      } catch {}
+      syncServerLinks(titleDetails.id);
+    };
+
+    fetchLiveLinks();
+    const interval = setInterval(fetchLiveLinks, 3500);
+
     const handleLinksUpdated = () => {
       setLinksRefresh((v) => v + 1);
+      fetchLiveLinks();
     };
     window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
-    return () => window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
+    };
   }, [titleDetails.id]);
 
-  // Consolidated Custom Links (Global Admin Storage + User LocalStorage)
+  // Consolidated Custom Links (Global Admin Storage + User LocalStorage + Live Server Links)
   const userCustomLinks = useMemo(() => {
     if (!isMounted) return [];
-    return getConsolidatedCustomLinks(titleDetails.id);
-  }, [titleDetails.id, isMounted, linksRefresh]);
+    const local = getConsolidatedCustomLinks(titleDetails.id);
+    const linkMap = new Map<string, CustomLink>();
+
+    // 1. Local / Built-in
+    local.forEach((l) => linkMap.set(l.id || l.url, l));
+
+    // 2. Real-time Live Cloud Server Links
+    liveServerLinks.forEach((l) => linkMap.set(l.id || l.url, l));
+
+    return Array.from(linkMap.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [titleDetails.id, isMounted, linksRefresh, liveServerLinks]);
 
   // Filter links by category
   const filteredCustomLinks = useMemo(() => {
