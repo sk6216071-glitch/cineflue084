@@ -6,7 +6,6 @@ import { POPULAR_GENRES } from '@/lib/mockData';
 import HeroBanner from '@/components/HeroBanner';
 import SectionCarousel from '@/components/SectionCarousel';
 import PersonalizedRecommendations from '@/components/PersonalizedRecommendations';
-import RecentlyAddedLinksCatalog from '@/components/RecentlyAddedLinksCatalog';
 
 export const revalidate = 3600; // ISR cache 1 hour
 
@@ -26,9 +25,6 @@ export default async function HomePage() {
 
       {/* Personalized AI Recommendations Feed */}
       <PersonalizedRecommendations />
-
-      {/* Recently Added Custom Links Showcase Catalog */}
-      <RecentlyAddedLinksCatalog />
 
       {/* Genre Fast Explorer Bar */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
