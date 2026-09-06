@@ -16,8 +16,9 @@ if (fs.existsSync(envPath)) {
     if (trimmed && !trimmed.startsWith('#')) {
       const idx = trimmed.indexOf('=');
       if (idx > 0) {
-        const k = trimmed.slice(0, idx).trim();
-        const v = trimmed.slice(idx + 1).trim();
+        let k = trimmed.slice(0, idx).trim();
+        let v = trimmed.slice(idx + 1).trim();
+        v = v.replace(/^["']|["']$/g, '').trim();
         if (!process.env[k]) process.env[k] = v;
       }
     }
