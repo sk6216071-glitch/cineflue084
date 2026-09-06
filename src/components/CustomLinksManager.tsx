@@ -24,7 +24,7 @@ import {
   Clock,
   X,
 } from 'lucide-react';
-import { TitleDetails, CustomLink, WatchProviderInfo } from '@/types';
+import { TitleDetails, CustomLink } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getImageURL } from '@/lib/tmdb';
 import {
@@ -34,10 +34,8 @@ import {
   deleteGlobalCustomLink,
   syncServerLinks,
 } from '@/lib/curatedLinks';
-import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
-import TrailerModal from './TrailerModal';
 import CollapsibleSection from './CollapsibleSection';
 
 interface CustomLinksManagerProps {
@@ -62,7 +60,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const [url, setUrl] = useState('');
   const [category, setCategory] = useState<CustomLink['category']>('Streaming');
   const [error, setError] = useState('');
-  const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
   const [linksRefresh, setLinksRefresh] = useState(0);
 
   // Edit Modal State
@@ -158,22 +155,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const releaseYear = (titleDetails.release_date || titleDetails.first_air_date || '').split('-')[0];
   const queryName = `${titleName} ${releaseYear}`.trim();
 
-  // Gather Built-in Links
-  const region = settings.defaultRegion || 'IN';
 
-  const { availableList, justwatchUrl, hasSubscription } = useMemo(() => {
-    return getRealAvailableStreamingProviders(
-      titleDetails.id,
-      titleName,
-      mediaType as any,
-      titleDetails['watch/providers']?.results?.[region] || titleDetails['watch/providers']?.results?.['IN'],
-      region
-    );
-  }, [titleDetails.id, titleName, mediaType, region, titleDetails]);
-
-  const mainTrailer = titleDetails.videos?.results?.find(
-    (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
-  );
 
   const handleAddLink = (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,7 +288,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     }
   };
 
-  const totalLinkCount = userCustomLinks.length + availableList.length;
+  const totalLinkCount = userCustomLinks.length;
 
   const adminAddBtn = isAdmin ? (
     <button
@@ -321,114 +303,18 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   return (
     <CollapsibleSection
-      title="Title Links & Destinations"
+      title={mediaType === 'tv' ? 'TV Series Season & Episode Vault' : 'Custom Saved Links & Downloads'}
       icon={<Link2 className="w-5 h-5 text-amber-400" />}
-      subtitle="Streaming platforms, trailers, review portals, and verified admin custom links."
+      subtitle={
+        mediaType === 'tv'
+          ? 'Auto-arranged seasons, batch zip archives, and weekly single episode releases.'
+          : 'Community & admin uploaded download sources, 4K releases, and verified custom links.'
+      }
       badge={`${totalLinkCount} files`}
       action={adminAddBtn}
       defaultOpen={false}
     >
-
-      {/* 1. Streaming Links Section (Only Show Actually Available Platforms) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Tv className="w-3.5 h-3.5 text-red-400" /> Streaming & OTT Services (India)
-          </h4>
-          <span className="text-[10px] text-zinc-500 font-medium">
-            {availableList.length > 0 ? `${availableList.length} verified platform${availableList.length > 1 ? 's' : ''}` : 'Digital / Rent Only'}
-          </span>
-        </div>
-
-        {availableList.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {availableList.map((item) => (
-              <a
-                key={item.key}
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 ${item.accentBorder} hover:bg-zinc-800/90 transition-all group shadow-sm`}
-              >
-                <div className="flex items-center gap-2.5 overflow-hidden">
-                  <div
-                    className="w-7 h-7 rounded-lg flex items-center justify-center font-black text-white text-xs shadow-md shrink-0"
-                    style={{ backgroundColor: item.logoBg }}
-                  >
-                    {item.logoText}
-                  </div>
-                  <div className="overflow-hidden">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xs font-bold text-white ${item.accentText} transition-colors block truncate`}>
-                        {item.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 text-[10px]">
-                      <span
-                        className={`font-semibold px-1 rounded text-[9px] ${
-                          item.tier === 'Subscription'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : item.tier === 'Rent'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                        }`}
-                      >
-                        {item.tier}
-                      </span>
-                      <span className="text-zinc-500 truncate">{item.subtext}</span>
-                    </div>
-                  </div>
-                </div>
-                <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white transition-colors shrink-0" />
-              </a>
-            ))}
-
-            {/* JustWatch Live Finder */}
-            <a
-              href={justwatchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/20 transition-all group shadow-sm sm:col-span-2"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-amber-500 text-black flex items-center justify-center font-black text-xs shadow-md shrink-0">
-                  JW
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200 transition-colors block flex items-center gap-1.5">
-                    JustWatch Streaming & Price Guide
-                    <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wider font-extrabold">Live</span>
-                  </span>
-                  <span className="text-[10px] text-zinc-400">Live 4K streaming availability, rental prices & OTT plan tracker</span>
-                </div>
-              </div>
-              <ExternalLink className="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-300 transition-colors shrink-0" />
-            </a>
-          </div>
-        ) : (
-          <div className="p-4 rounded-2xl bg-zinc-900/50 border border-dashed border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="space-y-0.5 text-center sm:text-left">
-              <p className="text-xs font-semibold text-zinc-300">
-                Not currently streaming on major subscription platforms in India
-              </p>
-              <p className="text-[11px] text-zinc-500">
-                Check digital rent/purchase options or see custom community links below.
-              </p>
-            </div>
-            <a
-              href={justwatchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-xs border border-amber-500/30 transition-all shrink-0 flex items-center gap-1.5"
-            >
-              <span>Check on JustWatch</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* 1.5 TV Series Season & Episode Vault */}
+      {/* TV Series Season & Episode Vault */}
       {mediaType === 'tv' && (
         <TVEpisodeLinksManager
           titleDetails={titleDetails}
@@ -438,151 +324,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         />
       )}
 
-      {/* 2. Official Trailer & Video Launchers */}
-      <div className="space-y-3">
-        <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-          <Play className="w-3.5 h-3.5 text-red-500" /> Trailers & Media
-        </h4>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {mainTrailer ? (
-            <button
-              onClick={() => setActiveTrailerKey(mainTrailer.key)}
-              className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-400/60 hover:bg-zinc-800/90 transition-all group shadow-sm text-left"
-              suppressHydrationWarning
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-red-600/20 text-red-500 border border-red-500/40 flex items-center justify-center shadow-md">
-                  <Play className="w-3.5 h-3.5 fill-red-500" />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors block">
-                    Official Main Trailer
-                  </span>
-                  <span className="text-[10px] text-amber-400">Instant Player Modal</span>
-                </div>
-              </div>
-              <Play className="w-3.5 h-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
-            </button>
-          ) : (
-            <a
-              href={`https://www.youtube.com/results?search_query=${encodeURIComponent(queryName)}+official+trailer`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-red-500 hover:bg-zinc-800/90 transition-all group shadow-sm"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-red-600/20 text-red-500 border border-red-500/40 flex items-center justify-center shadow-md">
-                  <Play className="w-3.5 h-3.5 fill-red-500" />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-white group-hover:text-red-400 transition-colors block">
-                    Search YouTube Trailer
-                  </span>
-                  <span className="text-[10px] text-zinc-400">Video Search</span>
-                </div>
-              </div>
-              <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-red-400 transition-colors" />
-            </a>
-          )}
-
-          {/* Spotify Soundtrack */}
-          <a
-            href={`https://open.spotify.com/search/${encodeURIComponent(titleName + ' soundtrack')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-500/60 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-[#1DB954]/20 text-[#1DB954] border border-[#1DB954]/40 flex items-center justify-center shadow-md font-black text-xs">
-                ♫
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors block">
-                  Original Soundtrack (OST)
-                </span>
-                <span className="text-[10px] text-zinc-400">Spotify Music</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
-          </a>
-        </div>
-      </div>
-
-      {/* 3. Official Databases & Reviews (IMDb, TMDB, SIMKL) */}
-      <div className="space-y-3">
-        <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5 text-amber-400" /> Databases & Reviews (IMDb • TMDB • SIMKL)
-        </h4>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* IMDb */}
-          <a
-            href={imdbId ? `https://www.imdb.com/title/${imdbId}` : `https://www.imdb.com/find?q=${encodeURIComponent(queryName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#f5c518] text-black flex items-center justify-center font-black text-xs shadow-md">
-                IMDb
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors block">
-                  IMDb Database
-                </span>
-                <span className="text-[10px] text-zinc-400">Official Cast, Trivia & Ratings</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
-          </a>
-
-          {/* TMDB */}
-          <a
-            href={`https://www.themoviedb.org/${mediaType}/${tmdbId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-emerald-400/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#01d277] text-black flex items-center justify-center font-black text-[10px] shadow-md">
-                TMDB
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors block">
-                  TMDB Database
-                </span>
-                <span className="text-[10px] text-zinc-400">Community Metadata & Crew</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
-          </a>
-
-          {/* SIMKL */}
-          <a
-            href={`https://simkl.com/search/?q=${encodeURIComponent(queryName)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-sky-500/70 hover:bg-zinc-800/90 transition-all group shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#00A3FF] text-black flex items-center justify-center font-black text-xs shadow-md">
-                SIMKL
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors block">
-                  SIMKL Vault
-                </span>
-                <span className="text-[10px] text-zinc-400">Watchlist Sync & Scrobbler</span>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-sky-400 transition-colors" />
-          </a>
-        </div>
-      </div>
-
-      {/* 4. User Custom Attached Links with Category Filters & Admin Edit/Delete */}
-      <div className="space-y-4 pt-2 border-t border-zinc-800/70">
+      {/* User Custom Attached Links with Category Filters & Admin Edit/Delete */}
+      <div className={`space-y-4 ${mediaType === 'tv' ? 'pt-4 border-t border-zinc-800/70' : ''}`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
             <Tag className="w-3.5 h-3.5 text-amber-400" />
@@ -942,14 +685,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         </div>
       )}
 
-      {/* Trailer Modal Trigger */}
-      {activeTrailerKey && (
-        <TrailerModal
-          videoKey={activeTrailerKey}
-          title={titleName}
-          onClose={() => setActiveTrailerKey(null)}
-        />
-      )}
     </CollapsibleSection>
   );
 };

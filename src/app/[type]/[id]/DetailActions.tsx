@@ -191,6 +191,17 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
             </a>
           )}
 
+          {/* TMDB Direct Link */}
+          <a
+            href={`https://www.themoviedb.org/${mediaType}/${titleDetails.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-all hover:scale-105"
+          >
+            <span className="px-1 py-0.2 bg-[#01d277] text-black text-[9px] font-black rounded">TMDB</span>
+            <ExternalLink className="w-3 h-3 text-emerald-400/80" />
+          </a>
+
           {/* SIMKL Direct Link */}
           <a
             href={`https://simkl.com/search/?q=${encodeURIComponent(title)}`}
@@ -201,6 +212,18 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
             <span className="w-2 h-2 rounded-full bg-sky-400" />
             <span>SIMKL</span>
             <ExternalLink className="w-3 h-3 text-sky-400/80" />
+          </a>
+
+          {/* Spotify Soundtrack Link */}
+          <a
+            href={`https://open.spotify.com/search/${encodeURIComponent(title + ' soundtrack')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1DB954]/10 hover:bg-[#1DB954]/25 text-[#1DB954] border border-[#1DB954]/30 text-xs font-semibold transition-all hover:scale-105"
+          >
+            <span>♫</span>
+            <span>OST</span>
+            <ExternalLink className="w-3 h-3 text-[#1DB954]/80" />
           </a>
         </div>
       </div>

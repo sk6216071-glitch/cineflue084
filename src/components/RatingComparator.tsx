@@ -46,6 +46,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
 
   const imdbId = titleDetails.external_ids?.imdb_id;
   const titleName = titleDetails.title || titleDetails.name || 'Title';
+  const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
 
   return (
     <CollapsibleSection
@@ -62,7 +63,14 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
         <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-emerald-500/30 transition-colors">
           <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
             <span className="text-emerald-400 font-bold text-xs">TMDB</span>
-            <span className="text-[10px] text-zinc-400">{titleDetails.vote_count ? `${titleDetails.vote_count.toLocaleString()} v` : 'Verified'}</span>
+            <a
+              href={`https://www.themoviedb.org/${mediaType}/${titleDetails.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zinc-400 hover:text-emerald-400 flex items-center gap-0.5 text-[10px]"
+            >
+              Link <ExternalLink className="w-2.5 h-2.5" />
+            </a>
           </div>
           <div className="my-1.5 flex items-baseline gap-1">
             <span className="text-xl sm:text-2xl font-black text-white">{tmdbScore}</span>

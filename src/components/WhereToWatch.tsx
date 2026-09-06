@@ -177,18 +177,27 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
           </div>
         )}
 
-        {currentRegionData.link && (
-          <div className="pt-2 flex justify-end">
-            <a
-              href={currentRegionData.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-amber-400/90 hover:text-amber-300 flex items-center gap-1 font-medium transition-colors"
-            >
-              Verify availability on JustWatch <ExternalLink className="w-3 h-3" />
-            </a>
+        {/* JustWatch Live Streaming & Price Guide Card */}
+        <a
+          href={currentRegionData.link || `https://www.justwatch.com/${selectedRegion.toLowerCase()}/search?q=${encodeURIComponent(titleDetails.title || titleDetails.name || '')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/20 transition-all group shadow-sm mt-3"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-500 text-black flex items-center justify-center font-black text-xs shadow-md shrink-0">
+              JW
+            </div>
+            <div>
+              <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200 transition-colors flex items-center gap-2">
+                JustWatch Streaming & Price Guide
+                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] uppercase tracking-wider font-extrabold border border-amber-500/30">Live</span>
+              </span>
+              <span className="text-[10px] text-zinc-400 block">Live 4K streaming availability, rental prices & OTT plan tracker</span>
+            </div>
           </div>
-        )}
+          <ExternalLink className="w-4 h-4 text-amber-400 group-hover:text-amber-300 transition-colors shrink-0" />
+        </a>
       </div>
     </CollapsibleSection>
   );
