@@ -1,15 +1,46 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Redis } from '@upstash/redis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+// Load environment from .env.local if exists
+const envPath = path.join(rootDir, '.env.local');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf-8');
+  envContent.split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const idx = trimmed.indexOf('=');
+      if (idx > 0) {
+        const k = trimmed.slice(0, idx).trim();
+        const v = trimmed.slice(idx + 1).trim();
+        if (!process.env[k]) process.env[k] = v;
+      }
+    }
+  });
+}
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8944564119:AAHB6ETpf7BgkPRFhum2BYBqpkSZFX40SSU';
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
 const DATA_FILE = path.join(rootDir, 'src', 'data', 'serverLinks.json');
+
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+let redisClient = null;
+if (REDIS_URL && REDIS_TOKEN) {
+  try {
+    redisClient = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
+    console.log('⚡ Upstash Redis Cloud Database Connected!');
+  } catch (e) {
+    console.warn('Upstash Redis init warning:', e.message);
+  }
+}
 
 // Authorized Admin IDs (Shyam)
 const AUTHORIZED_TELEGRAM_IDS = [930928310];
@@ -244,7 +275,11 @@ async function searchTmdb(query, year) {
   return null;
 }
 
-function saveLink(movieId, link) {
+async function saveLink(movieId, link) {
+  const key = String(movieId);
+  let savedLocal = false;
+
+  // 1. Local disk backup
   try {
     const dir = path.dirname(DATA_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -253,15 +288,42 @@ function saveLink(movieId, link) {
     if (fs.existsSync(DATA_FILE)) {
       all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
     }
-    const key = String(movieId);
     const existing = all[key] || [];
     all[key] = [link, ...existing.filter(l => l.id !== link.id && l.url !== link.url)];
     fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2), 'utf-8');
-    return true;
+    savedLocal = true;
   } catch (err) {
-    console.error('File write error:', err);
-    return false;
+    console.error('Local JSON file write error:', err);
   }
+
+  // 2. Upstash Redis Cloud save
+  if (redisClient) {
+    try {
+      let current = [];
+      try {
+        const fetched = await redisClient.hget('cinefuel:curated_links', key);
+        if (Array.isArray(fetched)) current = fetched;
+      } catch {}
+      const updated = [link, ...current.filter(l => l.id !== link.id && l.url !== link.url)];
+      await redisClient.hset('cinefuel:curated_links', { [key]: updated });
+      console.log(`☁️ Synced to Upstash Redis Cloud: [${movieId}] ${link.title}`);
+    } catch (redisErr) {
+      console.warn('Upstash Redis sync warning:', redisErr.message);
+    }
+  }
+
+  // 3. Post to Live Website API for instant cloud update
+  if (SITE_URL && !SITE_URL.includes('localhost')) {
+    try {
+      safeFetch(`${SITE_URL}/api/curated-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ movieId, link }),
+      }).catch(() => {});
+    } catch {}
+  }
+
+  return savedLocal || Boolean(redisClient);
 }
 
 async function sendTelegram(chatId, text) {
@@ -426,7 +488,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       createdAt: new Date().toISOString(),
     };
 
-    const saved = saveLink(movieId, linkObj);
+    const saved = await saveLink(movieId, linkObj);
     if (saved) {
       console.log(`✅ Published: ${officialTitle} (${movieId}) -> ${displayTitle}`);
       publishedItems.push({

@@ -1,44 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import {
+  getLinksFromDatabase,
+  saveLinkToDatabase,
+  deleteLinkFromDatabase,
+  seedLocalLinksToRedis,
+} from '@/lib/redisDb';
 
-const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
-
-function getStoredLinks(): Record<string, any[]> {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const content = fs.readFileSync(DATA_FILE, 'utf-8');
-      return JSON.parse(content || '{}');
-    }
-  } catch (e) {
-    console.error('Error reading serverLinks.json:', e);
-  }
-  return {};
-}
-
-function saveStoredLinks(data: Record<string, any[]>) {
-  try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (e) {
-    console.error('Error writing serverLinks.json:', e);
-  }
-}
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const movieId = searchParams.get('movieId');
-  const allLinks = getStoredLinks();
+  try {
+    const { searchParams } = new URL(request.url);
+    const movieId = searchParams.get('movieId') || searchParams.get('id');
+    const action = searchParams.get('action');
 
-  if (movieId) {
-    const links = allLinks[movieId] || [];
-    return NextResponse.json({ success: true, links });
+    // Admin seed action to sync local links to Upstash cloud
+    if (action === 'seed') {
+      const seedResult = await seedLocalLinksToRedis();
+      return NextResponse.json(seedResult);
+    }
+
+    if (movieId) {
+      const result = await getLinksFromDatabase(movieId);
+      return NextResponse.json({
+        success: true,
+        links: result.links || [],
+        source: result.source,
+      });
+    }
+
+    const result = await getLinksFromDatabase();
+    return NextResponse.json({
+      success: true,
+      allLinks: result.allLinks || {},
+      source: result.source,
+    });
+  } catch (err: any) {
+    console.error('Error in GET /api/curated-links:', err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
-
-  return NextResponse.json({ success: true, allLinks });
 }
 
 export async function POST(request: NextRequest) {
@@ -50,23 +50,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'movieId and link.url are required' }, { status: 400 });
     }
 
-    const allLinks = getStoredLinks();
-    const key = String(movieId);
-    const existing = allLinks[key] || [];
-
-    const linkId = link.id || `server-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const newLink = {
+    const linkId = link.id || `link-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const linkObj = {
       ...link,
       id: linkId,
       createdAt: link.createdAt || new Date().toISOString(),
     };
 
-    // Filter out duplicate url or id
-    allLinks[key] = [newLink, ...existing.filter((l: any) => l.id !== linkId && l.url !== newLink.url)];
-    saveStoredLinks(allLinks);
+    await saveLinkToDatabase(movieId, linkObj);
 
-    return NextResponse.json({ success: true, link: newLink, total: allLinks[key].length });
+    return NextResponse.json({ success: true, link: linkObj });
   } catch (err: any) {
+    console.error('Error in POST /api/curated-links:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
@@ -74,22 +69,18 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const movieId = searchParams.get('movieId');
+    const movieId = searchParams.get('movieId') || searchParams.get('id');
     const linkId = searchParams.get('linkId');
 
     if (!movieId || !linkId) {
       return NextResponse.json({ error: 'movieId and linkId required' }, { status: 400 });
     }
 
-    const allLinks = getStoredLinks();
-    const key = String(movieId);
-    if (allLinks[key]) {
-      allLinks[key] = allLinks[key].filter((l: any) => l.id !== linkId);
-      saveStoredLinks(allLinks);
-    }
+    await deleteLinkFromDatabase(movieId, linkId);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
+    console.error('Error in DELETE /api/curated-links:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

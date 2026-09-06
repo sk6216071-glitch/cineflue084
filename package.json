@@ -11,6 +11,7 @@
     "deploy": "npx wrangler pages deploy"
   },
   "dependencies": {
+    "@upstash/redis": "^1.38.4",
     "clsx": "^2.1.1",
     "firebase": "^12.18.0",
     "lucide-react": "^1.39.0",
