@@ -61,21 +61,21 @@ export default async function TitleDetailPage({ params }: PageProps) {
         </div>
 
         {/* Content Box */}
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-10 flex flex-col md:flex-row gap-8 items-start md:items-end min-h-[500px]">
-          {/* High-res Poster */}
-          <div className="relative w-44 sm:w-56 md:w-64 aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border-2 border-white/10 shrink-0 bg-zinc-900 mx-auto md:mx-0">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-start pt-12">
+          {/* Poster Card */}
+          <div className="w-44 sm:w-56 md:w-64 shrink-0 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/10 bg-zinc-900 group relative">
             <Image
               src={posterUrl}
               alt={title}
-              fill
+              width={300}
+              height={450}
               priority
-              sizes="(max-width: 768px) 220px, 260px"
-              className="object-cover"
+              className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-300"
             />
           </div>
 
-          {/* Details & Action Header */}
-          <div className="flex-1 space-y-4 text-center md:text-left">
+          {/* Text & Meta & Action buttons */}
+          <div className="flex-1 flex flex-col items-center md:items-start text-center md:text-left space-y-3 w-full">
             {/* Badges */}
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs font-semibold">
               <span className="px-2.5 py-1 rounded-md bg-amber-500 text-black uppercase font-bold tracking-wider flex items-center gap-1">
@@ -136,13 +136,18 @@ export default async function TitleDetailPage({ params }: PageProps) {
 
             {/* Client Interactive Action Buttons */}
             <DetailActions titleDetails={titleDetails} trailerKey={mainTrailer?.key} />
+
+            {/* Rating Comparison Detail (Moved Above for Clearer Space Below) */}
+            <div className="w-full pt-2">
+              <RatingComparator titleDetails={titleDetails} />
+            </div>
           </div>
         </div>
       </div>
 
       {/* 2. Main Content Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Columns: Story, Cast, Ratings, Custom Links */}
+        {/* Left 2 Columns: Story, Cast, Custom Links */}
         <div className="lg:col-span-2 space-y-8">
           {/* Story Overview */}
           <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-3">
@@ -159,9 +164,6 @@ export default async function TitleDetailPage({ params }: PageProps) {
               </div>
             )}
           </div>
-
-          {/* Rating Comparison Component */}
-          <RatingComparator titleDetails={titleDetails} />
 
           {/* Cast & Crew Reel */}
           {castList.length > 0 && (

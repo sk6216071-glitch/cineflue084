@@ -47,27 +47,27 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
   const titleName = titleDetails.title || titleDetails.name || 'Title';
 
   return (
-    <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-xl space-y-6">
+    <div className="bg-zinc-950/70 backdrop-blur-md border border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4 w-full">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
         <div className="flex items-center gap-2">
-          <Award className="w-5 h-5 text-amber-400" />
-          <h3 className="text-lg font-bold text-white">Compare Ratings & Reviews</h3>
+          <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+          <h3 className="text-sm sm:text-base font-bold text-white">Compare Ratings & Reviews</h3>
         </div>
-        <span className="text-xs text-zinc-400 uppercase tracking-wider">Multi-Source Intelligence</span>
+        <span className="text-[10px] sm:text-xs text-zinc-400 uppercase tracking-wider font-semibold">Multi-Source Intelligence</span>
       </div>
 
       {/* Ratings Cards Grid (TMDB, IMDb, SIMKL, and User Rating) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
         {/* TMDB */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-emerald-500/30 transition-colors">
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-emerald-500/30 transition-colors">
           <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
-            <span className="text-emerald-400 font-bold">TMDB</span>
-            <span>{titleDetails.vote_count ? `${titleDetails.vote_count.toLocaleString()} v` : 'Verified'}</span>
+            <span className="text-emerald-400 font-bold text-xs">TMDB</span>
+            <span className="text-[10px] text-zinc-400">{titleDetails.vote_count ? `${titleDetails.vote_count.toLocaleString()} v` : 'Verified'}</span>
           </div>
-          <div className="my-2 flex items-baseline gap-1">
-            <span className="text-2xl sm:text-3xl font-black text-white">{tmdbScore}</span>
-            <span className="text-xs text-zinc-400">/ 10</span>
+          <div className="my-1.5 flex items-baseline gap-1">
+            <span className="text-xl sm:text-2xl font-black text-white">{tmdbScore}</span>
+            <span className="text-[11px] text-zinc-400">/ 10</span>
           </div>
           <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
             <div
@@ -78,7 +78,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
         </div>
 
         {/* IMDb */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-amber-500/30 transition-colors">
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-amber-500/30 transition-colors">
           <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
             <span className="text-[#f5c518] font-extrabold bg-[#f5c518]/10 px-1.5 py-0.5 rounded border border-[#f5c518]/20 text-[10px]">
               IMDb
@@ -94,9 +94,9 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
               </a>
             )}
           </div>
-          <div className="my-2 flex items-baseline gap-1">
-            <span className="text-2xl sm:text-3xl font-black text-amber-400">{imdbScore}</span>
-            <span className="text-xs text-zinc-400">/ 10</span>
+          <div className="my-1.5 flex items-baseline gap-1">
+            <span className="text-xl sm:text-2xl font-black text-amber-400">{imdbScore}</span>
+            <span className="text-[11px] text-zinc-400">/ 10</span>
           </div>
           <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
             <div
@@ -107,9 +107,9 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
         </div>
 
         {/* SIMKL */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-sky-500/30 transition-colors">
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-sky-500/30 transition-colors">
           <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
-            <span className="text-sky-400 font-bold">SIMKL</span>
+            <span className="text-sky-400 font-bold text-xs">SIMKL</span>
             <a
               href={`https://simkl.com/search/?q=${encodeURIComponent(titleName)}`}
               target="_blank"
@@ -119,9 +119,9 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
               Link <ExternalLink className="w-2.5 h-2.5" />
             </a>
           </div>
-          <div className="my-2 flex items-baseline gap-1">
-            <span className="text-2xl sm:text-3xl font-black text-sky-400">{simklScore}</span>
-            <span className="text-xs text-zinc-400">/ 10</span>
+          <div className="my-1.5 flex items-baseline gap-1">
+            <span className="text-xl sm:text-2xl font-black text-sky-400">{simklScore}</span>
+            <span className="text-[11px] text-zinc-400">/ 10</span>
           </div>
           <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
             <div
@@ -132,16 +132,16 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
         </div>
 
         {/* Personal User Rating */}
-        <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/20 rounded-xl p-3.5 flex flex-col justify-between">
+        <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/20 rounded-xl p-3 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-amber-300 font-medium">
-            <span>Your Rating</span>
+            <span className="text-xs font-semibold">Your Rating</span>
             {isSaved && <span className="text-emerald-400 text-[10px] flex items-center gap-0.5"><Check className="w-3 h-3" /> Saved</span>}
           </div>
-          <div className="my-2 flex items-baseline gap-1">
-            <span className="text-2xl sm:text-3xl font-black text-amber-300">
+          <div className="my-1.5 flex items-baseline gap-1">
+            <span className="text-xl sm:text-2xl font-black text-amber-300">
               {currentPersonalRating > 0 ? currentPersonalRating : '—'}
             </span>
-            <span className="text-xs text-zinc-400">/ 10</span>
+            <span className="text-[11px] text-zinc-400">/ 10</span>
           </div>
           <span className="text-[10px] text-zinc-400 truncate">
             {currentPersonalRating > 0 ? 'Rated & Logged' : 'Click stars below'}
@@ -150,8 +150,8 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
       </div>
 
       {/* Interactive 1-10 Star Rating Selector */}
-      <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 sm:p-3.5 space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
           <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             Rate this title (1 to 10 stars):
@@ -177,7 +177,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
                 suppressHydrationWarning
               >
                 <Star
-                  className={`w-5 h-5 sm:w-6 sm:h-6 transition-colors ${
+                  className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${
                     isFilled ? 'fill-amber-400 text-amber-400 drop-shadow-md' : 'text-zinc-700 hover:text-zinc-500'
                   }`}
                 />
@@ -187,7 +187,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
         </div>
 
         {/* Review Note Box Toggle */}
-        <div className="pt-2">
+        <div className="pt-1 border-t border-zinc-800/60">
           {!showReviewInput && !existing?.review ? (
             <button
               onClick={() => setShowReviewInput(true)}
