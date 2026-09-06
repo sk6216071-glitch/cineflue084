@@ -7,6 +7,7 @@ import { TitleDetails, WatchProvidersData, WatchProviderInfo } from '@/types';
 import { getImageURL } from '@/lib/tmdb';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
+import CollapsibleSection from './CollapsibleSection';
 
 interface WhereToWatchProps {
   titleDetails: TitleDetails;
@@ -101,32 +102,32 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
     );
   };
 
-  return (
-    <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
-      {/* Header with Region Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
-        <div className="flex items-center gap-2">
-          <Tv className="w-5 h-5 text-amber-400" />
-          <h3 className="text-lg font-bold text-white">Where to Watch</h3>
-        </div>
+  const regionSwitcher = (
+    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <Globe className="w-3.5 h-3.5 text-zinc-400" />
+      <select
+        value={selectedRegion}
+        onChange={(e) => setSelectedRegion(e.target.value)}
+        className="bg-zinc-900 border border-zinc-700 text-[11px] font-semibold text-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:border-amber-500"
+        suppressHydrationWarning
+      >
+        <option value="IN">🇮🇳 India</option>
+        <option value="US">🇺🇸 USA</option>
+        <option value="GB">🇬🇧 UK</option>
+        <option value="CA">🇨🇦 Canada</option>
+        <option value="AU">🇦🇺 Australia</option>
+      </select>
+    </div>
+  );
 
-        {/* Region Switcher */}
-        <div className="flex items-center gap-2">
-          <Globe className="w-4 h-4 text-zinc-400" />
-          <select
-            value={selectedRegion}
-            onChange={(e) => setSelectedRegion(e.target.value)}
-            className="bg-zinc-900 border border-zinc-700 text-xs font-semibold text-zinc-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-500"
-            suppressHydrationWarning
-          >
-            <option value="IN">🇮🇳 India (Hotstar, JioCinema, Netflix, Prime)</option>
-            <option value="US">🇺🇸 United States</option>
-            <option value="GB">🇬🇧 United Kingdom</option>
-            <option value="CA">🇨🇦 Canada</option>
-            <option value="AU">🇦🇺 Australia</option>
-          </select>
-        </div>
-      </div>
+  return (
+    <CollapsibleSection
+      title="Where to Watch"
+      icon={<Tv className="w-5 h-5 text-amber-400" />}
+      badge={hasStream ? 'Streaming' : (hasRent || hasBuy ? 'VOD / Rent' : 'Theatrical')}
+      action={regionSwitcher}
+      defaultOpen={true}
+    >
 
       {/* Provider Categories */}
       <div className="space-y-4">
@@ -189,7 +190,7 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
           </div>
         )}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 };
 

@@ -39,6 +39,7 @@ import {
   parseBulkLinksInput,
   ParsedBulkItem,
 } from '@/lib/seasonParser';
+import CollapsibleSection from './CollapsibleSection';
 
 interface TVEpisodeLinksManagerProps {
   titleDetails: TitleDetails;
@@ -588,12 +589,19 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         </div>
       </div>
 
-      {/* Dual Mode Toggle Button (Zip/Pack vs Single EP's) */}
-      <div className="grid grid-cols-2 rounded-2xl overflow-hidden p-1 bg-zinc-950 border border-zinc-800 shadow-inner">
-        <button
-          onClick={() => setActiveMode('zip_pack')}
-          suppressHydrationWarning
-          className={`py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+      {/* Expandable Season Section with Accordion */}
+      <CollapsibleSection
+        title={`Season ${selectedSeason}`}
+        badge={`${enrichedLinks.filter((l) => l.seasonNumber === selectedSeason).length} files`}
+        defaultOpen={true}
+        className="bg-zinc-950/60 border-zinc-800/90 shadow-md"
+      >
+        {/* Dual Mode Toggle Button (Zip/Pack vs Single EP's) */}
+        <div className="grid grid-cols-2 rounded-2xl overflow-hidden p-1 bg-zinc-950 border border-zinc-800 shadow-inner">
+          <button
+            onClick={() => setActiveMode('zip_pack')}
+            suppressHydrationWarning
+            className={`py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
             activeMode === 'zip_pack'
               ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-lg shadow-amber-500/30'
               : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
@@ -834,6 +842,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           )}
         </div>
       )}
+      </CollapsibleSection>
 
       {/* Admin Add Single Custom Episode / Zip Link Modal */}
       {isAdmin && isOpenAddModal && (

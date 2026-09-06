@@ -15,6 +15,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { getReleaseTimeline, ReleaseTimeline } from '@/lib/releaseDates';
+import CollapsibleSection from './CollapsibleSection';
 
 interface DigitalReleaseTrackerProps {
   titleId: number;
@@ -29,29 +30,23 @@ export const DigitalReleaseTracker: React.FC<DigitalReleaseTrackerProps> = ({
 }) => {
   const timeline: ReleaseTimeline = getReleaseTimeline(titleId, releaseDate, titleName);
 
-  return (
-    <div className="bg-[#0f121a] border border-zinc-800/80 rounded-3xl p-5 sm:p-7 shadow-xl space-y-6">
-      {/* Header with Live Status Badge */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-amber-400" />
-            <h3 className="text-xl font-bold text-white">Digital & OTT Release Timeline</h3>
-          </div>
-          <p className="text-xs text-zinc-400">
-            Track theatrical premiere, digital VOD rental window, 4K Blu-ray, and OTT subscription dates.
-          </p>
-        </div>
+  const statusBadge = (
+    <span
+      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-black shadow-md ${timeline.statusColor}`}
+    >
+      <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
+      {timeline.statusLabel}
+    </span>
+  );
 
-        <div className="flex items-center gap-2">
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black shadow-md ${timeline.statusColor}`}
-          >
-            <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
-            {timeline.statusLabel}
-          </span>
-        </div>
-      </div>
+  return (
+    <CollapsibleSection
+      title="Digital & OTT Release Timeline"
+      icon={<Calendar className="w-5 h-5 text-amber-400" />}
+      subtitle="Track theatrical premiere, digital VOD rental window, 4K Blu-ray, and OTT subscription dates."
+      action={statusBadge}
+      defaultOpen={true}
+    >
 
       {/* 4-Step Visual Timeline Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative">
@@ -135,7 +130,7 @@ export const DigitalReleaseTracker: React.FC<DigitalReleaseTrackerProps> = ({
           <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700 font-bold">IN (India)</span>
         </div>
       </div>
-    </div>
+    </CollapsibleSection>
   );
 };
 

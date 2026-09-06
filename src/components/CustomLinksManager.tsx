@@ -38,6 +38,7 @@ import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import TrailerModal from './TrailerModal';
+import CollapsibleSection from './CollapsibleSection';
 
 interface CustomLinksManagerProps {
   titleDetails: TitleDetails;
@@ -305,31 +306,28 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     }
   };
 
-  return (
-    <div className="bg-[#0f121a] border border-zinc-800/80 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Link2 className="w-5 h-5 text-amber-400" />
-            <h3 className="text-xl font-bold text-white">Title Links & Destinations</h3>
-          </div>
-          <p className="text-xs text-zinc-400">
-            Streaming platforms, trailers, review portals, and verified admin custom links.
-          </p>
-        </div>
+  const totalLinkCount = userCustomLinks.length + availableList.length;
 
-        {isAdmin && (
-          <button
-            onClick={() => setIsOpenForm(!isOpenForm)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95 self-start sm:self-auto"
-            suppressHydrationWarning
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Add Custom Link</span>
-          </button>
-        )}
-      </div>
+  const adminAddBtn = isAdmin ? (
+    <button
+      onClick={() => setIsOpenForm(!isOpenForm)}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95"
+      suppressHydrationWarning
+    >
+      <Plus className="w-3.5 h-3.5" />
+      <span>+ Add Link</span>
+    </button>
+  ) : null;
+
+  return (
+    <CollapsibleSection
+      title="Title Links & Destinations"
+      icon={<Link2 className="w-5 h-5 text-amber-400" />}
+      subtitle="Streaming platforms, trailers, review portals, and verified admin custom links."
+      badge={`${totalLinkCount} files`}
+      action={adminAddBtn}
+      defaultOpen={true}
+    >
 
       {/* 1. Streaming Links Section (Only Show Actually Available Platforms) */}
       <div className="space-y-3">
@@ -952,7 +950,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           onClose={() => setActiveTrailerKey(null)}
         />
       )}
-    </div>
+    </CollapsibleSection>
   );
 };
 

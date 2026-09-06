@@ -11,6 +11,7 @@ import CustomLinksManager from '@/components/CustomLinksManager';
 import DigitalReleaseTracker from '@/components/DigitalReleaseTracker';
 import SectionCarousel from '@/components/SectionCarousel';
 import DetailActions from './DetailActions';
+import CollapsibleSection from '@/components/CollapsibleSection';
 
 interface PageProps {
   params: Promise<{
@@ -150,10 +151,11 @@ export default async function TitleDetailPage({ params }: PageProps) {
         {/* Left 2 Columns: Story, Cast, Custom Links */}
         <div className="lg:col-span-2 space-y-8">
           {/* Story Overview */}
-          <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-3">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Film className="w-5 h-5 text-amber-400" /> Storyline & Overview
-            </h3>
+          <CollapsibleSection
+            title="Storyline & Overview"
+            icon={<Film className="w-5 h-5 text-amber-400" />}
+            defaultOpen={true}
+          >
             <p className="text-zinc-300 text-sm sm:text-base leading-relaxed">
               {titleDetails.overview || 'No synopsis available for this title.'}
             </p>
@@ -163,18 +165,16 @@ export default async function TitleDetailPage({ params }: PageProps) {
                 <span className="text-amber-400 font-medium">{director.name}</span>
               </div>
             )}
-          </div>
+          </CollapsibleSection>
 
           {/* Cast & Crew Reel */}
           {castList.length > 0 && (
-            <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <User className="w-5 h-5 text-amber-400" /> Cast & Characters
-                </h3>
-                <span className="text-xs text-zinc-400">Top Billed</span>
-              </div>
-
+            <CollapsibleSection
+              title="Cast & Characters"
+              icon={<User className="w-5 h-5 text-amber-400" />}
+              badge={`${castList.length} Cast`}
+              defaultOpen={true}
+            >
               <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
                 {castList.map((actor) => {
                   const actorPhoto = getImageURL(actor.profile_path, 'w200');
@@ -203,7 +203,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
                   );
                 })}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Digital & OTT Release Schedule Tracker */}

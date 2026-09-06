@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Star, MessageSquare, ExternalLink, Award, Sparkles, Check } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
+import CollapsibleSection from './CollapsibleSection';
 
 interface RatingComparatorProps {
   titleDetails: TitleDetails;
@@ -47,15 +48,13 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
   const titleName = titleDetails.title || titleDetails.name || 'Title';
 
   return (
-    <div className="bg-zinc-950/70 backdrop-blur-md border border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4 w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-        <div className="flex items-center gap-2">
-          <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
-          <h3 className="text-sm sm:text-base font-bold text-white">Compare Ratings & Reviews</h3>
-        </div>
-        <span className="text-[10px] sm:text-xs text-zinc-400 uppercase tracking-wider font-semibold">Multi-Source Intelligence</span>
-      </div>
+    <CollapsibleSection
+      title="Compare Ratings & Reviews"
+      icon={<Award className="w-5 h-5 text-amber-400" />}
+      badge="4 Sources"
+      defaultOpen={true}
+      className="bg-zinc-950/70 backdrop-blur-md border border-zinc-800/80 w-full"
+    >
 
       {/* Ratings Cards Grid (TMDB, IMDb, SIMKL, and User Rating) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
@@ -218,7 +217,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
           )}
         </div>
       </div>
-    </div>
+    </CollapsibleSection>
   );
 };
 
