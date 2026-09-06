@@ -32,6 +32,7 @@ import {
   saveGlobalCustomLink,
   updateGlobalCustomLink,
   deleteGlobalCustomLink,
+  syncServerLinks,
 } from '@/lib/curatedLinks';
 import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
@@ -95,12 +96,13 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   // Listen to cross-app link updates to immediately refresh links
   React.useEffect(() => {
+    syncServerLinks(titleDetails.id);
     const handleLinksUpdated = () => {
       setLinksRefresh((v) => v + 1);
     };
     window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
     return () => window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
-  }, []);
+  }, [titleDetails.id]);
 
   // Consolidated Custom Links (Global Admin Storage + User LocalStorage)
   const userCustomLinks = useMemo(() => {

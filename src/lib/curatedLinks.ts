@@ -398,6 +398,60 @@ export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks
 }
 
 /**
+ * Asynchronously sync links from server database into client storage
+ */
+export async function syncServerLinks(movieId?: number): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = movieId ? `/api/curated-links?movieId=${movieId}` : '/api/curated-links';
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    const stored = localStorage.getItem('cinefuel_custom_links');
+    const parsed = stored ? JSON.parse(stored) : {};
+
+    let changed = false;
+    if (movieId && Array.isArray(data.links)) {
+      const key = String(movieId);
+      const existing: CustomLink[] = parsed[key] || [];
+      const linkMap = new Map<string, CustomLink>();
+      existing.forEach((l) => linkMap.set(l.id, l));
+      data.links.forEach((l: CustomLink) => {
+        if (!linkMap.has(l.id)) {
+          linkMap.set(l.id, l);
+          changed = true;
+        }
+      });
+      if (changed) {
+        parsed[key] = Array.from(linkMap.values());
+      }
+    } else if (data.allLinks && typeof data.allLinks === 'object') {
+      Object.entries(data.allLinks).forEach(([key, list]) => {
+        if (Array.isArray(list)) {
+          const existing: CustomLink[] = parsed[key] || [];
+          const linkMap = new Map<string, CustomLink>();
+          existing.forEach((l) => linkMap.set(l.id, l));
+          list.forEach((l: CustomLink) => {
+            if (!linkMap.has(l.id)) {
+              linkMap.set(l.id, l);
+              changed = true;
+            }
+          });
+          parsed[key] = Array.from(linkMap.values());
+        }
+      });
+    }
+
+    if (changed) {
+      localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+      window.dispatchEvent(new Event('cinefuel_links_updated'));
+    }
+  } catch {
+    // ignore offline sync
+  }
+}
+
+/**
  * Save a new custom link into global storage (Admin only)
  */
 export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
@@ -410,6 +464,13 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
     parsed[key] = [link, ...existing.filter((l: CustomLink) => l.id !== link.id && l.url !== link.url)];
     localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
     window.dispatchEvent(new Event('cinefuel_links_updated'));
+
+    // Also persist to server database
+    fetch('/api/curated-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId, link }),
+    }).catch(() => {});
   } catch (err) {
     console.error('Failed to save global custom link:', err);
   }
@@ -436,6 +497,13 @@ export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink)
 
     localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
     window.dispatchEvent(new Event('cinefuel_links_updated'));
+
+    // Also persist to server database
+    fetch('/api/curated-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId, link: updatedLink }),
+    }).catch(() => {});
   } catch (err) {
     console.error('Failed to update global custom link:', err);
   }
@@ -505,6 +573,11 @@ export function deleteGlobalCustomLink(movieId: number, linkId: string): void {
     }
 
     window.dispatchEvent(new Event('cinefuel_links_updated'));
+
+    // Also persist deletion to server database
+    fetch(`/api/curated-links?movieId=${movieId}&linkId=${linkId}`, {
+      method: 'DELETE',
+    }).catch(() => {});
   } catch (err) {
     console.error('Failed to delete global custom link:', err);
   }

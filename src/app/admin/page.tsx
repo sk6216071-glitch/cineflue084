@@ -48,7 +48,7 @@ import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
-import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, deleteGlobalCustomLink, getDeletedLinkIds } from '@/lib/curatedLinks';
+import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, deleteGlobalCustomLink, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
 
 const DEFAULT_ADMIN_USER = 'shyam';
@@ -234,6 +234,14 @@ export default function AdminPage() {
           // ignore
         }
       }
+
+      // Sync server-backed links from Telegram Bot or Server DB
+      syncServerLinks().then(() => {
+        try {
+          const fresh = localStorage.getItem('cinefuel_custom_links');
+          if (fresh) setCustomLinksMap(JSON.parse(fresh));
+        } catch {}
+      });
 
       const storedLists = localStorage.getItem('cinefuel_custom_lists');
       if (storedLists) {
