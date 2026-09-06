@@ -44,7 +44,7 @@ export function cleanTitleForSearch(text: string): { query: string; year?: numbe
   return { query: s, year };
 }
 
-export async function searchTmdbMedia(query: string, year?: number) {
+export async function searchTmdbMedia(query: string, year?: number, forcedType?: 'movie' | 'tv') {
   if (!query || query.length < 2) return null;
 
   try {
@@ -57,6 +57,20 @@ export async function searchTmdbMedia(query: string, year?: number) {
       const filtered = data.results.filter(
         (r: any) => r.media_type === 'movie' || r.media_type === 'tv'
       );
+
+      if (forcedType) {
+        const typeMatch = filtered.filter((r: any) => r.media_type === forcedType);
+        if (typeMatch.length > 0) {
+          if (year) {
+            const yearMatch = typeMatch.find((r: any) => {
+              const dateStr = r.release_date || r.first_air_date || '';
+              return dateStr.startsWith(String(year));
+            });
+            if (yearMatch) return yearMatch;
+          }
+          return typeMatch[0];
+        }
+      }
 
       if (year && filtered.length > 0) {
         const yearMatch = filtered.find((r: any) => {
@@ -102,40 +116,53 @@ export function saveLinkToServerDatabase(movieId: number, link: any) {
 export async function processTelegramMessage(fromId: number, rawText: string): Promise<ProcessResult> {
   const isAuthorized = AUTHORIZED_TELEGRAM_IDS.includes(fromId);
 
-  // 1. Check commands
+  if (!isAuthorized) {
+    return {
+      success: false,
+      replyText: `⛔ *Unauthorized Access*\nYour Telegram ID (${fromId}) is not registered as an Admin.`,
+    };
+  }
+
   const trimmed = rawText.trim();
-  if (trimmed === '/start' || trimmed === '/help') {
+
+  // 1. Parse command if present
+  let command: string | null = null;
+  let commandArgs = '';
+  const cmdMatch = trimmed.match(/^\/([a-zA-Z0-9_-]+)(?:@\w+)?(?:\s+([\s\S]*))?$/);
+  if (cmdMatch) {
+    command = cmdMatch[1].toLowerCase();
+    commandArgs = (cmdMatch[2] || '').trim();
+  }
+
+  if (command === 'start' || command === 'help' || command === 'commands') {
     return {
       success: true,
       replyText: `🚀 *Welcome to CineFuel Auto-Uploader Bot!*
 
-I automatically inspect links and titles, detect 4K/1080p quality, audio tracks, seasons, and publish them directly to your CineFuel website!
+Send any movie or TV series release to auto-upload directly to CineFuel!
 
-📌 *How to Upload:*
-Simply send your title, quality, and link in a message. For example:
+⚡ *Slash Commands Menu:*
+• \`/movie\` - Movie Upload Mode (4K / 1080p / BluRay)
+• \`/episode\` or \`/ep\` - Single TV Episode Mode (S01E01)
+• \`/bulk\` or \`/batch\` - Bulk TV Episodes Mode
+• \`/zip\` or \`/pack\` - Full Season Zip / RAR / Pack Mode
+• \`/auto\` - Full Auto-Sensing Mode (Default)
+• \`/status\` - Server database & active link stats
 
-👉 *TV Series Complete Zip Pack:*
-\`Loki S02 Complete 2160p 4K HDR Hindi English Zip Pack\`
-\`https://drive.google.com/file/d/xxxx/view\`
+💡 *Two Easy Ways to Use:*
 
-👉 *Single Episode:*
-\`Daredevil Born Again S01E01 1080p WEB-DL Hindi + Eng\`
-\`https://cloud.mail.ru/public/xxxx\`
+1️⃣ *Direct Command with Links:*
+• \`/movie Oppenheimer 2023 2160p UHD BluRay [15.4 GB] https://...\`
+• \`/ep Daredevil S02E01 1080p WEB-DL Hindi DDP 5.1 https://...\`
+• \`/zip Loki S02 Complete 2160p DV HDR Zip Pack https://...\`
+• \`/bulk [Paste multiple episode lines with links]\`
 
-👉 *Movie 4K / 1080p:*
-\`Deadpool & Wolverine (2024) 2160p 4K Remux Dual Audio\`
-\`https://mega.nz/file/xxxx\`
-
-✨ *Features:*
-• Auto TMDB match & poster linking
-• Auto 2160p / 1080p / 720p detection
-• Auto Hindi / English / Dual Audio tagging
-• Auto Zip Pack vs Single Episode detection
-• Live instant website update!`,
+2️⃣ *Or Just Send Releases Directly!*
+The bot features **intelligent auto-sensing** — it will detect whether your message is a Movie, Single Episode, Zip Pack, or Bulk list without needing any slash command!`,
     };
   }
 
-  if (trimmed === '/status') {
+  if (command === 'status') {
     let count = 0;
     try {
       if (fs.existsSync(DATA_FILE)) {
@@ -152,22 +179,81 @@ Simply send your title, quality, and link in a message. For example:
 • Bot Status: 🟢 Online & Listening
 • Server Database: Connected
 • Total Active Links Uploaded: *${count}*
-• Admin Authorized: ${isAuthorized ? '✅ Yes' : '❌ No'}`,
+• Admin Authorized: ✅ Yes`,
     };
   }
 
-  if (!isAuthorized) {
+  // Interactive guidance when command sent alone
+  if ((command === 'movie' || command === 'film') && !commandArgs) {
     return {
-      success: false,
-      replyText: `⛔ *Unauthorized Access*
-Your Telegram ID (${fromId}) is not registered as an Admin.
-Please contact the site owner to authorize your account.`,
+      success: true,
+      replyText: `🎥 *Movie Upload Mode Active!*
+
+Send your movie release text or link. I will auto-sense movie details, quality, audio, and upload it directly to CineFuel!
+
+📌 *Example format:*
+\`Oppenheimer 2023 2160p UHD BluRay Dual Audio [15.4 GB] https://hubcloud.foo/...\``,
     };
+  }
+
+  if ((command === 'episode' || command === 'ep' || command === 'single') && !commandArgs) {
+    return {
+      success: true,
+      replyText: `🎬 *Single Episode Upload Mode Active!*
+
+Send your single TV episode details. I will auto-sense show name, season, episode, quality, and audio!
+
+📌 *Example format:*
+\`Daredevil Born Again S01E01 1080p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/...\``,
+    };
+  }
+
+  if ((command === 'bulk' || command === 'batch' || command === 'episodes') && !commandArgs) {
+    return {
+      success: true,
+      replyText: `📦 *Bulk Episodes Upload Mode Active!*
+
+Paste multiple TV episode lines or download URLs at once!
+
+📌 *Example format:*
+\`Oppenheimer S01E01 2160p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/1\`
+\`Oppenheimer S01E02 2160p WEB-DL Hindi DDP 5.1 [6.28 GB] - https://hubcloud.foo/2\`
+\`Oppenheimer S01E03 2160p WEB-DL Hindi DDP 5.1 [6.15 GB] - https://hubcloud.foo/3\``,
+    };
+  }
+
+  if ((command === 'zip' || command === 'pack' || command === 'season') && !commandArgs) {
+    return {
+      success: true,
+      replyText: `🗜️ *Season Zip/Pack Upload Mode Active!*
+
+Send your full season zip pack or batch archive!
+
+📌 *Example format:*
+\`Oppenheimer S01 Complete 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/...\``,
+    };
+  }
+
+  let forcedMode: 'movie' | 'episode' | 'zip' | 'bulk' | null = null;
+  let textToProcess = trimmed;
+
+  if (command && ['movie', 'film'].includes(command)) {
+    forcedMode = 'movie';
+    textToProcess = commandArgs;
+  } else if (command && ['episode', 'ep', 'single'].includes(command)) {
+    forcedMode = 'episode';
+    textToProcess = commandArgs;
+  } else if (command && ['bulk', 'batch', 'episodes'].includes(command)) {
+    forcedMode = 'bulk';
+    textToProcess = commandArgs;
+  } else if (command && ['zip', 'pack', 'season'].includes(command)) {
+    forcedMode = 'zip';
+    textToProcess = commandArgs;
   }
 
   // 2. Extract Link(s)
   const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
-  const urls = trimmed.match(urlRegex);
+  const urls = textToProcess.match(urlRegex);
 
   if (!urls || urls.length === 0) {
     return {
@@ -176,12 +262,12 @@ Please contact the site owner to authorize your account.`,
 Please include at least one valid download or streaming URL (starting with \`http://\` or \`https://\`).
 
 *Example:*
-\`Loki S02 Complete 2160p 4K Zip Pack https://example.com/loki-s2.zip\``,
+\`Oppenheimer 2023 2160p UHD BluRay Dual Audio https://example.com/file\``,
     };
   }
 
   const primaryUrl = urls[0];
-  const { query, year } = cleanTitleForSearch(trimmed);
+  const { query, year } = cleanTitleForSearch(textToProcess);
 
   if (!query || query.length < 2) {
     return {
@@ -192,8 +278,21 @@ Please provide the title along with the link!`,
     };
   }
 
-  // 3. Search TMDB
-  const tmdbItem = await searchTmdbMedia(query, year);
+  // 3. Auto-sensing or forced mode detection
+  let sensedType: 'movie' | 'tv' | undefined = undefined;
+  if (forcedMode === 'movie') sensedType = 'movie';
+  else if (forcedMode === 'episode' || forcedMode === 'zip' || forcedMode === 'bulk') sensedType = 'tv';
+  else {
+    // Auto-sensing
+    if (/(?:s\d{1,2}|season|\.zip|\.rar|\.7z|pack|batch|episode|ep\d)/i.test(textToProcess)) {
+      sensedType = 'tv';
+    } else if (year) {
+      sensedType = 'movie';
+    }
+  }
+
+  // Search TMDB
+  const tmdbItem = await searchTmdbMedia(query, year, sensedType);
   if (!tmdbItem) {
     return {
       success: false,
@@ -203,15 +302,18 @@ Please check the spelling and try again.`,
     };
   }
 
-  const mediaType: 'movie' | 'tv' = tmdbItem.media_type === 'tv' ? 'tv' : 'movie';
+  const mediaType: 'movie' | 'tv' = (forcedMode === 'movie') 
+    ? 'movie' 
+    : (forcedMode ? 'tv' : (tmdbItem.media_type === 'tv' || sensedType === 'tv' ? 'tv' : 'movie'));
+    
   const officialTitle = tmdbItem.title || tmdbItem.name || query;
   const releaseDate = tmdbItem.release_date || tmdbItem.first_air_date || '';
   const releaseYear = releaseDate ? releaseDate.slice(0, 4) : '';
   const movieId = tmdbItem.id;
 
   // 4. Parse media quality, format, season, episode
-  const meta = parseFullMediaTitle(trimmed);
-  const isZip = meta.linkType === 'zip_pack';
+  const meta = parseFullMediaTitle(textToProcess);
+  const isZip = forcedMode === 'zip' ? true : (forcedMode === 'episode' ? false : meta.linkType === 'zip_pack');
 
   let displayTitle = '';
   let category: string = 'Streaming';
@@ -240,8 +342,8 @@ Please check the spelling and try again.`,
     url: primaryUrl,
     category,
     seasonNumber: mediaType === 'tv' ? meta.seasonNumber : undefined,
-    episodeNumber: mediaType === 'tv' ? meta.episodeNumber : undefined,
-    linkType: mediaType === 'tv' ? meta.linkType : undefined,
+    episodeNumber: mediaType === 'tv' ? (isZip ? undefined : (meta.episodeNumber || 1)) : undefined,
+    linkType: mediaType === 'tv' ? (isZip ? 'zip_pack' : 'single_episode') : undefined,
     quality: meta.quality,
     audioLanguage: meta.audioLanguage,
     size: meta.size,
@@ -261,6 +363,15 @@ Failed to write link to the CineFuel database. Please check server logs.`,
 
   const websiteUrl = `${SITE_URL}/${mediaType}/${movieId}`;
 
+  let modeBadge = '';
+  if (mediaType === 'movie') {
+    modeBadge = `🎥 Movie (${forcedMode ? 'Command' : 'Auto-Sensed'})`;
+  } else if (isZip) {
+    modeBadge = `🗜️ Season ${meta.seasonNumber} Complete Zip/Pack (${forcedMode ? 'Command' : 'Auto-Sensed'})`;
+  } else {
+    modeBadge = `🎬 Single Episode (Season ${meta.seasonNumber}, Ep ${meta.episodeNumber || 1}) (${forcedMode ? 'Command' : 'Auto-Sensed'})`;
+  }
+
   return {
     success: true,
     movie: tmdbItem,
@@ -268,8 +379,7 @@ Failed to write link to the CineFuel database. Please check server logs.`,
     replyText: `🎉 *Link Successfully Published to CineFuel!*
 
 🎬 *Title:* ${officialTitle} ${releaseYear ? `(${releaseYear})` : ''}
-📂 *Media Type:* ${mediaType === 'tv' ? '📺 TV Series' : '🎥 Movie'}
-📦 *Format:* ${mediaType === 'tv' ? (isZip ? `📦 Season ${meta.seasonNumber} Complete Zip Pack` : `🎬 Season ${meta.seasonNumber} Ep ${meta.episodeNumber || 1}`) : '🎞️ Full Movie'}
+🏷️ *Upload Mode:* ${modeBadge}
 💎 *Quality:* \`${meta.quality}\`
 🔊 *Audio:* \`${meta.audioLanguage}\`
 ${meta.size ? `💾 *Size:* \`${meta.size}\`\n` : ''}🌐 *View on Website:*

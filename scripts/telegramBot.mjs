@@ -46,12 +46,38 @@ if (REDIS_URL && REDIS_TOKEN) {
 // Authorized Admin IDs (Shyam)
 const AUTHORIZED_TELEGRAM_IDS = [930928310];
 
-// Memory state for multi-message uploads
+// Memory state for multi-message uploads & interactive modes
 const pendingChatState = new Map();
 
 console.log('🤖 Starting Resilient Batch CineFuel Telegram Polling Daemon...');
 console.log(`📡 Connected to Bot: @CineFlue_bot`);
 console.log(`📁 Database Path: ${DATA_FILE}`);
+
+async function registerBotCommands() {
+  try {
+    const res = await safeFetch(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commands: [
+          { command: 'movie', description: 'Upload a Movie link (4K / 1080p / BluRay)' },
+          { command: 'episode', description: 'Upload a Single TV Episode (S01E01)' },
+          { command: 'bulk', description: 'Bulk upload multiple TV episodes' },
+          { command: 'zip', description: 'Upload a Full Season Zip/Pack' },
+          { command: 'auto', description: 'Full Auto-Sensing Mode' },
+          { command: 'status', description: 'Check database & bot status' },
+          { command: 'help', description: 'Show commands and upload examples' },
+        ],
+      }),
+    });
+    const data = await res?.json();
+    if (data?.ok) {
+      console.log('🤖 Telegram Slash Commands Registered Successfully with Telegram API!');
+    }
+  } catch (err) {
+    console.warn('Could not register bot commands:', err.message);
+  }
+}
 
 async function safeFetch(url, options = {}, retries = 4) {
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -112,7 +138,7 @@ function splitMessageIntoReleaseBlocks(text) {
   return blocks;
 }
 
-function extractBlockMetadata(text, fallbackUrl) {
+function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   let url = fallbackUrl;
   const mdMatch = text.match(/\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/i);
   if (mdMatch) {
@@ -140,7 +166,7 @@ function extractBlockMetadata(text, fallbackUrl) {
   const explicitQuality = getField(/(?:^|\n)\s*Quality\s*[-:]\s*([^\n\r]+)/i);
   let explicitAudio = getField(/(?:^|\n)\s*(?:Language|Audio)\s*[-:]\s*([^\n\r]+)/i);
   let explicitSize = getField(/(?:^|\n)\s*(?:File\s*size|Size)\s*[-:]\s*([^\n\r]+)/i);
-  const explicitType = getField(/(?:^|\n)\s*Media\s*Type\s*[-:]\s*([^\n\r]+)/i);
+  let explicitType = getField(/(?:^|\n)\s*Media\s*Type\s*[-:]\s*([^\n\r]+)/i);
 
   // 2. Bracketed file size e.g. [5.75 GB] or [15.42 GB]
   if (!explicitSize) {
@@ -164,7 +190,7 @@ function extractBlockMetadata(text, fallbackUrl) {
   const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
   const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
 
-  // 5. TV Season & Episode
+  // 5. TV Season & Episode detection
   let season = 1;
   const sMatch = cleanText.match(/s0*(\d{1,2})/i) || cleanText.match(/season[\s._-]?0*(\d{1,2})/i);
   if (sMatch) season = parseInt(sMatch[1], 10);
@@ -175,7 +201,30 @@ function extractBlockMetadata(text, fallbackUrl) {
                 cleanText.match(/(?:^|[\s._\-[\]()])episode[\s._-]?0*(\d{1,3})/i);
   if (eMatch) episode = parseInt(eMatch[1], 10);
 
-  const isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText) || (!episode);
+  // 6. Mode Enforcement & Auto-sensing
+  let isZip = false;
+  if (forcedMode === 'zip') {
+    isZip = true;
+    explicitType = 'tv';
+    episode = undefined;
+  } else if (forcedMode === 'episode') {
+    isZip = false;
+    explicitType = 'tv';
+    if (episode === undefined) episode = 1;
+  } else if (forcedMode === 'movie') {
+    isZip = false;
+    explicitType = 'movie';
+    season = undefined;
+    episode = undefined;
+  } else {
+    // Auto-sensing
+    isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText) || (!episode && /(?:season|s0*\d)/i.test(cleanText) && !year);
+    if (isZip || episode !== undefined || /(?:season|s0*\d)/i.test(cleanText)) {
+      explicitType = 'tv';
+    } else if (year && !explicitType) {
+      explicitType = 'movie';
+    }
+  }
 
   // 6. Intelligent Title Extraction
   let titleForSearch = '';
@@ -240,7 +289,7 @@ function extractBlockMetadata(text, fallbackUrl) {
   };
 }
 
-async function searchTmdb(query, year) {
+async function searchTmdb(query, year, forcedType = null) {
   const searchQueries = [query];
 
   const colonParts = query.split(/[:\-]/);
@@ -260,6 +309,19 @@ async function searchTmdb(query, year) {
         const data = await res.json();
         if (data.results && data.results.length > 0) {
           const filtered = data.results.filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+
+          // If forced type (e.g. 'movie' or 'tv'), prioritize that media type
+          if (forcedType) {
+            const typeMatch = filtered.filter(r => r.media_type === forcedType);
+            if (typeMatch.length > 0) {
+              if (year) {
+                const ym = typeMatch.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
+                if (ym) return ym;
+              }
+              return typeMatch[0];
+            }
+          }
+
           if (year && filtered.length > 0) {
             const yearMatch = filtered.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
             if (yearMatch) return yearMatch;
@@ -353,26 +415,47 @@ async function handleMessage(msg) {
 
   console.log(`📩 Received message from ${msg.from?.first_name || 'User'} (${fromId}):\n"${rawText}"`);
 
-  // 1. Slash Commands & Help
-  if (rawText === '/start' || rawText === '/help') {
-    return sendTelegram(chatId, `🚀 *Welcome to CineFuel Auto-Uploader Bot!*
-
-Send any movie or TV series release (single, bulk episodes, or collection) to auto-upload to CineFuel!
-
-📌 *Single Release:*
-\`Marvel's Daredevil S02E01 2160p Hybrid DV HDR [Org Hindi DDP5.1 + English DDP5.1] [5.75 GB] https://hubcloud.foo/...\`
-
-📌 *Batch / Multi-Episode in 1 Message:*
-Paste all 8, 10, or 13 episodes together! The bot automatically detects each episode, quality, audio, and size individually!
-
-✨ *Features:*
-• Auto TMDB match & poster linking
-• Multi-release & TV Season batch detection
-• Auto 2160p 4K / Hybrid DV HDR / 10bit tagging
-• Instant site publication!`);
+  // 1. Authorization check
+  if (!AUTHORIZED_TELEGRAM_IDS.includes(fromId)) {
+    return sendTelegram(chatId, `⛔ *Unauthorized*\nYour Telegram ID (${fromId}) is not registered as an Admin.`);
   }
 
-  if (rawText === '/status') {
+  // 2. Parse command if present
+  let command = null;
+  let commandArgs = '';
+  const cmdMatch = rawText.match(/^\/([a-zA-Z0-9_-]+)(?:@\w+)?(?:\s+([\s\S]*))?$/);
+  if (cmdMatch) {
+    command = cmdMatch[1].toLowerCase();
+    commandArgs = (cmdMatch[2] || '').trim();
+  }
+
+  // Handle Command Menu & Help
+  if (command === 'start' || command === 'help' || command === 'commands') {
+    return sendTelegram(chatId, `🚀 *Welcome to CineFuel Auto-Uploader Bot!*
+
+Send any movie or TV series release to auto-upload directly to CineFuel!
+
+⚡ *Slash Commands Menu:*
+• \`/movie\` - Movie Upload Mode (4K / 1080p / BluRay)
+• \`/episode\` or \`/ep\` - Single TV Episode Mode (S01E01)
+• \`/bulk\` or \`/batch\` - Bulk TV Episodes Mode
+• \`/zip\` or \`/pack\` - Full Season Zip / RAR / Pack Mode
+• \`/auto\` - Full Auto-Sensing Mode (Default)
+• \`/status\` - Server database & active link stats
+
+💡 *Two Easy Ways to Use:*
+
+1️⃣ *Direct Command with Links:*
+• \`/movie Oppenheimer 2023 2160p UHD BluRay [15.4 GB] https://...\`
+• \`/ep Daredevil S02E01 1080p WEB-DL Hindi DDP 5.1 https://...\`
+• \`/zip Loki S02 Complete 2160p DV HDR Zip Pack https://...\`
+• \`/bulk [Paste 5, 8, 10 or more episode lines with links]\`
+
+2️⃣ *Or Just Send Releases Directly!*
+The bot features **intelligent auto-sensing** — it will detect whether your message is a Movie, Single Episode, Zip Pack, or Bulk list without needing any slash command!`);
+  }
+
+  if (command === 'status') {
     let count = 0;
     try {
       if (fs.existsSync(DATA_FILE)) {
@@ -384,33 +467,114 @@ Paste all 8, 10, or 13 episodes together! The bot automatically detects each epi
 • Bot Status: 🟢 Online & Listening
 • Server Database: Connected
 • Total Active Links Uploaded: *${count}*
-• Admin Authorized: ${AUTHORIZED_TELEGRAM_IDS.includes(fromId) ? '✅ Yes' : '❌ No'}`);
+• Admin Authorized: ✅ Yes (${msg.from?.first_name || 'Shyam'})`);
   }
 
-  // 2. Authorization check
-  if (!AUTHORIZED_TELEGRAM_IDS.includes(fromId)) {
-    return sendTelegram(chatId, `⛔ *Unauthorized*\nYour Telegram ID (${fromId}) is not registered as an Admin.`);
+  if (command === 'auto' || command === 'reset') {
+    pendingChatState.delete(chatId);
+    return sendTelegram(chatId, `🔄 *Auto-Sensing Mode Activated!*
+
+You can now send any movie, single episode, bulk list, or zip pack without commands — the bot will automatically sense the release type and upload it!`);
+  }
+
+  // Interactive Command Modes (when command is sent alone)
+  if ((command === 'movie' || command === 'film') && !commandArgs) {
+    pendingChatState.set(chatId, { mode: 'movie', time: Date.now() });
+    return sendTelegram(chatId, `🎥 *Movie Upload Mode Active!*
+
+Send your movie release text or link. I will auto-sense movie details, quality, audio, and upload it directly to CineFuel!
+
+📌 *Example format:*
+\`Oppenheimer 2023 2160p UHD BluRay Dual Audio [15.4 GB] https://hubcloud.foo/...\`
+
+👉 *Send your movie release now:*`);
+  }
+
+  if ((command === 'episode' || command === 'ep' || command === 'single') && !commandArgs) {
+    pendingChatState.set(chatId, { mode: 'episode', time: Date.now() });
+    return sendTelegram(chatId, `🎬 *Single Episode Upload Mode Active!*
+
+Send your single TV episode details. I will auto-sense show name, season, episode, quality, and audio!
+
+📌 *Example format:*
+\`Daredevil Born Again S01E01 1080p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/...\`
+
+👉 *Send your episode release now:*`);
+  }
+
+  if ((command === 'bulk' || command === 'batch' || command === 'episodes') && !commandArgs) {
+    pendingChatState.set(chatId, { mode: 'bulk', time: Date.now() });
+    return sendTelegram(chatId, `📦 *Bulk Episodes Upload Mode Active!*
+
+Paste multiple TV episode lines or download URLs at once!
+
+📌 *Example format:*
+\`Oppenheimer S01E01 2160p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/1\`
+\`Oppenheimer S01E02 2160p WEB-DL Hindi DDP 5.1 [6.28 GB] - https://hubcloud.foo/2\`
+\`Oppenheimer S01E03 2160p WEB-DL Hindi DDP 5.1 [6.15 GB] - https://hubcloud.foo/3\`
+
+👉 *Paste your multiple episode lines now:*`);
+  }
+
+  if ((command === 'zip' || command === 'pack' || command === 'season') && !commandArgs) {
+    pendingChatState.set(chatId, { mode: 'zip', time: Date.now() });
+    return sendTelegram(chatId, `🗜️ *Season Zip/Pack Upload Mode Active!*
+
+Send your full season zip pack or batch archive!
+
+📌 *Example format:*
+\`Oppenheimer S01 Complete 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/...\`
+
+I will auto-sense the Season number, quality, audio, and publish it under the Season Zip/Pack tab!
+
+👉 *Send your season zip pack now:*`);
+  }
+
+  // Determine active mode & text to process
+  let activeMode = null;
+  let textToProcess = rawText;
+
+  if (command && ['movie', 'film'].includes(command)) {
+    activeMode = 'movie';
+    textToProcess = commandArgs;
+  } else if (command && ['episode', 'ep', 'single'].includes(command)) {
+    activeMode = 'episode';
+    textToProcess = commandArgs;
+  } else if (command && ['bulk', 'batch', 'episodes'].includes(command)) {
+    activeMode = 'bulk';
+    textToProcess = commandArgs;
+  } else if (command && ['zip', 'pack', 'season'].includes(command)) {
+    activeMode = 'zip';
+    textToProcess = commandArgs;
+  } else {
+    // Check if user had a previous mode set
+    const pending = pendingChatState.get(chatId);
+    if (pending && pending.mode) {
+      activeMode = pending.mode;
+      pendingChatState.delete(chatId);
+    }
   }
 
   // 3. Split message into individual release blocks
-  const blocks = splitMessageIntoReleaseBlocks(rawText);
+  const blocks = splitMessageIntoReleaseBlocks(textToProcess);
 
   // If no URLs found in message
   if (blocks.length === 1 && !blocks[0].url) {
-    if (/^(?:hi|hello|hey|start)\b/i.test(rawText)) {
+    if (/^(?:hi|hello|hey)\b/i.test(textToProcess)) {
       return sendTelegram(chatId, `👋 *Hello ${msg.from?.first_name || 'Shyam'}!*
 
 CineFuel Auto-Uploader is online! Send any movie or TV series link with details to auto-upload to your site.`);
     }
 
-    const meta = extractBlockMetadata(rawText);
+    const meta = extractBlockMetadata(textToProcess, null, activeMode);
     if (meta.titleQuery && meta.titleQuery.length >= 3) {
       pendingChatState.set(chatId, {
-        rawText,
+        rawText: textToProcess,
         meta,
+        mode: activeMode,
         time: Date.now(),
       });
-      return sendTelegram(chatId, `⏳ *Received Details for:* "${meta.titleQuery}"\n👉 Now send the link to publish it to CineFuel!`);
+      return sendTelegram(chatId, `⏳ *Received Details for:* "${meta.titleQuery}"\n👉 Now send the download/stream link to publish it to CineFuel!`);
     }
 
     return sendTelegram(chatId, `⚠️ *No Link Detected*\nPlease include a download/stream URL with your title.`);
@@ -421,8 +585,19 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     const pending = pendingChatState.get(chatId);
     if (pending) {
       blocks[0].text = `${pending.rawText}\n${blocks[0].url}`;
+      if (pending.mode) activeMode = pending.mode;
       pendingChatState.delete(chatId);
     }
+  }
+
+  // Detect sensed mode if not forced
+  let sensedOverall = activeMode;
+  if (!sensedOverall) {
+    if (blocks.length > 1) sensedOverall = 'bulk';
+    else if (/(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(textToProcess)) sensedOverall = 'zip';
+    else if (/(?:s\d{1,2}[\s._-]*(?:ep|episode|e)[\s._-]?\d{1,3}|\be\d{1,3}\b|\bepisode[\s._-]?\d{1,3}\b)/i.test(textToProcess)) sensedOverall = 'episode';
+    else if (/\b(19\d\d|20\d\d)\b/.test(textToProcess) && !/s\d{1,2}/i.test(textToProcess)) sensedOverall = 'movie';
+    else sensedOverall = 'auto';
   }
 
   // 4. Process all blocks with in-memory TMDB cache
@@ -432,15 +607,16 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
   for (const block of blocks) {
     if (!block.url) continue;
 
-    const meta = extractBlockMetadata(block.text, block.url);
+    const blockMode = activeMode || (sensedOverall === 'bulk' ? 'episode' : (sensedOverall !== 'auto' ? sensedOverall : null));
+    const meta = extractBlockMetadata(block.text, block.url, blockMode);
     if (!meta.titleQuery || meta.titleQuery.length < 2) continue;
 
-    const cacheKey = `${meta.titleQuery.toLowerCase()}_${meta.year || 'any'}`;
+    const cacheKey = `${meta.titleQuery.toLowerCase()}_${meta.year || 'any'}_${meta.mediaType || 'any'}`;
     let tmdbItem = tmdbCache.get(cacheKey);
 
     if (!tmdbItem) {
-      console.log(`🔍 Searching TMDB for: "${meta.titleQuery}" (Year: ${meta.year || 'any'})`);
-      tmdbItem = await searchTmdb(meta.titleQuery, meta.year);
+      console.log(`🔍 Searching TMDB for: "${meta.titleQuery}" (Year: ${meta.year || 'any'}, Type: ${meta.mediaType || 'any'})`);
+      tmdbItem = await searchTmdb(meta.titleQuery, meta.year, meta.mediaType);
       if (tmdbItem) tmdbCache.set(cacheKey, tmdbItem);
     }
 
@@ -449,8 +625,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       continue;
     }
 
-    const isTv = meta.mediaType?.toLowerCase().includes('tv') ||
-                 (!meta.mediaType && (tmdbItem.media_type === 'tv' || meta.episode !== undefined || /s\d{1,2}/i.test(block.text)));
+    const isTv = meta.mediaType === 'tv' ||
+                 (meta.mediaType !== 'movie' && (tmdbItem.media_type === 'tv' || meta.episode !== undefined || /s\d{1,2}/i.test(block.text)));
     const mediaType = isTv ? 'tv' : 'movie';
     const officialTitle = tmdbItem.title || tmdbItem.name || meta.titleQuery;
     const releaseDate = tmdbItem.release_date || tmdbItem.first_air_date || '';
@@ -499,6 +675,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
         movieId,
         season: meta.season,
         episode: meta.episode,
+        isZip: meta.isZip,
         quality: meta.quality,
         audio: meta.audio,
         size: meta.size,
@@ -516,10 +693,19 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
   // Case A: Single Release
   if (publishedItems.length === 1) {
     const item = publishedItems[0];
+    let modeBadge = '';
+    if (item.mediaType === 'movie') {
+      modeBadge = `🎥 Movie (${activeMode ? 'Command' : 'Auto-Sensed'})`;
+    } else if (item.isZip) {
+      modeBadge = `🗜️ Season ${item.season} Complete Zip/Pack (${activeMode ? 'Command' : 'Auto-Sensed'})`;
+    } else {
+      modeBadge = `🎬 Single Episode (Season ${item.season}, Ep ${item.episode || 1}) (${activeMode ? 'Command' : 'Auto-Sensed'})`;
+    }
+
     return sendTelegram(chatId, `🎉 *Link Successfully Published to CineFuel!*
 
 🎬 *Title:* ${item.title} ${item.year ? `(${item.year})` : ''}
-📂 *Media Type:* ${item.mediaType === 'tv' ? '📺 TV Series' : '🎥 Movie'}
+🏷️ *Upload Mode:* ${modeBadge}
 💎 *Quality:* \`${item.quality}\`
 🔊 *Audio:* \`${item.audio}\`
 ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
@@ -540,13 +726,14 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
       ? `E${String(epNumbers[0]).padStart(2, '0')} - E${String(epNumbers[epNumbers.length - 1]).padStart(2, '0')}` 
       : `${publishedItems.length} Episodes`;
 
-    let tvMsg = `🎉 *TV Season Batch Upload Successful!*\n\n`;
+    let tvMsg = `🎉 *Bulk TV Episodes Upload Successful!*\n\n`;
     tvMsg += `🎬 *Show:* ${first.title} (${first.year})\n`;
-    tvMsg += `📺 *Season:* Season ${first.season} (${publishedItems.length} Episodes Live: \`${epRange}\`)\n`;
+    tvMsg += `🏷️ *Upload Mode:* 📦 Bulk Episodes (${publishedItems.length} Episodes: \`${epRange}\`)\n`;
+    tvMsg += `📺 *Season:* Season ${first.season}\n`;
     tvMsg += `💎 *Quality:* \`${first.quality}\`\n`;
     tvMsg += `🔊 *Audio:* \`${first.audio}\`\n\n`;
     tvMsg += `🌐 *View Season on Website:*\n[Open ${first.title} Season ${first.season} on CineFuel](${first.pageUrl})\n\n`;
-    tvMsg += `✅ All ${publishedItems.length} episodes are now live on your site!`;
+    tvMsg += `✅ All ${publishedItems.length} episodes are now live in their respective Season ${first.season} slots!`;
 
     return sendTelegram(chatId, tvMsg);
   }
@@ -555,7 +742,8 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
   let batchMsg = `🎉 *Batch Upload Successful! (${publishedItems.length} Releases Published)*\n\n`;
 
   publishedItems.forEach((item, index) => {
-    batchMsg += `${index + 1}️⃣ *${item.title} (${item.year})*\n`;
+    const typeIcon = item.mediaType === 'tv' ? (item.isZip ? '🗜️' : '🎬') : '🎥';
+    batchMsg += `${index + 1}️⃣ ${typeIcon} *${item.title} (${item.year})*\n`;
     batchMsg += `💎 \`${item.quality}\`${item.size ? ` [${item.size}]` : ''}\n`;
     batchMsg += `🔊 \`${item.audio}\`\n`;
     batchMsg += `🌐 [Open on CineFuel](${item.pageUrl})\n\n`;
@@ -596,4 +784,10 @@ async function pollUpdates() {
   }
 }
 
-pollUpdates();
+async function main() {
+  await registerBotCommands();
+  pollUpdates();
+}
+
+main();
+
