@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Flame, Star, Tv, Film, Calendar, Compass, Sparkles, ArrowRight } from 'lucide-react';
+import { Flame, Star, Tv, Film, Calendar, Compass, ArrowRight } from 'lucide-react';
 import { getTrending, getPopularMovies, getPopularTV, getTopRated, getUpcoming } from '@/lib/tmdb';
 import { POPULAR_GENRES } from '@/lib/mockData';
 import HeroBanner from '@/components/HeroBanner';
@@ -100,37 +100,6 @@ export default async function HomePage() {
         viewAllLink="/search?sort=upcoming"
         icon={<Calendar className="w-5 h-5 text-emerald-400" />}
       />
-
-      {/* Discovery Feature Highlight Card */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-transparent border border-amber-500/20 p-8 sm:p-10 shadow-2xl">
-          <div className="max-w-xl space-y-4">
-            <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold uppercase tracking-wider inline-flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" /> India Streaming Availability
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Know where to watch before you click.
-            </h2>
-            <p className="text-sm text-zinc-300 leading-relaxed">
-              CineFuel directly tracks regional streaming platforms across Disney+ Hotstar, JioCinema, Netflix, Amazon Prime Video, Zee5, SonyLIV, and Apple TV+ for Indian viewers.
-            </p>
-            <div className="pt-2 flex flex-wrap gap-3">
-              <Link
-                href="/watchlist"
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-all shadow-lg shadow-amber-500/20"
-              >
-                Go to My Watchlist
-              </Link>
-              <Link
-                href="/simkl"
-                className="px-5 py-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-semibold text-xs transition-colors"
-              >
-                Connect SIMKL Account
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
