@@ -3,7 +3,7 @@ import path from 'path';
 import { parseFullMediaTitle } from './seasonParser';
 
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
 const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 // Authorized Admin IDs (Shyam's Telegram ID is 930928310)
