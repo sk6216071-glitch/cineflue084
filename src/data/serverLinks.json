@@ -23,6 +23,82 @@
       "createdAt": "2026-09-06T11:02:28.349Z"
     }
   ],
+  "826": [
+    {
+      "id": "tg-1788700915550-i915",
+      "title": "2160p 4K • HDR • BluRay • HEVC • Hindi DDP 5.1 + English DDP 7.1 [26.56 GB]",
+      "url": "https://hubcloud.cx/drive/ise9jgjgsveqa6j",
+      "category": "Streaming",
+      "quality": "2160p 4K • HDR • BluRay • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP 7.1",
+      "size": "26.56 GB",
+      "createdAt": "2026-09-06T13:21:55.550Z"
+    },
+    {
+      "id": "tg-1788700915546-2pw0",
+      "title": "1080p FHD • 10bit • BluRay • HEVC • Hindi DDP 5.1 + English DD 5.1 [9.94 GB]",
+      "url": "https://hubcloud.cx/drive/gkkdg06qti1eo61",
+      "category": "Streaming",
+      "quality": "1080p FHD • 10bit • BluRay • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DD 5.1",
+      "size": "9.94 GB",
+      "createdAt": "2026-09-06T13:21:55.546Z"
+    },
+    {
+      "id": "tg-1788700915541-0mom",
+      "title": "Season 1 Complete (1080p FHD • BluRay • Hindi DDP 5.1 + English DTS 5.1) [17.1 GB]",
+      "url": "https://hubcloud.cx/drive/s6o4z49hf9h2v66",
+      "category": "ZipPack",
+      "seasonNumber": 1,
+      "linkType": "zip_pack",
+      "quality": "1080p FHD • BluRay",
+      "audioLanguage": "Hindi DDP 5.1 + English DTS 5.1",
+      "size": "17.1 GB",
+      "createdAt": "2026-09-06T13:21:55.541Z"
+    },
+    {
+      "id": "tg-1788700915536-8fll",
+      "title": "1080p FHD • REMUX • BluRay • Hindi DDP 5.1 + English DTS-HD MA 5.1 [38.99 GB]",
+      "url": "https://hubcloud.cx/drive/5kkccu6igiehn16",
+      "category": "Streaming",
+      "quality": "1080p FHD • REMUX • BluRay",
+      "audioLanguage": "Hindi DDP 5.1 + English DTS-HD MA 5.1",
+      "size": "38.99 GB",
+      "createdAt": "2026-09-06T13:21:55.536Z"
+    },
+    {
+      "id": "tg-1788700915532-z48v",
+      "title": "Season 1 Complete (2160p 4K • WEB-DL • HEVC • Hindi DDP 5.1 + English TrueHD 7.1 Atmos) [23.03 GB]",
+      "url": "https://hubcloud.cx/drive/vvsywuas7v2s2ev",
+      "category": "ZipPack",
+      "seasonNumber": 1,
+      "linkType": "zip_pack",
+      "quality": "2160p 4K • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English TrueHD 7.1 Atmos",
+      "size": "23.03 GB",
+      "createdAt": "2026-09-06T13:21:55.532Z"
+    },
+    {
+      "id": "tg-1788700915526-5ebf",
+      "title": "2160p 4K • HDR • BluRay • HEVC • Hindi DDP 5.1 + English TrueHD 7.1 Atmos [53.63 GB]",
+      "url": "https://hubcloud.cx/drive/yve1kluhu94wu4b",
+      "category": "Streaming",
+      "quality": "2160p 4K • HDR • BluRay • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English TrueHD 7.1 Atmos",
+      "size": "53.63 GB",
+      "createdAt": "2026-09-06T13:21:55.526Z"
+    },
+    {
+      "id": "tg-1788700915520-0n56",
+      "title": "2160p 4K • HDR • REMUX • BluRay • HEVC • Hindi DDP 5.1 + English TrueHD 7.1 Atmos [69.23 GB]",
+      "url": "https://hubcloud.cx/drive/p7vicco1gcopyou",
+      "category": "Streaming",
+      "quality": "2160p 4K • HDR • REMUX • BluRay • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English TrueHD 7.1 Atmos",
+      "size": "69.23 GB",
+      "createdAt": "2026-09-06T13:21:55.520Z"
+    }
+  ],
   "1124": [
     {
       "id": "tg-1788689249446-gjo7",
@@ -43,6 +119,42 @@
       "audioLanguage": "Hindi VCD DDP 2.0 + English DTS-HD MA 5.1",
       "size": "31.01 GB",
       "createdAt": "2026-09-06T10:07:29.441Z"
+    }
+  ],
+  "1724": [
+    {
+      "id": "tg-1788700891296-h9in",
+      "title": "1080p FHD • BluRay • Hindi NF DDP 5.1 + English DDP 7.1 [13.13 GB]",
+      "url": "https://gdflix.dev/file/PJ5er21n6y4BrmS",
+      "category": "Streaming",
+      "quality": "1080p FHD • BluRay",
+      "audioLanguage": "Hindi NF DDP 5.1 + English DDP 7.1",
+      "size": "13.13 GB",
+      "createdAt": "2026-09-06T13:21:31.296Z"
+    }
+  ],
+  "1726": [
+    {
+      "id": "tg-1788700890950-7zmr",
+      "title": "1080p FHD • BluRay • Hindi NF DDP 5.1 + English DDP 7.1 [17.28 GB]",
+      "url": "https://gdflix.dev/file/8fxcnjLCJnDEQkx",
+      "category": "Streaming",
+      "quality": "1080p FHD • BluRay",
+      "audioLanguage": "Hindi NF DDP 5.1 + English DDP 7.1",
+      "size": "17.28 GB",
+      "createdAt": "2026-09-06T13:21:30.950Z"
+    }
+  ],
+  "1771": [
+    {
+      "id": "tg-1788700892189-8lpb",
+      "title": "1080p FHD • BluRay • Hindi NF DDP 5.1 + English DD 5.1 [14.27 GB]",
+      "url": "https://gdflix.dev/file/R1YZaELJ6LAlY0Y",
+      "category": "Streaming",
+      "quality": "1080p FHD • BluRay",
+      "audioLanguage": "Hindi NF DDP 5.1 + English DD 5.1",
+      "size": "14.27 GB",
+      "createdAt": "2026-09-06T13:21:32.189Z"
     }
   ],
   "2502": [
@@ -111,6 +223,30 @@
       "createdAt": "2026-09-06T11:04:41.828Z"
     }
   ],
+  "10138": [
+    {
+      "id": "tg-1788700891591-0gcg",
+      "title": "1080p FHD • Hybrid • BluRay • Hindi BD 5.1 + English DDP 7.1 [16.88 GB]",
+      "url": "https://gdflix.dev/file/HrmZoe1AWYbRUUx",
+      "category": "Streaming",
+      "quality": "1080p FHD • Hybrid • BluRay",
+      "audioLanguage": "Hindi BD 5.1 + English DDP 7.1",
+      "size": "16.88 GB",
+      "createdAt": "2026-09-06T13:21:31.591Z"
+    }
+  ],
+  "10195": [
+    {
+      "id": "tg-1788700891892-u93c",
+      "title": "1080p FHD • BluRay • Hindi NF DDP 5.1 + English DDP 7.1 [14.84 GB]",
+      "url": "https://gdflix.dev/file/jhLfq6THmzbwasI",
+      "category": "Streaming",
+      "quality": "1080p FHD • BluRay",
+      "audioLanguage": "Hindi NF DDP 5.1 + English DDP 7.1",
+      "size": "14.84 GB",
+      "createdAt": "2026-09-06T13:21:31.892Z"
+    }
+  ],
   "10198": [
     {
       "id": "tg-1788692691844-nc03",
@@ -133,6 +269,20 @@
       "audioLanguage": "Hindi NF DDP 2.0 + English TrueHD Atmos 7.1",
       "size": "20.39 GB",
       "createdAt": "2026-09-06T11:04:46.158Z"
+    }
+  ],
+  "24428": [
+    {
+      "id": "tg-1788700892503-quz9",
+      "title": "Season 1 Complete (1080p FHD • BluRay • Hindi NF DDP 5.1 + English DDP 7.1) [17.24 GB]",
+      "url": "https://gdflix.dev/file/RGmU9EIs1hNZSyM",
+      "category": "ZipPack",
+      "seasonNumber": 1,
+      "linkType": "zip_pack",
+      "quality": "1080p FHD • BluRay",
+      "audioLanguage": "Hindi NF DDP 5.1 + English DDP 7.1",
+      "size": "17.24 GB",
+      "createdAt": "2026-09-06T13:21:32.503Z"
     }
   ],
   "49040": [
@@ -160,6 +310,175 @@
     }
   ],
   "61889": [
+    {
+      "id": "tg-1788701243190-7w6x",
+      "title": "Season 3 Episode 13 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.54 GB]",
+      "url": "https://hubcloud.foo/video/rt9re9ts8r8t09s",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 13,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.54 GB",
+      "createdAt": "2026-09-06T13:27:23.190Z"
+    },
+    {
+      "id": "tg-1788701243185-hmrs",
+      "title": "Season 3 Episode 12 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.66 GB]",
+      "url": "https://hubcloud.foo/video/zjbsjmajbelhbsm",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 12,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.66 GB",
+      "createdAt": "2026-09-06T13:27:23.185Z"
+    },
+    {
+      "id": "tg-1788701243180-rilb",
+      "title": "Season 3 Episode 11 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.03 GB]",
+      "url": "https://hubcloud.foo/video/blzhowiowbhwubu",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 11,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.03 GB",
+      "createdAt": "2026-09-06T13:27:23.180Z"
+    },
+    {
+      "id": "tg-1788701243175-u9yw",
+      "title": "Season 3 Episode 10 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [5.54 GB]",
+      "url": "https://hubcloud.foo/video/hnzkls6writmta7",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 10,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "5.54 GB",
+      "createdAt": "2026-09-06T13:27:23.175Z"
+    },
+    {
+      "id": "tg-1788701243158-c2zh",
+      "title": "Season 3 Episode 9 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.53 GB]",
+      "url": "https://hubcloud.foo/video/d1vkv4cc8cg4fr1",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 9,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.53 GB",
+      "createdAt": "2026-09-06T13:27:23.158Z"
+    },
+    {
+      "id": "tg-1788701243151-i2k6",
+      "title": "Season 3 Episode 8 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.06 GB]",
+      "url": "https://hubcloud.foo/video/n6j388r3locjzzr",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 8,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.06 GB",
+      "createdAt": "2026-09-06T13:27:23.151Z"
+    },
+    {
+      "id": "tg-1788701243145-fotd",
+      "title": "Season 3 Episode 7 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.00 GB]",
+      "url": "https://hubcloud.foo/video/zezybg5jdyqrkbw",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 7,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.00 GB",
+      "createdAt": "2026-09-06T13:27:23.145Z"
+    },
+    {
+      "id": "tg-1788701243138-1pyi",
+      "title": "Season 3 Episode 6 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.59 GB]",
+      "url": "https://hubcloud.foo/video/o1b3fdo3mxuxb3l",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 6,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.59 GB",
+      "createdAt": "2026-09-06T13:27:23.138Z"
+    },
+    {
+      "id": "tg-1788701243132-yekb",
+      "title": "Season 3 Episode 5 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [5.92 GB]",
+      "url": "https://hubcloud.foo/video/xwabhlbwzzjdu1n",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 5,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "5.92 GB",
+      "createdAt": "2026-09-06T13:27:23.132Z"
+    },
+    {
+      "id": "tg-1788701243127-4wu0",
+      "title": "Season 3 Episode 4 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.58 GB]",
+      "url": "https://hubcloud.foo/video/lvnavck9afmbemb",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 4,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.58 GB",
+      "createdAt": "2026-09-06T13:27:23.127Z"
+    },
+    {
+      "id": "tg-1788701243123-3bix",
+      "title": "Season 3 Episode 3 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [5.95 GB]",
+      "url": "https://hubcloud.foo/video/icrltwvhi_vcoam",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 3,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "5.95 GB",
+      "createdAt": "2026-09-06T13:27:23.123Z"
+    },
+    {
+      "id": "tg-1788701243118-3j5t",
+      "title": "Season 3 Episode 2 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.05 GB]",
+      "url": "https://hubcloud.foo/video/979nyz1bnevvhee",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 2,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.05 GB",
+      "createdAt": "2026-09-06T13:27:23.118Z"
+    },
+    {
+      "id": "tg-1788701243112-l2df",
+      "title": "Season 3 Episode 1 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Hindi DDP 5.1 + English DDP Atmos 5.1) [6.53 GB]",
+      "url": "https://hubcloud.foo/video/7yydpcmr8gv4ed7",
+      "category": "SingleEpisode",
+      "seasonNumber": 3,
+      "episodeNumber": 1,
+      "linkType": "single_episode",
+      "quality": "2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC",
+      "audioLanguage": "Hindi DDP 5.1 + English DDP Atmos 5.1",
+      "size": "6.53 GB",
+      "createdAt": "2026-09-06T13:27:23.112Z"
+    },
     {
       "id": "tg-daredevil-s2e13-1788687210426",
       "title": "Season 2 Episode 13 (2160p 4K • Hybrid • DV HDR • 10bit • DSNP • WEB-DL • HEVC • Org Hindi DDP5.1 + English DDP5.1) [6.89 GB]",
@@ -301,6 +620,30 @@
       "audioLanguage": "Hindi NF DDP 5.1 + English DTS-HD MA 5.1",
       "size": "17.49 GB",
       "createdAt": "2026-09-06T11:04:49.447Z"
+    }
+  ],
+  "79352": [
+    {
+      "id": "tg-1788700585201-2zqt",
+      "title": "Season 1 Complete (2160p 4K • WEB-DL • Hindi + English)",
+      "url": "https://hubcloud.one/drive/npdqqc3e0cvhhxq",
+      "category": "ZipPack",
+      "seasonNumber": 1,
+      "linkType": "zip_pack",
+      "quality": "2160p 4K • WEB-DL",
+      "audioLanguage": "Hindi + English",
+      "createdAt": "2026-09-06T13:16:25.201Z"
+    },
+    {
+      "id": "tg-1788700523508-mp86",
+      "title": "Season 2 Complete (2160p 4K • WEB-DL • Hindi + English)",
+      "url": "https://Sacred.Games.S02.2160p.NF.WEB-DL.DDP5.1.Multi",
+      "category": "ZipPack",
+      "seasonNumber": 2,
+      "linkType": "zip_pack",
+      "quality": "2160p 4K • WEB-DL",
+      "audioLanguage": "Hindi + English",
+      "createdAt": "2026-09-06T13:15:23.508Z"
     }
   ],
   "82702": [
@@ -618,6 +961,28 @@
       "audioLanguage": "Hindi NF DDP 5.1 + English TrueHD Atmos 7.1",
       "size": "17.96 GB",
       "createdAt": "2026-09-06T11:04:53.275Z"
+    }
+  ],
+  "1137844": [
+    {
+      "id": "tg-1788700988440-vnq3",
+      "title": "1080p FHD • WEB-DL • Hindi + English [8.3 GB]",
+      "url": "https://mnmcloud.fun/files/9byl0swX2npizlB",
+      "category": "Streaming",
+      "quality": "1080p FHD • WEB-DL",
+      "audioLanguage": "Hindi + English",
+      "size": "8.3 GB",
+      "createdAt": "2026-09-06T13:23:08.440Z"
+    },
+    {
+      "id": "tg-1788700988435-ut9u",
+      "title": "2160p 4K • WEB-DL • Hindi + English [16.4 GB]",
+      "url": "https://mnmcloud.fun/files/SMucIn6EXfexo79",
+      "category": "Streaming",
+      "quality": "2160p 4K • WEB-DL",
+      "audioLanguage": "Hindi + English",
+      "size": "16.4 GB",
+      "createdAt": "2026-09-06T13:23:08.435Z"
     }
   ],
   "1275779": [
