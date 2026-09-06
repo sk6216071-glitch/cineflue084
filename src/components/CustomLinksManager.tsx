@@ -79,18 +79,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     if (typeof window !== 'undefined') {
       const auth = sessionStorage.getItem('cinefuel_admin_auth');
       const user = sessionStorage.getItem('cinefuel_admin_user');
-      if (auth === 'true' && (user === 'shyam' || !user)) {
-        setIsAdmin(true);
-      } else if (auth) {
-        try {
-          const parsed = JSON.parse(auth);
-          setIsAdmin(parsed === true || (parsed?.isLoggedIn && parsed?.user === 'shyam'));
-        } catch {
-          setIsAdmin(auth === 'true');
-        }
-      } else {
-        setIsAdmin(false);
-      }
+      setIsAdmin(auth === 'true' && user === 'shyam');
     }
   }, [isMounted]);
 
