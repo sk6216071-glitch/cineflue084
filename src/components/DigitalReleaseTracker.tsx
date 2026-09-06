@@ -45,7 +45,7 @@ export const DigitalReleaseTracker: React.FC<DigitalReleaseTrackerProps> = ({
       icon={<Calendar className="w-5 h-5 text-amber-400" />}
       subtitle="Track theatrical premiere, digital VOD rental window, 4K Blu-ray, and OTT subscription dates."
       action={statusBadge}
-      defaultOpen={true}
+      defaultOpen={false}
     >
 
       {/* 4-Step Visual Timeline Grid */}

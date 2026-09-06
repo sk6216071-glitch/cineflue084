@@ -126,7 +126,7 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
       icon={<Tv className="w-5 h-5 text-amber-400" />}
       badge={hasStream ? 'Streaming' : (hasRent || hasBuy ? 'VOD / Rent' : 'Theatrical')}
       action={regionSwitcher}
-      defaultOpen={true}
+      defaultOpen={false}
     >
 
       {/* Provider Categories */}

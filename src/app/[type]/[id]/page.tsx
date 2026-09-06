@@ -154,7 +154,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
           <CollapsibleSection
             title="Storyline & Overview"
             icon={<Film className="w-5 h-5 text-amber-400" />}
-            defaultOpen={true}
+            defaultOpen={false}
           >
             <p className="text-zinc-300 text-sm sm:text-base leading-relaxed">
               {titleDetails.overview || 'No synopsis available for this title.'}
@@ -173,7 +173,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
               title="Cast & Characters"
               icon={<User className="w-5 h-5 text-amber-400" />}
               badge={`${castList.length} Cast`}
-              defaultOpen={true}
+              defaultOpen={false}
             >
               <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
                 {castList.map((actor) => {

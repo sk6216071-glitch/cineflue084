@@ -593,7 +593,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       <CollapsibleSection
         title={`Season ${selectedSeason}`}
         badge={`${enrichedLinks.filter((l) => l.seasonNumber === selectedSeason).length} files`}
-        defaultOpen={true}
+        defaultOpen={false}
         className="bg-zinc-950/60 border-zinc-800/90 shadow-md"
       >
         {/* Dual Mode Toggle Button (Zip/Pack vs Single EP's) */}

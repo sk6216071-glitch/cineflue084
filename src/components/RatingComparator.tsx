@@ -52,7 +52,7 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
       title="Compare Ratings & Reviews"
       icon={<Award className="w-5 h-5 text-amber-400" />}
       badge="4 Sources"
-      defaultOpen={true}
+      defaultOpen={false}
       className="bg-zinc-950/70 backdrop-blur-md border border-zinc-800/80 w-full"
     >
 

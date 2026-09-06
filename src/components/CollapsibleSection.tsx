@@ -23,7 +23,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   subtitle,
   badge,
   action,
-  defaultOpen = true,
+  defaultOpen = false,
   children,
   className = '',
   headerClassName = '',
@@ -58,19 +58,19 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         </div>
 
         {/* Right Side: Optional Actions, Optional Badge & Circular Chevron Toggle */}
-        <div
-          className="flex items-center gap-2 sm:gap-3 shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {action}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {action && <div onClick={(e) => e.stopPropagation()}>{action}</div>}
           {badge && (
-            <span className="px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-700/80 text-zinc-300 text-xs font-semibold">
+            <span className="px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-700/80 text-zinc-300 text-xs font-semibold pointer-events-none">
               {badge}
             </span>
           )}
           <button
             type="button"
-            onClick={() => setIsOpen((prev) => !prev)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen((prev) => !prev);
+            }}
             className="w-8 h-8 rounded-full border border-amber-500/50 bg-[#161922] text-amber-400 flex items-center justify-center hover:bg-amber-500/20 hover:border-amber-400 transition-all shadow-md active:scale-95 cursor-pointer"
             aria-label={isOpen ? 'Collapse section' : 'Expand section'}
           >

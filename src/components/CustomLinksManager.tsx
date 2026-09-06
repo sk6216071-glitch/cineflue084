@@ -326,7 +326,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
       subtitle="Streaming platforms, trailers, review portals, and verified admin custom links."
       badge={`${totalLinkCount} files`}
       action={adminAddBtn}
-      defaultOpen={true}
+      defaultOpen={false}
     >
 
       {/* 1. Streaming Links Section (Only Show Actually Available Platforms) */}
