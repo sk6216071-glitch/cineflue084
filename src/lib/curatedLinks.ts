@@ -62,8 +62,10 @@ export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks
 export async function syncServerLinks(movieId?: number): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    const url = movieId ? `/api/curated-links?movieId=${movieId}` : '/api/curated-links';
-    const res = await fetch(url);
+    const url = movieId
+      ? `/api/curated-links?movieId=${movieId}&_t=${Date.now()}`
+      : `/api/curated-links?_t=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     const stored = localStorage.getItem('cinefuel_custom_links');
@@ -72,31 +74,13 @@ export async function syncServerLinks(movieId?: number): Promise<void> {
     let changed = false;
     if (movieId && Array.isArray(data.links)) {
       const key = String(movieId);
-      const existing: CustomLink[] = parsed[key] || [];
-      const linkMap = new Map<string, CustomLink>();
-      existing.forEach((l) => linkMap.set(l.id, l));
-      data.links.forEach((l: CustomLink) => {
-        if (!linkMap.has(l.id)) {
-          linkMap.set(l.id, l);
-          changed = true;
-        }
-      });
-      if (changed) {
-        parsed[key] = Array.from(linkMap.values());
-      }
+      parsed[key] = data.links;
+      changed = true;
     } else if (data.allLinks && typeof data.allLinks === 'object') {
       Object.entries(data.allLinks).forEach(([key, list]) => {
         if (Array.isArray(list)) {
-          const existing: CustomLink[] = parsed[key] || [];
-          const linkMap = new Map<string, CustomLink>();
-          existing.forEach((l) => linkMap.set(l.id, l));
-          list.forEach((l: CustomLink) => {
-            if (!linkMap.has(l.id)) {
-              linkMap.set(l.id, l);
-              changed = true;
-            }
-          });
-          parsed[key] = Array.from(linkMap.values());
+          parsed[key] = list;
+          changed = true;
         }
       });
     }

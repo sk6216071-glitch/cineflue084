@@ -238,13 +238,22 @@ export default function AdminPage() {
         }
       }
 
-      // Sync server-backed links from Telegram Bot or Server DB
-      syncServerLinks().then(() => {
+      // Real-time live fetch of all cloud database links
+      const fetchAllAdminLinks = async () => {
         try {
-          const fresh = localStorage.getItem('cinefuel_custom_links');
-          if (fresh) setCustomLinksMap(JSON.parse(fresh));
+          const res = await fetch(`/api/curated-links?_t=${Date.now()}`, { cache: 'no-store' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.allLinks && typeof data.allLinks === 'object') {
+              setCustomLinksMap(data.allLinks);
+              localStorage.setItem('cinefuel_custom_links', JSON.stringify(data.allLinks));
+            }
+          }
         } catch {}
-      });
+      };
+
+      fetchAllAdminLinks();
+      const adminSyncInterval = setInterval(fetchAllAdminLinks, 3000);
 
       const storedLists = localStorage.getItem('cinefuel_custom_lists');
       if (storedLists) {
@@ -270,18 +279,13 @@ export default function AdminPage() {
       setDeletedCuratedLinkIds(getDeletedLinkIds());
 
       const handleLinksUpdated = () => {
-        setDeletedCuratedLinkIds(getDeletedLinkIds());
-        const links = localStorage.getItem('cinefuel_custom_links');
-        if (links) {
-          try {
-            setCustomLinksMap(JSON.parse(links));
-          } catch {
-            // ignore
-          }
-        }
+        fetchAllAdminLinks();
       };
       window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
-      return () => window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
+      return () => {
+        clearInterval(adminSyncInterval);
+        window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
+      };
     }
   }, [simklConfig, mdblistConfig]);
 
@@ -1165,24 +1169,59 @@ export default function AdminPage() {
     }
   });
 
-  // 3. Dynamic LocalStorage Custom Links (Filtered by deletedCuratedLinkIds)
+  // 3. Dynamic Live Server/Cloud Custom Links
   Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
     if (Array.isArray(links)) {
       const numId = Number(movieIdStr);
       const info = resolveTitleInfo(numId);
+      const isTv = info.media_type === 'tv' || links.some((l) => l.seasonNumber !== undefined || l.episodeNumber !== undefined || l.linkType === 'single_episode' || l.linkType === 'zip_pack');
       links.forEach((l: CustomLink) => {
-        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
+        if (!seenLinkIds.has(l.id)) {
           seenLinkIds.add(l.id);
           allFlattenedLinks.push({
             movieId: numId,
             movieName: info.title,
-            mediaType: info.media_type || 'movie',
+            mediaType: isTv ? 'tv' : 'movie',
             link: l,
           });
         }
       });
     }
   });
+
+  // Auto-resolve title names from TMDB for unknown IDs in customLinksMap
+  useEffect(() => {
+    const unknownIds = Object.keys(customLinksMap)
+      .map(Number)
+      .filter((id) => id > 0 && (!knownTitlesCache[id] || knownTitlesCache[id].title.startsWith('Title #')));
+    if (unknownIds.length === 0) return;
+
+    unknownIds.slice(0, 15).forEach(async (id) => {
+      try {
+        const res = await fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=8265bd1679663a7ea12ac168da84d2e8`);
+        if (res.ok) {
+          const d = await res.json();
+          cacheTitle(id, {
+            title: d.title || d.name || `Title #${id}`,
+            poster_path: d.poster_path,
+            media_type: 'movie',
+            year: (d.release_date || '').split('-')[0],
+          });
+          return;
+        }
+        const tvRes = await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=8265bd1679663a7ea12ac168da84d2e8`);
+        if (tvRes.ok) {
+          const d = await tvRes.json();
+          cacheTitle(id, {
+            title: d.name || `Title #${id}`,
+            poster_path: d.poster_path,
+            media_type: 'tv',
+            year: (d.first_air_date || '').split('-')[0],
+          });
+        }
+      } catch {}
+    });
+  }, [customLinksMap, knownTitlesCache]);
 
   const filteredLinks = allFlattenedLinks.filter((item) => {
     const matchesCat = linkCategoryFilter === 'All' || item.link.category === linkCategoryFilter;

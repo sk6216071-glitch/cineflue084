@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FolderArchive,
   Download,
@@ -357,6 +357,35 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       });
   }, [seasonLinks]);
 
+  const userHasPickedSeason = useRef(false);
+  const userHasPickedMode = useRef(false);
+
+  // Auto-select the first season that has files if the current season is empty
+  useEffect(() => {
+    if (userHasPickedSeason.current) return;
+    if (enrichedLinks.length === 0) return;
+
+    const currentSeasonCount = enrichedLinks.filter((l) => l.seasonNumber === selectedSeason).length;
+    if (currentSeasonCount === 0) {
+      const firstSeasonWithLinks = seasonsList.find((s) =>
+        enrichedLinks.some((l) => l.seasonNumber === s)
+      );
+      if (firstSeasonWithLinks) {
+        setSelectedSeason(firstSeasonWithLinks);
+      }
+    }
+  }, [enrichedLinks, seasonsList, selectedSeason]);
+
+  // Auto-switch mode (zip_pack vs single_episodes) if current mode has 0 files but the other has files
+  useEffect(() => {
+    if (userHasPickedMode.current) return;
+    if (zipPackLinks.length === 0 && singleEpisodeLinks.length > 0 && activeMode === 'zip_pack') {
+      setActiveMode('single_episodes');
+    } else if (singleEpisodeLinks.length === 0 && zipPackLinks.length > 0 && activeMode === 'single_episodes') {
+      setActiveMode('zip_pack');
+    }
+  }, [zipPackLinks.length, singleEpisodeLinks.length, activeMode]);
+
   // Handle title input change with Auto-Classification intelligence
   const handleTitleInputChange = (val: string) => {
     setFormTitle(val);
@@ -565,7 +594,10 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             return (
               <button
                 key={s}
-                onClick={() => setSelectedSeason(s)}
+                onClick={() => {
+                  userHasPickedSeason.current = true;
+                  setSelectedSeason(s);
+                }}
                 suppressHydrationWarning
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                   selectedSeason === s
@@ -591,15 +623,19 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
       {/* Expandable Season Section with Accordion */}
       <CollapsibleSection
+        key={selectedSeason}
         title={`Season ${selectedSeason}`}
         badge={`${enrichedLinks.filter((l) => l.seasonNumber === selectedSeason).length} files`}
-        defaultOpen={false}
+        defaultOpen={true}
         className="bg-zinc-950/60 border-zinc-800/90 shadow-md"
       >
         {/* Dual Mode Toggle Button (Zip/Pack vs Single EP's) */}
         <div className="grid grid-cols-2 rounded-2xl overflow-hidden p-1 bg-zinc-950 border border-zinc-800 shadow-inner">
           <button
-            onClick={() => setActiveMode('zip_pack')}
+            onClick={() => {
+              userHasPickedMode.current = true;
+              setActiveMode('zip_pack');
+            }}
             suppressHydrationWarning
             className={`py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
             activeMode === 'zip_pack'
@@ -612,7 +648,10 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveMode('single_episodes')}
+          onClick={() => {
+            userHasPickedMode.current = true;
+            setActiveMode('single_episodes');
+          }}
           suppressHydrationWarning
           className={`py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
             activeMode === 'single_episodes'

@@ -96,14 +96,19 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           const data = await res.json();
           if (active && Array.isArray(data.links)) {
             setLiveServerLinks(data.links);
+            try {
+              const stored = localStorage.getItem('cinefuel_custom_links');
+              const parsed = stored ? JSON.parse(stored) : {};
+              parsed[String(titleDetails.id)] = data.links;
+              localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+            } catch {}
           }
         }
       } catch {}
-      syncServerLinks(titleDetails.id);
     };
 
     fetchLiveLinks();
-    const interval = setInterval(fetchLiveLinks, 3500);
+    const interval = setInterval(fetchLiveLinks, 3000);
 
     const handleLinksUpdated = () => {
       setLinksRefresh((v) => v + 1);
@@ -117,40 +122,53 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     };
   }, [titleDetails.id]);
 
-  // Consolidated Custom Links (Global Admin Storage + User LocalStorage + Live Server Links)
+  // Consolidated Custom Links (Authoritative Live Cloud Server Links)
   const userCustomLinks = useMemo(() => {
     if (!isMounted) return [];
-    const local = getConsolidatedCustomLinks(titleDetails.id);
     const linkMap = new Map<string, CustomLink>();
 
-    // 1. Local / Built-in
-    local.forEach((l) => linkMap.set(l.id || l.url, l));
-
-    // 2. Real-time Live Cloud Server Links
+    // 1. Live Server Links (authoritative source of truth)
     liveServerLinks.forEach((l) => linkMap.set(l.id || l.url, l));
+
+    // 2. If live server links have not loaded yet, fallback to local storage
+    if (liveServerLinks.length === 0) {
+      const local = getConsolidatedCustomLinks(titleDetails.id);
+      local.forEach((l) => linkMap.set(l.id || l.url, l));
+    }
 
     return Array.from(linkMap.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }, [titleDetails.id, isMounted, linksRefresh, liveServerLinks]);
 
+  const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
+
+  // Filter links: for TV shows, episode links are already organized in TVEpisodeLinksManager
+  const nonEpisodeLinks = useMemo(() => {
+    if (mediaType !== 'tv') return userCustomLinks;
+    return userCustomLinks.filter(
+      (l) => l.category !== 'SingleEpisode' && l.category !== 'ZipPack' && l.linkType !== 'single_episode' && l.linkType !== 'zip_pack'
+    );
+  }, [userCustomLinks, mediaType]);
+
+  const displayLinks = mediaType === 'tv' ? nonEpisodeLinks : userCustomLinks;
+
   // Filter links by category
   const filteredCustomLinks = useMemo(() => {
-    if (activeCategoryFilter === 'All') return userCustomLinks;
+    if (activeCategoryFilter === 'All') return displayLinks;
     if (activeCategoryFilter === 'Recent') {
       const now = new Date().getTime();
       const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
-      return userCustomLinks.filter(
+      return displayLinks.filter(
         (l) => new Date(l.createdAt).getTime() > threeDaysAgo
       );
     }
-    return userCustomLinks.filter((l) => l.category === activeCategoryFilter);
-  }, [userCustomLinks, activeCategoryFilter]);
+    return displayLinks.filter((l) => l.category === activeCategoryFilter);
+  }, [displayLinks, activeCategoryFilter]);
 
   const existing = isMounted ? watchlist.find((w) => w.id === titleDetails.id) : undefined;
   const imdbId = titleDetails.external_ids?.imdb_id;
   const tmdbId = titleDetails.id;
-  const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
   const titleName = titleDetails.title || titleDetails.name || 'Title';
   const releaseYear = (titleDetails.release_date || titleDetails.first_air_date || '').split('-')[0];
   const queryName = `${titleName} ${releaseYear}`.trim();
@@ -324,62 +342,63 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         />
       )}
 
-      {/* User Custom Attached Links with Category Filters & Admin Edit/Delete */}
-      <div className={`space-y-4 ${mediaType === 'tv' ? 'pt-4 border-t border-zinc-800/70' : ''}`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Tag className="w-3.5 h-3.5 text-amber-400" />
-            <span>Custom Saved Links ({userCustomLinks.length})</span>
-          </h4>
+      {/* User Custom Attached Links with Category Filters & Admin Edit/Delete (Shown for movies, or TV series with extra general links) */}
+      {(mediaType !== 'tv' || nonEpisodeLinks.length > 0) && (
+        <div className={`space-y-4 ${mediaType === 'tv' ? 'pt-4 border-t border-zinc-800/70' : ''}`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Tag className="w-3.5 h-3.5 text-amber-400" />
+              <span>Custom Saved Links ({displayLinks.length})</span>
+            </h4>
 
-          {/* Category Filter Pills */}
-          {userCustomLinks.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 text-xs">
-              <button
-                onClick={() => setActiveCategoryFilter('All')}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
-                  activeCategoryFilter === 'All'
-                    ? 'bg-amber-500 text-black shadow-sm'
-                    : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-                }`}
-                suppressHydrationWarning
-              >
-                All ({userCustomLinks.length})
-              </button>
+            {/* Category Filter Pills */}
+            {displayLinks.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 text-xs">
+                <button
+                  onClick={() => setActiveCategoryFilter('All')}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                    activeCategoryFilter === 'All'
+                      ? 'bg-amber-500 text-black shadow-sm'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                  suppressHydrationWarning
+                >
+                  All ({displayLinks.length})
+                </button>
 
-              <button
-                onClick={() => setActiveCategoryFilter('Recent')}
-                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
-                  activeCategoryFilter === 'Recent'
-                    ? 'bg-amber-500 text-black shadow-sm'
-                    : 'bg-zinc-900 text-amber-400/90 hover:text-amber-300 border border-amber-500/20'
-                }`}
-                suppressHydrationWarning
-              >
-                <Clock className="w-3 h-3" /> Recent
-              </button>
+                <button
+                  onClick={() => setActiveCategoryFilter('Recent')}
+                  className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
+                    activeCategoryFilter === 'Recent'
+                      ? 'bg-amber-500 text-black shadow-sm'
+                      : 'bg-zinc-900 text-amber-400/90 hover:text-amber-300 border border-amber-500/20'
+                  }`}
+                  suppressHydrationWarning
+                >
+                  <Clock className="w-3 h-3" /> Recent
+                </button>
 
-              {CATEGORIES.filter((c) => c !== 'Recent').map((cat) => {
-                const count = userCustomLinks.filter((l) => l.category === cat).length;
-                if (count === 0) return null;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveCategoryFilter(cat)}
-                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
-                      activeCategoryFilter === cat
-                        ? 'bg-amber-500 text-black shadow-sm'
-                        : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-                    }`}
-                    suppressHydrationWarning
-                  >
-                    {cat} ({count})
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                {CATEGORIES.filter((c) => c !== 'Recent').map((cat) => {
+                  const count = displayLinks.filter((l) => l.category === cat).length;
+                  if (count === 0) return null;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategoryFilter(cat)}
+                      className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                        activeCategoryFilter === cat
+                          ? 'bg-amber-500 text-black shadow-sm'
+                          : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                      }`}
+                      suppressHydrationWarning
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
         {filteredCustomLinks.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -467,6 +486,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </div>
         )}
       </div>
+    )}
 
       {/* Add Custom Link Interactive Form (Admin Only) */}
       {isAdmin && isOpenForm && (
