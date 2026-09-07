@@ -239,16 +239,18 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
   const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
 
-  // 5. TV Season & Episode detection (isolated words only!)
+  // 5. TV Season & Episode detection (supports S01...S100+ and E01...E100+)
   let season = 1;
-  const sMatch = cleanText.match(/(?:^|[\s._\-[\]()])s0*(\d{1,2})(?:[\s._\-[\]()]|\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,2})(?:[\s._\-[\]()]|\b)/i);
+  const sMatch = cleanText.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
+                cleanText.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
+                cleanText.match(/(?:^|[\s._\-[\]()])(\d{1,3})x\d{1,4}(?:[\s._\-[\]()]|\b)/i);
   if (sMatch) season = parseInt(sMatch[1], 10);
 
   let episode = undefined;
-  const eMatch = cleanText.match(/s\d{1,2}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])e0*(\d{1,3})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])episode[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
+  const eMatch = cleanText.match(/s\d{1,3}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i) ||
+                cleanText.match(/(?:^|[\s._\-[\]()])(?:ep|episode)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i) ||
+                cleanText.match(/(?:^|[\s._\-[\]()])e0*(\d{1,4})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i) ||
+                cleanText.match(/(?:^|[\s._\-[\]()])\d{1,3}x0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
   if (eMatch) episode = parseInt(eMatch[1], 10);
 
   // 6. Mode Enforcement & Auto-sensing
@@ -267,16 +269,21 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     season = undefined;
     episode = undefined;
   } else {
-    // Auto-sensing
-    const hasTvMarkers = Boolean(sMatch || eMatch || /(?:^|[\s._\-[\]()])(?:season|episodes?|series)(?:[\s._\-[\]()]|\b)/i.test(cleanText));
+    // Auto-sensing:
+    // S01..S100, E01..E100, Season, Episode, Zip Pack are 100% EXCLUSIVE TO TV SERIES!
+    // Movies NEVER have Seasons or Episodes.
+    const isTvBySeason = Boolean(sMatch);
+    const isTvByEpisode = Boolean(eMatch || episode !== undefined);
+    const isTvByWord = /(?:^|[\s._\-[\]()])(?:s\d{1,3}|e\d{1,4}|season|episodes?|series)(?:[\s._\-[\]()]|\b)/i.test(cleanText);
     isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText);
-    
-    if (isZip || episode !== undefined || (hasTvMarkers && !year)) {
+
+    if (isTvBySeason || isTvByEpisode || isTvByWord || isZip) {
+      // DEFINITIVE TV SERIES: Any season S01..S100 or episode E01..E100 means TV show!
       explicitType = 'tv';
-    } else if (year && !hasTvMarkers) {
+    } else if (year) {
       explicitType = 'movie';
-    } else if (hasTvMarkers) {
-      explicitType = 'tv';
+    } else {
+      explicitType = 'movie';
     }
   }
 
@@ -286,9 +293,13 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
 
   let titleForSearch = '';
   // Rule A: If TV Season/Episode marker present, everything BEFORE it is the show title!
-  const sMarker = textWithoutEmojis.match(/^(.*?)(?:[\s._\-[\]()]s0*\d{1,2}|[\s._\-[\]()]season[\s._-]?\d{1,2}|[\s._\-[\]()]\d{1,2}x\d{1,2})/i);
+  const sMarker = textWithoutEmojis.match(/^(.*?)(?:[\s._\-[\]()]s0*\d{1,3}|[\s._\-[\]()]season[\s._-]?\d{1,3}|[\s._\-[\]()]e0*\d{1,4}|[\s._\-[\]()](?:ep|episode)[\s._-]?\d{1,4}|[\s._\-[\]()]\d{1,3}x\d{1,4})/i);
   if (sMarker && sMarker[1].trim().length >= 2) {
-    titleForSearch = sMarker[1].replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ').replace(/\s+/g, ' ').trim();
+    titleForSearch = sMarker[1]
+      .replace(/\b(19\d\d|20\d\d)\b/g, '')
+      .replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   } else if (year) {
     // Rule B: If movie with Year, everything BEFORE the year is the movie title!
     const yMarker = textWithoutEmojis.match(/^(.*?)(?:[\s._\-[\]()]|\b)(19\d\d|20\d\d)\b/i);
@@ -300,8 +311,8 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   if (!titleForSearch) {
     titleForSearch = explicitTitle || textWithoutEmojis;
     titleForSearch = titleForSearch.replace(/\b(19\d\d|20\d\d)\b/g, '');
-    titleForSearch = titleForSearch.replace(/\bs\d{1,2}(?:\s*e\d{1,3})?\b/gi, '');
-    titleForSearch = titleForSearch.replace(/\b(?:season|episode|ep)[\s._-]?\d{1,3}\b/gi, '');
+    titleForSearch = titleForSearch.replace(/\bs\d{1,3}(?:\s*e\d{1,4})?\b/gi, '');
+    titleForSearch = titleForSearch.replace(/\b(?:season|episode|ep)[\s._-]?\d{1,4}\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:director'?s\s*cut|extended(?:\s*cut)?|theatrical(?:\s*cut)?|unrated|remastered)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:complete|zip\s*pack|zip|pack|batch)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:2160p|4k|1080p|720p|480p|uhd|fhd|hd|sd)\b/gi, '');
@@ -752,7 +763,9 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     }
 
     const isTv = meta.mediaType === 'tv' ||
-                 (meta.mediaType !== 'movie' && (tmdbItem.media_type === 'tv' || meta.episode !== undefined || /s\d{1,2}/i.test(block.text)));
+                 tmdbItem.media_type === 'tv' ||
+                 meta.episode !== undefined ||
+                 /s\d{1,3}|e\d{1,4}/i.test(block.text);
     const mediaType = isTv ? 'tv' : 'movie';
     const officialTitle = tmdbItem.title || tmdbItem.name || meta.titleQuery;
     const releaseDate = tmdbItem.release_date || tmdbItem.first_air_date || '';
