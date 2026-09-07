@@ -79,32 +79,51 @@ async function registerBotCommands() {
   }
 }
 
-async function safeFetch(url, options = {}, retries = 4) {
+async function sendChatAction(chatId, action = 'typing') {
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, action }),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {}
+}
+
+async function safeFetch(url, options = {}, retries = 2) {
+  const timeoutMs = options.timeoutMs || 8000;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(url, {
         headers: { 'User-Agent': 'CineFuel/1.0', 'Accept': 'application/json', ...(options.headers || {}) },
+        signal: controller.signal,
         ...options,
       });
+      clearTimeout(timer);
       return res;
     } catch (err) {
       if (attempt === retries) throw err;
-      console.warn(`[Network Retry ${attempt}/${retries}] ${err.message}`);
-      await new Promise(r => setTimeout(r, 600 * attempt));
+      await new Promise(r => setTimeout(r, 250 * attempt));
     }
   }
 }
+
+// Strict URL regex: matches http(s):// or www. or domain with path slash
+// Never matches audio codec names like DTS-HD.MA or media file extensions!
+const STRICT_URL_REGEX = /(?:https?:\/\/[^\s<>'"`]+|www\.[^\s<>'"`]+|(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|cx|in|co|cc|me|app|dev|to|is|pw|club|vip|link|xyz|live|pro|site|online|top|info|stream|ws|download|tech|click|cloud|movie|nz)\/[^\s<>'"`]*)/gi;
 
 /**
  * Splits multi-line releases into distinct blocks (1 block per link).
  * Each release block spans from the end of the previous URL up to the end of current URL.
  */
 function splitMessageIntoReleaseBlocks(text) {
-  const urlRegex = /(?:https?:\/\/|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(?:\/[^\s<>'"`]+)?)/gi;
   const matches = [];
   let m;
+  const regex = new RegExp(STRICT_URL_REGEX.source, 'gi');
 
-  while ((m = urlRegex.exec(text)) !== null) {
+  while ((m = regex.exec(text)) !== null) {
     let clean = m[0].replace(/[),.;\]]+$/, '');
     const host = clean.replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
     if (!host.includes('.')) continue;
@@ -144,8 +163,7 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   if (mdMatch) {
     url = mdMatch[2];
   } else if (!url) {
-    const rawUrlMatch = text.match(/(https?:\/\/[^\s<>"'\]\)]+)/i) ||
-                        text.match(/(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}\/[^\s<>"'\]\)]+/i);
+    const rawUrlMatch = text.match(STRICT_URL_REGEX);
     if (rawUrlMatch) {
       url = rawUrlMatch[0].startsWith('http') ? rawUrlMatch[0] : 'https://' + rawUrlMatch[0];
     }
@@ -153,7 +171,7 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
 
   let cleanText = text
     .replace(/\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/gi, ' ')
-    .replace(/https?:\/\/[^\s<>"'\]\)]+/gi, ' ')
+    .replace(new RegExp(STRICT_URL_REGEX.source, 'gi'), ' ')
     .replace(/(?:Link|URL)\s*[-:]\s*[^\s\r\n]+/gi, ' ');
 
   // 1. Explicit key-value labels if present
@@ -179,7 +197,7 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
 
   // 3. Bracketed audio e.g. [Org Hindi DDP5.1 + English DDP5.1]
   if (!explicitAudio) {
-    const bracketAudioMatch = cleanText.match(/\[([^\]]*(?:Hindi|English|Tamil|Telugu|Dual|Multi|Audio|Dub|DDP|Atmos|TrueHD)[^\]]*)\]/i);
+    const bracketAudioMatch = cleanText.match(/\[([^\]]*(?:Hindi|English|Tamil|Telugu|Dual|Multi|Audio|Dub|DDP|Atmos|TrueHD|DTS)[^\]]*)\]/i);
     if (bracketAudioMatch) {
       explicitAudio = bracketAudioMatch[1].trim();
       cleanText = cleanText.replace(bracketAudioMatch[0], ' ');
@@ -190,15 +208,16 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   const yearMatch = cleanText.match(/\b(19\d\d|20\d\d)\b/);
   const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
 
-  // 5. TV Season & Episode detection
+  // 5. TV Season & Episode detection (isolated words only!)
   let season = 1;
-  const sMatch = cleanText.match(/s0*(\d{1,2})/i) || cleanText.match(/season[\s._-]?0*(\d{1,2})/i);
+  const sMatch = cleanText.match(/(?:^|[\s._\-[\]()])s0*(\d{1,2})(?:[\s._\-[\]()]|\b)/i) ||
+                cleanText.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,2})(?:[\s._\-[\]()]|\b)/i);
   if (sMatch) season = parseInt(sMatch[1], 10);
 
   let episode = undefined;
-  const eMatch = cleanText.match(/s\d{1,2}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,3})/i) ||
+  const eMatch = cleanText.match(/s\d{1,2}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
                 cleanText.match(/(?:^|[\s._\-[\]()])e0*(\d{1,3})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])episode[\s._-]?0*(\d{1,3})/i);
+                cleanText.match(/(?:^|[\s._\-[\]()])episode[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
   if (eMatch) episode = parseInt(eMatch[1], 10);
 
   // 6. Mode Enforcement & Auto-sensing
@@ -218,17 +237,21 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     episode = undefined;
   } else {
     // Auto-sensing
-    isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText) || (!episode && /(?:season|s0*\d)/i.test(cleanText) && !year);
-    if (isZip || episode !== undefined || /(?:season|s0*\d)/i.test(cleanText)) {
+    const hasTvMarkers = Boolean(sMatch || eMatch || /(?:^|[\s._\-[\]()])(?:season|episodes?|series)(?:[\s._\-[\]()]|\b)/i.test(cleanText));
+    isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText);
+    
+    if (isZip || episode !== undefined || (hasTvMarkers && !year)) {
       explicitType = 'tv';
-    } else if (year && !explicitType) {
+    } else if (year && !hasTvMarkers) {
       explicitType = 'movie';
+    } else if (hasTvMarkers) {
+      explicitType = 'tv';
     }
   }
 
-  // 6. Intelligent Title Extraction
+  // 7. Intelligent Title Extraction
   let titleForSearch = '';
-  // Rule A: If TV Season/Episode marker present (e.g. S02E01, Season 2), everything BEFORE it is the show title!
+  // Rule A: If TV Season/Episode marker present, everything BEFORE it is the show title!
   const sMarker = cleanText.match(/^(.*?)(?:[\s._\-[\]()]s0*\d{1,2}|[\s._\-[\]()]season[\s._-]?\d{1,2}|[\s._\-[\]()]\d{1,2}x\d{1,2})/i);
   if (sMarker && sMarker[1].trim().length >= 2) {
     titleForSearch = sMarker[1].replace(/[\(\)\[\]\{\}\-_.:|•+~]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -245,7 +268,8 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     titleForSearch = titleForSearch.replace(/\b(19\d\d|20\d\d)\b/g, '');
     titleForSearch = titleForSearch.replace(/\bs\d{1,2}(?:\s*e\d{1,3})?\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:season|episode|ep)[\s._-]?\d{1,3}\b/gi, '');
-    titleForSearch = titleForSearch.replace(/\b(?:complete|zip\s*pack|zip|pack|batch|unrated|extended)\b/gi, '');
+    titleForSearch = titleForSearch.replace(/\b(?:director'?s\s*cut|extended(?:\s*cut)?|theatrical(?:\s*cut)?|unrated|remastered)\b/gi, '');
+    titleForSearch = titleForSearch.replace(/\b(?:complete|zip\s*pack|zip|pack|batch)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:2160p|4k|1080p|720p|480p|uhd|fhd|hd|sd)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:remux|bluray|blu-ray|web-dl|webrip|web|hdtv|bdrip|dsnp|nf|amzn)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:hdr10\+|hdr10|hdr|dv|dolby\s*vision|10bit|hevc|x265|x264|h264|h265)\b/gi, '');
@@ -289,104 +313,131 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   };
 }
 
+// Global in-memory cache for TMDB results (persists across polls)
+const globalTmdbCache = new Map();
+
 async function searchTmdb(query, year, forcedType = null) {
-  const searchQueries = [query];
-
-  const colonParts = query.split(/[:\-]/);
-  if (colonParts.length > 1 && colonParts[0].trim().length >= 3) {
-    searchQueries.push(colonParts[0].trim());
-  }
-  const words = query.split(/\s+/);
-  if (words.length > 4) {
-    searchQueries.push(words.slice(0, 4).join(' '));
+  if (!query || query.trim().length < 2) return null;
+  const cleanQ = query.trim();
+  const cacheKey = `${cleanQ.toLowerCase()}_${year || 'any'}_${forcedType || 'any'}`;
+  if (globalTmdbCache.has(cacheKey)) {
+    return globalTmdbCache.get(cacheKey);
   }
 
-  for (const q of searchQueries) {
+  // 1. First attempt: exact cleaned title
+  try {
+    const url = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQ)}&include_adult=false`;
+    const res = await safeFetch(url, { timeoutMs: 3500 }, 1);
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const filtered = data.results.filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+        if (forcedType) {
+          const typeMatch = filtered.filter(r => r.media_type === forcedType);
+          if (typeMatch.length > 0) {
+            if (year) {
+              const ym = typeMatch.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
+              if (ym) {
+                globalTmdbCache.set(cacheKey, ym);
+                return ym;
+              }
+            }
+            globalTmdbCache.set(cacheKey, typeMatch[0]);
+            return typeMatch[0];
+          }
+        }
+
+        if (year && filtered.length > 0) {
+          const yearMatch = filtered.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
+          if (yearMatch) {
+            globalTmdbCache.set(cacheKey, yearMatch);
+            return yearMatch;
+          }
+        }
+        if (filtered.length > 0) {
+          globalTmdbCache.set(cacheKey, filtered[0]);
+          return filtered[0];
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`TMDB search attempt 1 failed for "${cleanQ}":`, err.message);
+  }
+
+  // 2. Second quick attempt: shortened if multi-word
+  const words = cleanQ.split(/\s+/);
+  if (words.length > 3) {
+    const shortened = words.slice(0, 3).join(' ');
     try {
-      const url = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(q)}&include_adult=false`;
-      const res = await safeFetch(url);
+      const url = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(shortened)}&include_adult=false`;
+      const res = await safeFetch(url, { timeoutMs: 3000 }, 1);
       if (res && res.ok) {
         const data = await res.json();
         if (data.results && data.results.length > 0) {
           const filtered = data.results.filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-
-          // If forced type (e.g. 'movie' or 'tv'), prioritize that media type
-          if (forcedType) {
-            const typeMatch = filtered.filter(r => r.media_type === forcedType);
-            if (typeMatch.length > 0) {
-              if (year) {
-                const ym = typeMatch.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
-                if (ym) return ym;
-              }
-              return typeMatch[0];
-            }
+          if (filtered.length > 0) {
+            globalTmdbCache.set(cacheKey, filtered[0]);
+            return filtered[0];
           }
-
-          if (year && filtered.length > 0) {
-            const yearMatch = filtered.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
-            if (yearMatch) return yearMatch;
-          }
-          if (filtered.length > 0) return filtered[0];
-          return data.results[0];
         }
       }
-    } catch (err) {
-      console.error(`TMDB search attempt failed for "${q}":`, err.message);
-    }
+    } catch {}
   }
 
   return null;
 }
 
-async function saveLink(movieId, link) {
-  const key = String(movieId);
-  let savedLocal = false;
-
-  // 1. Local disk backup
+/**
+ * Batch saves multiple links grouped by movieId to both local disk and Upstash Redis
+ */
+async function saveMultipleLinks(linksByMovieId) {
+  // 1. Local disk backup (Single file read & single write for maximum speed)
   try {
     const dir = path.dirname(DATA_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     let all = {};
     if (fs.existsSync(DATA_FILE)) {
-      all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
-    }
-    const existing = all[key] || [];
-    all[key] = [link, ...existing.filter(l => l.id !== link.id && l.url !== link.url)];
-    fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2), 'utf-8');
-    savedLocal = true;
-  } catch (err) {
-    console.error('Local JSON file write error:', err);
-  }
-
-  // 2. Upstash Redis Cloud save
-  if (redisClient) {
-    try {
-      let current = [];
       try {
-        const fetched = await redisClient.hget('cinefuel:curated_links', key);
-        if (Array.isArray(fetched)) current = fetched;
+        all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
       } catch {}
-      const updated = [link, ...current.filter(l => l.id !== link.id && l.url !== link.url)];
-      await redisClient.hset('cinefuel:curated_links', { [key]: updated });
-      console.log(`☁️ Synced to Upstash Redis Cloud: [${movieId}] ${link.title}`);
-    } catch (redisErr) {
-      console.warn('Upstash Redis sync warning:', redisErr.message);
     }
+    for (const [movieId, newLinks] of Object.entries(linksByMovieId)) {
+      const existing = all[movieId] || [];
+      const newIds = new Set(newLinks.map(l => l.id));
+      const newUrls = new Set(newLinks.map(l => l.url));
+      all[movieId] = [...newLinks, ...existing.filter(l => !newIds.has(l.id) && !newUrls.has(l.url))];
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Local JSON batch write error:', err);
   }
 
-  // 3. Post to Live Website API for instant cloud update
-  if (SITE_URL && !SITE_URL.includes('localhost')) {
-    try {
-      safeFetch(`${SITE_URL}/api/curated-links`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ movieId, link }),
-      }).catch(() => {});
-    } catch {}
+  // 2. Upstash Redis Cloud save (Concurrent execution for zero lag)
+  if (redisClient) {
+    await Promise.allSettled(Object.entries(linksByMovieId).map(async ([movieId, newLinks]) => {
+      try {
+        let current = [];
+        try {
+          const fetched = await redisClient.hget('cinefuel:curated_links', movieId);
+          if (Array.isArray(fetched)) current = fetched;
+        } catch {}
+        const newIds = new Set(newLinks.map(l => l.id));
+        const newUrls = new Set(newLinks.map(l => l.url));
+        const updated = [...newLinks, ...current.filter(l => !newIds.has(l.id) && !newUrls.has(l.url))];
+        await redisClient.hset('cinefuel:curated_links', { [movieId]: updated });
+        console.log(`☁️ Synced to Upstash Redis Cloud: [${movieId}] (${newLinks.length} links)`);
+      } catch (redisErr) {
+        console.warn(`Upstash Redis batch sync warning for ${movieId}:`, redisErr.message);
+      }
+    }));
   }
 
-  return savedLocal || Boolean(redisClient);
+  return true;
+}
+
+async function saveLink(movieId, link) {
+  return saveMultipleLinks({ [String(movieId)]: [link] });
 }
 
 async function sendTelegram(chatId, text) {
@@ -399,8 +450,9 @@ async function sendTelegram(chatId, text) {
         text,
         parse_mode: 'Markdown',
       }),
+      timeoutMs: 5000,
     });
-    return await res.json();
+    return await res?.json();
   } catch (e) {
     console.error('Telegram reply error:', e.message);
   }
@@ -411,7 +463,8 @@ async function handleMessage(msg) {
   const chatId = msg.chat.id;
   const rawText = (msg.text || msg.caption || '').trim();
 
-  if (!rawText) return;
+  // Send instant typing indicator so Telegram user sees instant response (<50ms)
+  sendChatAction(chatId, 'typing').catch(() => {});
 
   console.log(`📩 Received message from ${msg.from?.first_name || 'User'} (${fromId}):\n"${rawText}"`);
 
@@ -600,26 +653,40 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     else sensedOverall = 'auto';
   }
 
-  // 4. Process all blocks with in-memory TMDB cache
+  // 4. High-Performance Parallel Block Processing
   const publishedItems = [];
-  const tmdbCache = new Map();
+  const linksByMovieId = {};
 
-  for (const block of blocks) {
-    if (!block.url) continue;
+  const blockItems = blocks
+    .filter(b => b.url)
+    .map(block => {
+      const blockMode = activeMode || (sensedOverall === 'bulk' ? 'episode' : (sensedOverall !== 'auto' ? sensedOverall : null));
+      const meta = extractBlockMetadata(block.text, block.url, blockMode);
+      return { block, meta };
+    })
+    .filter(item => item.meta.titleQuery && item.meta.titleQuery.length >= 2);
 
-    const blockMode = activeMode || (sensedOverall === 'bulk' ? 'episode' : (sensedOverall !== 'auto' ? sensedOverall : null));
-    const meta = extractBlockMetadata(block.text, block.url, blockMode);
-    if (!meta.titleQuery || meta.titleQuery.length < 2) continue;
-
-    const cacheKey = `${meta.titleQuery.toLowerCase()}_${meta.year || 'any'}_${meta.mediaType || 'any'}`;
-    let tmdbItem = tmdbCache.get(cacheKey);
-
-    if (!tmdbItem) {
-      console.log(`🔍 Searching TMDB for: "${meta.titleQuery}" (Year: ${meta.year || 'any'}, Type: ${meta.mediaType || 'any'})`);
-      tmdbItem = await searchTmdb(meta.titleQuery, meta.year, meta.mediaType);
-      if (tmdbItem) tmdbCache.set(cacheKey, tmdbItem);
+  // Group by titleQuery to query TMDB once per unique title in the batch
+  const uniqueSearches = new Map();
+  for (const item of blockItems) {
+    const key = `${item.meta.titleQuery.toLowerCase()}_${item.meta.year || 'any'}_${item.meta.mediaType || 'any'}`;
+    if (!uniqueSearches.has(key)) {
+      uniqueSearches.set(key, item.meta);
     }
+  }
 
+  // Fetch TMDB concurrently
+  const searchResults = new Map();
+  await Promise.all(
+    Array.from(uniqueSearches.entries()).map(async ([key, meta]) => {
+      const result = await searchTmdb(meta.titleQuery, meta.year, meta.mediaType);
+      if (result) searchResults.set(key, result);
+    })
+  );
+
+  for (const { block, meta } of blockItems) {
+    const key = `${meta.titleQuery.toLowerCase()}_${meta.year || 'any'}_${meta.mediaType || 'any'}`;
+    const tmdbItem = searchResults.get(key);
     if (!tmdbItem) {
       console.warn(`Could not find TMDB match for: ${meta.titleQuery}`);
       continue;
@@ -665,24 +732,30 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       createdAt: new Date().toISOString(),
     };
 
-    const saved = await saveLink(movieId, linkObj);
-    if (saved) {
-      console.log(`✅ Published: ${officialTitle} (${movieId}) -> ${displayTitle}`);
-      publishedItems.push({
-        title: officialTitle,
-        year: releaseYear,
-        mediaType,
-        movieId,
-        season: meta.season,
-        episode: meta.episode,
-        isZip: meta.isZip,
-        quality: meta.quality,
-        audio: meta.audio,
-        size: meta.size,
-        url: meta.url,
-        pageUrl: `${SITE_URL}/${mediaType}/${movieId}`,
-      });
-    }
+    const strMovieId = String(movieId);
+    if (!linksByMovieId[strMovieId]) linksByMovieId[strMovieId] = [];
+    linksByMovieId[strMovieId].push(linkObj);
+
+    publishedItems.push({
+      title: officialTitle,
+      year: releaseYear,
+      mediaType,
+      movieId,
+      season: meta.season,
+      episode: meta.episode,
+      isZip: meta.isZip,
+      quality: meta.quality,
+      audio: meta.audio,
+      size: meta.size,
+      url: meta.url,
+      pageUrl: `${SITE_URL}/${mediaType}/${movieId}`,
+    });
+  }
+
+  // Save all links in a single high-speed batch
+  if (Object.keys(linksByMovieId).length > 0) {
+    await saveMultipleLinks(linksByMovieId);
+    console.log(`✅ Batch published ${publishedItems.length} links across ${Object.keys(linksByMovieId).length} titles!`);
   }
 
   // 5. Send Confirmation Message back to Telegram
@@ -760,7 +833,7 @@ let lastUpdateId = 0;
 async function pollUpdates() {
   while (true) {
     try {
-      const res = await safeFetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=25`);
+      const res = await safeFetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=25`, { timeoutMs: 32000 });
       if (res && res.ok) {
         const data = await res.json();
         if (data.ok && Array.isArray(data.result)) {
@@ -768,18 +841,17 @@ async function pollUpdates() {
             lastUpdateId = update.update_id;
             const message = update.message || update.edited_message;
             if (message) {
-              try {
-                await handleMessage(message);
-              } catch (msgErr) {
+              // Execute message handler concurrently so polling is never blocked
+              handleMessage(message).catch(msgErr => {
                 console.error('Error handling message:', msgErr);
-              }
+              });
             }
           }
         }
       }
     } catch (err) {
-      console.error('Polling loop error (retry in 3s):', err.message);
-      await new Promise(r => setTimeout(r, 3000));
+      console.error('Polling loop error (retry in 1s):', err.message);
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 }
@@ -790,4 +862,5 @@ async function main() {
 }
 
 main();
+
 

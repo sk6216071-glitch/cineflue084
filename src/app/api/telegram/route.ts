@@ -34,6 +34,14 @@ export async function POST(request: NextRequest) {
     const fromId = message.from ? message.from.id : chatId;
     const text = message.text;
 
+    // Send typing status immediately to Telegram
+    fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => {});
+
     const result = await processTelegramMessage(fromId, text);
     await sendTelegramReply(chatId, result.replyText);
 

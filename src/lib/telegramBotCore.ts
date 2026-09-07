@@ -1,10 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import { parseFullMediaTitle } from './seasonParser';
+import { saveLinkToDatabase } from './redisDb';
 
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
 const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
+
+// Strict URL regex: matches http(s):// or www. or domain with path slash
+// Never matches audio codec names like DTS-HD.MA or media file extensions!
+export const STRICT_URL_REGEX = /(?:https?:\/\/[^\s<>'"`]+|www\.[^\s<>'"`]+|(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|cx|in|co|cc|me|app|dev|to|is|pw|club|vip|link|xyz|live|pro|site|online|top|info|stream|ws|download|tech|click|cloud|movie|nz)\/[^\s<>'"`]*)/gi;
 
 // Authorized Admin IDs (Shyam's Telegram ID is 930928310)
 export const AUTHORIZED_TELEGRAM_IDS = [
@@ -19,7 +24,7 @@ export interface ProcessResult {
 }
 
 export function cleanTitleForSearch(text: string): { query: string; year?: number } {
-  let s = text.replace(/https?:\/\/[^\s<>'"`]+/gi, '');
+  let s = text.replace(new RegExp(STRICT_URL_REGEX.source, 'gi'), '');
   
   // Extract 4-digit year if present (19xx or 20xx)
   const yearMatch = s.match(/\b(19\d\d|20\d\d)\b/);
@@ -29,6 +34,7 @@ export function cleanTitleForSearch(text: string): { query: string; year?: numbe
   s = s.replace(/\b(19\d\d|20\d\d)\b/g, '');
   s = s.replace(/s\d{1,2}(?:\s*e\d{1,3})?/gi, '');
   s = s.replace(/\b(?:season|episode|ep|s|e)[\s._-]?\d{1,3}\b/gi, '');
+  s = s.replace(/\b(?:director'?s\s*cut|extended(?:\s*cut)?|theatrical(?:\s*cut)?|unrated|remastered)\b/gi, '');
   s = s.replace(/\b(?:complete|zip\s*pack|zip|pack|batch|all\s*episodes|full\s*season)\b/gi, '');
   s = s.replace(/\b(?:2160p|4k|1080p|720p|480p|uhd|fhd|hd|sd)\b/gi, '');
   s = s.replace(/\b(?:remux|bluray|blu-ray|web-dl|webrip|web|hdtv|bdrip|dsnp|nf|amzn|hmax|hotstar|zee5)\b/gi, '');
@@ -49,7 +55,7 @@ export async function searchTmdbMedia(query: string, year?: number, forcedType?:
 
   try {
     const url = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&include_adult=false`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
     if (!res.ok) return null;
     const data = await res.json();
 
@@ -88,27 +94,12 @@ export async function searchTmdbMedia(query: string, year?: number, forcedType?:
   return null;
 }
 
-export function saveLinkToServerDatabase(movieId: number, link: any) {
+export async function saveLinkToServerDatabase(movieId: number, link: any) {
   try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    let allLinks: Record<string, any[]> = {};
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-      allLinks = JSON.parse(raw || '{}');
-    }
-
-    const key = String(movieId);
-    const existing = allLinks[key] || [];
-    allLinks[key] = [link, ...existing.filter((l: any) => l.id !== link.id && l.url !== link.url)];
-
-    fs.writeFileSync(DATA_FILE, JSON.stringify(allLinks, null, 2), 'utf-8');
+    await saveLinkToDatabase(movieId, link);
     return true;
   } catch (err) {
-    console.error('Failed to save link to serverLinks.json:', err);
+    console.error('Failed to save link to database:', err);
     return false;
   }
 }
@@ -252,8 +243,8 @@ Send your full season zip pack or batch archive!
   }
 
   // 2. Extract Link(s)
-  const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
-  const urls = textToProcess.match(urlRegex);
+  const matches = textToProcess.match(new RegExp(STRICT_URL_REGEX.source, 'gi'));
+  const urls = matches ? matches.map(u => u.replace(/[),.;\]]+$/, '')).map(u => u.startsWith('http') ? u : 'https://' + u) : [];
 
   if (!urls || urls.length === 0) {
     return {
@@ -351,7 +342,7 @@ Please check the spelling and try again.`,
   };
 
   // 5. Save to database
-  const saved = saveLinkToServerDatabase(movieId, linkObj);
+  const saved = await saveLinkToServerDatabase(movieId, linkObj);
 
   if (!saved) {
     return {
