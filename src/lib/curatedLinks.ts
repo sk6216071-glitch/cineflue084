@@ -132,6 +132,45 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
 }
 
 /**
+ * Save multiple custom links in a single atomic batch (Admin only)
+ */
+export function saveMultipleGlobalCustomLinks(movieId: number, newLinks: CustomLink[]): void {
+  if (typeof window === 'undefined' || !newLinks || newLinks.length === 0) return;
+  try {
+    const stored = localStorage.getItem('cinefuel_custom_links');
+    const parsed = stored ? JSON.parse(stored) : {};
+    const key = String(movieId);
+    const existing: CustomLink[] = parsed[key] || [];
+    const newIds = new Set(newLinks.map((l) => l.id));
+    const newUrls = new Set(newLinks.map((l) => l.url));
+    const filteredExisting = existing.filter((l: CustomLink) => !newIds.has(l.id) && !newUrls.has(l.url));
+    parsed[key] = [...newLinks, ...filteredExisting];
+    localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+
+    // Un-tombstone in deleted links registry
+    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    if (delStored) {
+      try {
+        const delList: string[] = JSON.parse(delStored);
+        const filtered = delList.filter((id) => !newIds.has(id));
+        localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(filtered));
+      } catch {}
+    }
+
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
+
+    // Persist all links to server database in a single atomic request
+    fetch('/api/curated-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId, links: newLinks }),
+    }).catch(() => {});
+  } catch (err) {
+    console.error('Failed to save multiple global custom links:', err);
+  }
+}
+
+/**
  * Update an existing custom link (Admin only)
  */
 export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink): void {

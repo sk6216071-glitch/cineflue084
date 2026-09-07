@@ -172,6 +172,62 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
 }
 
 /**
+ * Saves multiple links to Upstash Redis and local JSON backup in one atomic operation
+ */
+export async function saveMultipleLinksToDatabase(movieId: number | string, links: any[]): Promise<boolean> {
+  if (!links || links.length === 0) return true;
+  const key = String(movieId);
+
+  // 1. Local backup
+  try {
+    const localData = getLocalFallbackLinks();
+    const existing = localData[key] || [];
+    const newIds = new Set(links.map((l) => l.id).filter(Boolean));
+    const newUrls = new Set(links.map((l) => l.url).filter(Boolean));
+    const filteredExisting = existing.filter((l: any) => !newIds.has(l.id) && !newUrls.has(l.url));
+    localData[key] = [...links, ...filteredExisting];
+    saveLocalFallbackLinks(localData);
+  } catch (err: any) {
+    console.error('Local backup batch save failed:', err.message);
+  }
+
+  // 2. Upstash Cloud Redis save
+  if (redisClient) {
+    try {
+      const linkIds = links.map((l) => l.id).filter(Boolean);
+      if (linkIds.length > 0) {
+        await redisClient.srem(REDIS_DELETED_KEY, ...linkIds).catch(() => {});
+      }
+
+      let current: any[] = [];
+      try {
+        const fetched = await redisClient.hget<any>(REDIS_HASH_KEY, key);
+        if (Array.isArray(fetched)) current = fetched;
+        else if (typeof fetched === 'string') {
+          try { current = JSON.parse(fetched); } catch {}
+        }
+      } catch {}
+
+      if (current.length === 0) {
+        const localData = getLocalFallbackLinks();
+        current = localData[key] || [];
+      }
+
+      const newIds = new Set(links.map((l) => l.id).filter(Boolean));
+      const newUrls = new Set(links.map((l) => l.url).filter(Boolean));
+      const filteredCurrent = current.filter((l: any) => !newIds.has(l.id) && !newUrls.has(l.url));
+      const updated = [...links, ...filteredCurrent];
+
+      await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+    } catch (err: any) {
+      console.error('Upstash Redis batch save error:', err.message);
+    }
+  }
+
+  return true;
+}
+
+/**
  * Deletes a link from Upstash Redis and local JSON backup
  */
 export async function deleteLinkFromDatabase(movieId: number | string, linkId: string): Promise<boolean> {

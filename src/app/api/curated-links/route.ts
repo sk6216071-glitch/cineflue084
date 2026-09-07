@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getLinksFromDatabase,
   saveLinkToDatabase,
+  saveMultipleLinksToDatabase,
   deleteLinkFromDatabase,
   deleteMultipleLinksFromDatabase,
   seedLocalLinksToRedis,
@@ -45,9 +46,24 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { movieId, link } = body;
+    const { movieId, link, links } = body;
 
-    if (!movieId || !link || !link.url) {
+    if (!movieId) {
+      return NextResponse.json({ error: 'movieId is required' }, { status: 400 });
+    }
+
+    // Support batch saving multiple links at once
+    if (Array.isArray(links) && links.length > 0) {
+      const sanitizedLinks = links.map((l, index) => ({
+        ...l,
+        id: l.id || `bulk-admin-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+        createdAt: l.createdAt || new Date(Date.now() - index * 1000).toISOString(),
+      }));
+      await saveMultipleLinksToDatabase(movieId, sanitizedLinks);
+      return NextResponse.json({ success: true, count: sanitizedLinks.length, links: sanitizedLinks });
+    }
+
+    if (!link || !link.url) {
       return NextResponse.json({ error: 'movieId and link.url are required' }, { status: 400 });
     }
 

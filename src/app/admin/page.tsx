@@ -48,7 +48,7 @@ import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
-import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
+import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
 
 const DEFAULT_ADMIN_USER = 'shyam';
@@ -721,9 +721,10 @@ export default function AdminPage() {
         size: item.size,
         linkType: isMovie ? 'general' : item.linkType,
       };
-      saveGlobalCustomLink(selectedTargetTitle.id, newObj);
       createdObjs.push(newObj);
     });
+
+    saveMultipleGlobalCustomLinks(selectedTargetTitle.id, createdObjs);
 
     setCustomLinksMap((prev) => {
       const existing = prev[String(selectedTargetTitle.id)] || [];
