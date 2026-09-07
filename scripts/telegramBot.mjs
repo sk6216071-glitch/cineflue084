@@ -33,6 +33,14 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 
+// Global process crash shields: keep bot alive 24/7
+process.on('uncaughtException', (err) => {
+  console.error('🛡️ Process shielded from uncaughtException:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('🛡️ Process shielded from unhandledRejection:', reason);
+});
+
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
 const DATA_FILE = path.join(rootDir, 'src', 'data', 'serverLinks.json');
@@ -273,21 +281,24 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   }
 
   // 7. Intelligent Title Extraction
+  // Strip emojis, pictographs, and decorative channel bullets from text
+  const textWithoutEmojis = cleanText.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, ' ');
+
   let titleForSearch = '';
   // Rule A: If TV Season/Episode marker present, everything BEFORE it is the show title!
-  const sMarker = cleanText.match(/^(.*?)(?:[\s._\-[\]()]s0*\d{1,2}|[\s._\-[\]()]season[\s._-]?\d{1,2}|[\s._\-[\]()]\d{1,2}x\d{1,2})/i);
+  const sMarker = textWithoutEmojis.match(/^(.*?)(?:[\s._\-[\]()]s0*\d{1,2}|[\s._\-[\]()]season[\s._-]?\d{1,2}|[\s._\-[\]()]\d{1,2}x\d{1,2})/i);
   if (sMarker && sMarker[1].trim().length >= 2) {
-    titleForSearch = sMarker[1].replace(/[\(\)\[\]\{\}\-_.:|•+~]/g, ' ').replace(/\s+/g, ' ').trim();
+    titleForSearch = sMarker[1].replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ').replace(/\s+/g, ' ').trim();
   } else if (year) {
     // Rule B: If movie with Year, everything BEFORE the year is the movie title!
-    const yMarker = cleanText.match(/^(.*?)(?:[\s._\-[\]()]|\b)(19\d\d|20\d\d)\b/i);
+    const yMarker = textWithoutEmojis.match(/^(.*?)(?:[\s._\-[\]()]|\b)(19\d\d|20\d\d)\b/i);
     if (yMarker && yMarker[1].trim().length >= 2) {
-      titleForSearch = yMarker[1].replace(/[\(\)\[\]\{\}\-_.:|•+~]/g, ' ').replace(/\s+/g, ' ').trim();
+      titleForSearch = yMarker[1].replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ').replace(/\s+/g, ' ').trim();
     }
   }
 
   if (!titleForSearch) {
-    titleForSearch = explicitTitle || cleanText;
+    titleForSearch = explicitTitle || textWithoutEmojis;
     titleForSearch = titleForSearch.replace(/\b(19\d\d|20\d\d)\b/g, '');
     titleForSearch = titleForSearch.replace(/\bs\d{1,2}(?:\s*e\d{1,3})?\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:season|episode|ep)[\s._-]?\d{1,3}\b/gi, '');
@@ -297,7 +308,7 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     titleForSearch = titleForSearch.replace(/\b(?:remux|bluray|blu-ray|web-dl|webrip|web|hdtv|bdrip|dsnp|nf|amzn)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:hdr10\+|hdr10|hdr|dv|dolby\s*vision|10bit|hevc|x265|x264|h264|h265)\b/gi, '');
     titleForSearch = titleForSearch.replace(/\b(?:esubs?|mkv|mp4|avi|king-bhdstudio|dtins|r3fl3x|h0ne|hybrid)\b/gi, '');
-    titleForSearch = titleForSearch.replace(/[\(\)\[\]\{\}\-_.:|•+~]/g, ' ').replace(/\s+/g, ' ').trim();
+    titleForSearch = titleForSearch.replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   // 7. Quality Detection
@@ -923,6 +934,20 @@ async function main() {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Health check HTTP server ready on port ${PORT}`);
   });
+
+  // Render Free Tier Keep-Alive: Ping external URL every 10 minutes to prevent container sleep
+  const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_SERVICE_URL;
+  if (renderExternalUrl) {
+    console.log(`⏱️ Setting up 10-minute keep-alive ping for ${renderExternalUrl}`);
+    setInterval(async () => {
+      try {
+        await safeFetch(renderExternalUrl, { timeoutMs: 10000 });
+        console.log('💓 Keep-alive ping sent to prevent Render sleep');
+      } catch (pingErr) {
+        console.warn('Keep-alive ping notice:', pingErr.message);
+      }
+    }, 10 * 60 * 1000);
+  }
 
   await registerBotCommands();
   pollUpdates();
