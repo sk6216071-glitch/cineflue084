@@ -1,0 +1,18 @@
+﻿services:
+  - type: web
+    name: cinefuel-telegram-bot
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node scripts/telegramBot.mjs
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: NEXT_PUBLIC_TMDB_API_KEY
+        value: 8265bd1679663a7ea12ac168da84d2e8
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://cineflue084.vercel.app
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false

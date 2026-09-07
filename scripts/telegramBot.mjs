@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Redis } from '@upstash/redis';
+import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -857,6 +858,25 @@ async function pollUpdates() {
 }
 
 async function main() {
+  const PORT = process.env.PORT || 3001;
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'online',
+      service: 'Cinefuel Telegram Bot',
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString()
+    }));
+  });
+
+  server.on('error', (err) => {
+    console.warn(`Health check server note (${err.code}), continuing Telegram polling...`);
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Health check HTTP server ready on port ${PORT}`);
+  });
+
   await registerBotCommands();
   pollUpdates();
 }
