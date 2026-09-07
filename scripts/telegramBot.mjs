@@ -211,6 +211,12 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     cleanText = cleanText.split(url).join(' ');
   }
 
+  // Strip release groups, website domains, and media container extensions from cleanText
+  cleanText = cleanText
+    .replace(/[-_.\s]*[a-zA-Z0-9_-]*(?:hub|mod|hd|flix|drive|cx|com|org|net|me|in|to)\.(?:com|org|net|mkv|mp4|avi)\b/gi, ' ')
+    .replace(/\b(?:4khdhub|hdhub4u|moviesmod|bollyflix|dotmovies|vegamovies|katmoviehd|uhdmovies)[^\s]*\b/gi, ' ')
+    .replace(/\.(mkv|mp4|avi|m4v)\b/gi, ' ');
+
   // 1. Explicit key-value labels if present
   const getField = (pattern) => {
     const m = cleanText.match(pattern);
@@ -232,12 +238,37 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     }
   }
 
-  // 3. Bracketed audio e.g. [Org Hindi DDP5.1 + English DDP5.1]
+  // 3. Audio detection (bracketed or inline)
   if (!explicitAudio) {
-    const bracketAudioMatch = cleanText.match(/\[([^\]]*(?:Hindi|English|Tamil|Telugu|Dual|Multi|Audio|Dub|DDP|Atmos|TrueHD|DTS)[^\]]*)\]/i);
+    const bracketAudioMatch = cleanText.match(/\[([^\]]*(?:Hindi|English|Tamil|Telugu|Malayalam|Kannada|Dual|Multi|Audio|Dub|DDP|Atmos|TrueHD|DTS)[^\]]*)\]/i);
     if (bracketAudioMatch) {
       explicitAudio = bracketAudioMatch[1].trim();
       cleanText = cleanText.replace(bracketAudioMatch[0], ' ');
+    }
+  }
+
+  if (!explicitAudio) {
+    const langs = [];
+    if (/\b(?:Dual[\s._-]?Audio)\b/i.test(cleanText)) langs.push('Dual Audio');
+    else if (/\b(?:Multi[\s._-]?Audio)\b/i.test(cleanText)) langs.push('Multi Audio');
+
+    if (/\bHindi\b/i.test(cleanText) && !langs.includes('Dual Audio')) langs.push('Hindi');
+    if (/\bEnglish\b/i.test(cleanText) && !langs.includes('Dual Audio')) langs.push('English');
+    if (/\bTamil\b/i.test(cleanText)) langs.push('Tamil');
+    if (/\bTelugu\b/i.test(cleanText)) langs.push('Telugu');
+    if (/\bMalayalam\b/i.test(cleanText)) langs.push('Malayalam');
+    if (/\bKannada\b/i.test(cleanText)) langs.push('Kannada');
+
+    const codecs = [];
+    if (/\bAtmos\b/i.test(cleanText)) codecs.push('Atmos');
+    if (/\bTrueHD\b/i.test(cleanText)) codecs.push('TrueHD');
+    if (/DTS-HD(?:\.MA)?/i.test(cleanText)) codecs.push('DTS-HD MA');
+    else if (/\bDTS\b/i.test(cleanText)) codecs.push('DTS');
+    if (/DDP[\s._-]?5\.1/i.test(cleanText)) codecs.push('DDP 5.1');
+    else if (/DD[\s._-]?5\.1/i.test(cleanText)) codecs.push('DD 5.1');
+
+    if (langs.length > 0 || codecs.length > 0) {
+      explicitAudio = [...langs, ...codecs].join(' ');
     }
   }
 
@@ -347,20 +378,20 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   let quality = explicitQuality;
   if (!quality) {
     const qTags = [];
-    if (/2160p|2160\b|4k|uhd/i.test(cleanText)) qTags.push('2160p 4K');
-    else if (/1080p|1080\b|fhd/i.test(cleanText)) qTags.push('1080p FHD');
-    else if (/720p|720\b|hd/i.test(cleanText)) qTags.push('720p HD');
-    else if (/480p|480\b|sd/i.test(cleanText)) qTags.push('480p SD');
+    if (/\b(?:2160p|2160|4k|uhd)\b/i.test(cleanText)) qTags.push('2160p 4K');
+    else if (/\b(?:1080p|1080|fhd)\b/i.test(cleanText)) qTags.push('1080p FHD');
+    else if (/\b(?:720p|720|hd)\b/i.test(cleanText)) qTags.push('720p HD');
+    else if (/\b(?:480p|480|sd)\b/i.test(cleanText)) qTags.push('480p SD');
 
-    if (/hybrid/i.test(cleanText)) qTags.push('Hybrid');
-    if (/dv\s*hdr|dolby\s*vision/i.test(cleanText)) qTags.push('DV HDR');
-    else if (/hdr10\+|hdr10|hdr/i.test(cleanText)) qTags.push('HDR');
-    if (/10bit/i.test(cleanText)) qTags.push('10bit');
-    if (/remux/i.test(cleanText)) qTags.push('REMUX');
-    if (/bluray|blu-ray/i.test(cleanText)) qTags.push('BluRay');
-    if (/dsnp/i.test(cleanText)) qTags.push('DSNP');
-    if (/web-dl|webrip/i.test(cleanText)) qTags.push('WEB-DL');
-    if (/hevc|x265/i.test(cleanText)) qTags.push('HEVC');
+    if (/\bhybrid\b/i.test(cleanText)) qTags.push('Hybrid');
+    if (/dv[\s._-]*hdr|dolby[\s._-]*vision/i.test(cleanText)) qTags.push('DV HDR');
+    else if (/\b(?:hdr10\+|hdr10|hdr)\b/i.test(cleanText)) qTags.push('HDR');
+    if (/\b10bit\b/i.test(cleanText)) qTags.push('10bit');
+    if (/\bremux\b/i.test(cleanText)) qTags.push('REMUX');
+    if (/\b(?:bluray|blu-ray)\b/i.test(cleanText)) qTags.push('BluRay');
+    if (/\bdsnp\b/i.test(cleanText)) qTags.push('DSNP');
+    if (/\b(?:web-dl|webrip|web)\b/i.test(cleanText)) qTags.push('WEB-DL');
+    if (/\b(?:hevc|x265|h265)\b/i.test(cleanText)) qTags.push('HEVC');
 
     quality = qTags.length > 0 ? qTags.join(' • ') : '1080p WEB-DL';
   }
