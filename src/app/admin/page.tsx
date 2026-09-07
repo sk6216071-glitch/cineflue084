@@ -190,6 +190,9 @@ export default function AdminPage() {
   const [editAudio, setEditAudio] = useState('');
   const [editSize, setEditSize] = useState('');
 
+  // Multi-Select Links State for Bulk Deletion
+  const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set());
+
   // Manage Titles Tab Live Search State
   const [titleSearchQuery, setTitleSearchQuery] = useState('');
   const [manageTitlesResults, setManageTitlesResults] = useState<TitleDetails[]>([]);
@@ -969,7 +972,85 @@ export default function AdminPage() {
       }
       return updatedMap;
     });
+    setSelectedLinkIds((prev) => {
+      if (prev.has(linkId)) {
+        const next = new Set(prev);
+        next.delete(linkId);
+        return next;
+      }
+      return prev;
+    });
     addLog(`Admin deleted link "${linkTitle}"`, 'warn');
+  };
+
+  // Multi-Select Toggle for Single Link
+  const toggleSelectLink = (linkId: string) => {
+    setSelectedLinkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(linkId)) {
+        next.delete(linkId);
+      } else {
+        next.add(linkId);
+      }
+      return next;
+    });
+  };
+
+  // Multi-Select Toggle All Filtered Links
+  const handleSelectAllFiltered = () => {
+    if (filteredLinks.length === 0) return;
+    const allSelected = filteredLinks.every((item) => selectedLinkIds.has(item.link.id));
+    if (allSelected) {
+      setSelectedLinkIds((prev) => {
+        const next = new Set(prev);
+        filteredLinks.forEach((item) => next.delete(item.link.id));
+        return next;
+      });
+    } else {
+      setSelectedLinkIds((prev) => {
+        const next = new Set(prev);
+        filteredLinks.forEach((item) => next.add(item.link.id));
+        return next;
+      });
+    }
+  };
+
+  // Bulk Delete Selected Links
+  const handleBulkDelete = () => {
+    if (selectedLinkIds.size === 0) return;
+    const count = selectedLinkIds.size;
+    if (!confirm(`Are you sure you want to permanently delete all ${count} selected link${count > 1 ? 's' : ''}?`)) return;
+
+    const itemsToDelete = allFlattenedLinks.filter((item) => selectedLinkIds.has(item.link.id));
+
+    itemsToDelete.forEach((item) => {
+      deleteGlobalCustomLink(item.movieId, item.link.id);
+      removeCustomLink(item.movieId, item.link.id);
+    });
+
+    setDeletedCuratedLinkIds((prev) => {
+      const updated = new Set(prev);
+      selectedLinkIds.forEach((id) => updated.add(id));
+      return updated;
+    });
+
+    setCustomLinksMap((prev) => {
+      const updatedMap = { ...prev };
+      itemsToDelete.forEach((item) => {
+        const movieIdStr = String(item.movieId);
+        if (updatedMap[movieIdStr]) {
+          updatedMap[movieIdStr] = updatedMap[movieIdStr].filter((l) => !selectedLinkIds.has(l.id));
+        }
+      });
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
+        window.dispatchEvent(new Event('cinefuel_links_updated'));
+      }
+      return updatedMap;
+    });
+
+    addLog(`Admin bulk deleted ${count} links permanently`, 'warn');
+    setSelectedLinkIds(new Set());
   };
 
   // Export Full JSON Backup
@@ -2191,11 +2272,47 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Bulk Action Controls */}
+            {selectedLinkIds.size > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 animate-fadeIn shadow-lg">
+                <div className="flex items-center gap-2 text-xs font-bold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                  <span>
+                    {selectedLinkIds.size} of {filteredLinks.length} link{selectedLinkIds.size !== 1 ? 's' : ''} selected
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedLinkIds(new Set())}
+                    className="px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 text-xs font-semibold transition-colors"
+                  >
+                    Clear Selection
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs transition-all shadow-md shadow-rose-600/30 active:scale-95"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedLinkIds.size})</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {filteredLinks.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-zinc-800 text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={filteredLinks.length > 0 && filteredLinks.every((item) => selectedLinkIds.has(item.link.id))}
+                          onChange={handleSelectAllFiltered}
+                          className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-amber-500 focus:ring-amber-400 cursor-pointer accent-amber-500"
+                          title="Select / Deselect all visible links"
+                        />
+                      </th>
                       <th className="py-3 px-3">Target Title</th>
                       <th className="py-3 px-3">Link Name / Release</th>
                       <th className="py-3 px-3">Category</th>
@@ -2204,61 +2321,79 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {filteredLinks.map((item) => (
-                      <tr key={item.link.id} className="hover:bg-zinc-900/40 transition-colors">
-                        <td className="py-3 px-3 font-semibold text-white">
-                          <Link
-                            href={`/${item.mediaType || 'movie'}/${item.movieId}`}
-                            target="_blank"
-                            className="hover:text-amber-400 transition-colors flex items-center gap-1.5"
-                          >
-                            <span>{item.movieName}</span>
-                            <span className="text-[10px] text-zinc-500 font-mono">({item.movieId})</span>
-                          </Link>
-                        </td>
-                        <td className="py-3 px-3 font-bold text-amber-300">
-                          <div>{item.link.title}</div>
-                          {(item.link.quality || item.link.audioLanguage) && (
-                            <div className="text-[10px] text-zinc-400 font-normal">
-                              {item.link.quality} {item.link.audioLanguage ? `• ${item.link.audioLanguage}` : ''}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20 text-[10px]">
-                            {item.link.category}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-mono text-zinc-400 max-w-xs truncate">
-                          {item.link.url}
-                        </td>
-                        <td className="py-3 px-3 text-right space-x-1.5">
-                          <a
-                            href={item.link.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
-                            title="Test URL"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                          <button
-                            onClick={() => openEditModal(item.movieId, item.link)}
-                            className="inline-flex p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
-                            title="Edit Link"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteLink(item.movieId, item.link.id, item.link.title)}
-                            className="inline-flex p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
-                            title="Delete link"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredLinks.map((item) => {
+                      const isSelected = selectedLinkIds.has(item.link.id);
+                      return (
+                        <tr
+                          key={item.link.id}
+                          className={`transition-colors ${
+                            isSelected
+                              ? 'bg-amber-500/15 hover:bg-amber-500/20'
+                              : 'hover:bg-zinc-900/40'
+                          }`}
+                        >
+                          <td className="py-3 px-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectLink(item.link.id)}
+                              className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-amber-500 focus:ring-amber-400 cursor-pointer accent-amber-500"
+                            />
+                          </td>
+                          <td className="py-3 px-3 font-semibold text-white">
+                            <Link
+                              href={`/${item.mediaType || 'movie'}/${item.movieId}`}
+                              target="_blank"
+                              className="hover:text-amber-400 transition-colors flex items-center gap-1.5"
+                            >
+                              <span>{item.movieName}</span>
+                              <span className="text-[10px] text-zinc-500 font-mono">({item.movieId})</span>
+                            </Link>
+                          </td>
+                          <td className="py-3 px-3 font-bold text-amber-300">
+                            <div>{item.link.title}</div>
+                            {(item.link.quality || item.link.audioLanguage) && (
+                              <div className="text-[10px] text-zinc-400 font-normal">
+                                {item.link.quality} {item.link.audioLanguage ? `• ${item.link.audioLanguage}` : ''}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20 text-[10px]">
+                              {item.link.category}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 font-mono text-zinc-400 max-w-xs truncate">
+                            {item.link.url}
+                          </td>
+                          <td className="py-3 px-3 text-right space-x-1.5">
+                            <a
+                              href={item.link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
+                              title="Test URL"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                            <button
+                              onClick={() => openEditModal(item.movieId, item.link)}
+                              className="inline-flex p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+                              title="Edit Link"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLink(item.movieId, item.link.id, item.link.title)}
+                              className="inline-flex p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
+                              title="Delete link"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
