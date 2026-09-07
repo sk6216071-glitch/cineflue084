@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis';
 import fs from 'fs';
 import path from 'path';
+import { getDatabase } from '@/lib/mongodb';
 
 // Support both standard Upstash env vars and Vercel KV auto-provisioned env vars
 const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
@@ -59,8 +60,37 @@ export function saveLocalFallbackLinks(data: Record<string, any[]>) {
 export async function getLinksFromDatabase(movieId?: number | string): Promise<{
   links?: any[];
   allLinks?: Record<string, any[]>;
-  source: 'upstash_redis' | 'local_json';
+  source: 'mongodb_atlas' | 'upstash_redis' | 'local_json';
 }> {
+  // 1. Try MongoDB Atlas if connected
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const collection = db.collection('links');
+      if (movieId) {
+        const docs = await collection.find({ movieId: String(movieId) }).sort({ createdAt: -1 }).toArray();
+        if (docs && docs.length > 0) {
+          const cleaned = docs.map(({ _id, ...rest }) => rest);
+          return { links: cleaned, source: 'mongodb_atlas' };
+        }
+      } else {
+        const allDocs = await collection.find({}).toArray();
+        if (allDocs && allDocs.length > 0) {
+          const grouped: Record<string, any[]> = {};
+          for (const doc of allDocs) {
+            const { _id, movieId: mId, ...rest } = doc;
+            const k = String(mId || rest.movieId);
+            if (!grouped[k]) grouped[k] = [];
+            grouped[k].push(rest);
+          }
+          return { allLinks: grouped, source: 'mongodb_atlas' };
+        }
+      }
+    }
+  } catch (mongoErr: any) {
+    console.warn('MongoDB Atlas read fallback:', mongoErr.message);
+  }
+
   const localData = getLocalFallbackLinks();
 
   if (redisClient) {
@@ -168,6 +198,20 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
     }
   }
 
+  // 3. MongoDB Atlas Cloud save
+  try {
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('links').updateOne(
+        { movieId: key, url: link.url },
+        { $set: { ...link, movieId: key, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas save warning:', err.message);
+  }
+
   return true;
 }
 
@@ -224,6 +268,25 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
     }
   }
 
+  // 3. MongoDB Atlas Cloud batch save
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const ops = links.map((l) => ({
+        updateOne: {
+          filter: { movieId: key, url: l.url },
+          update: { $set: { ...l, movieId: key, updatedAt: new Date() } },
+          upsert: true,
+        },
+      }));
+      if (ops.length > 0) {
+        await db.collection('links').bulkWrite(ops);
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas batch save warning:', err.message);
+  }
+
   return true;
 }
 
@@ -260,6 +323,16 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
     } catch (err: any) {
       console.error('Upstash Redis deletion error:', err.message);
     }
+  }
+
+  // 3. MongoDB Atlas Cloud deletion
+  try {
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('links').deleteOne({ movieId: key, id: linkId });
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas delete warning:', err.message);
   }
 
   return true;
@@ -313,6 +386,17 @@ export async function deleteMultipleLinksFromDatabase(items: Array<{ movieId: nu
     } catch (err: any) {
       console.error('Upstash Redis batch deletion error:', err.message);
     }
+  }
+
+  // 3. MongoDB Atlas Cloud batch deletion
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const ids = items.map((i) => i.linkId);
+      await db.collection('links').deleteMany({ id: { $in: ids } });
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas batch delete warning:', err.message);
   }
 
   return true;

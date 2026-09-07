@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Redis } from '@upstash/redis';
+import { MongoClient } from 'mongodb';
 import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,13 +27,19 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8944564119:AAHB6ETpf7BgkPRFhum2BYBqpkSZFX40SSU';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!BOT_TOKEN) {
+  console.error('❌ FATAL: TELEGRAM_BOT_TOKEN is not set in environment or .env.local');
+  process.exit(1);
+}
+
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
 const DATA_FILE = path.join(rootDir, 'src', 'data', 'serverLinks.json');
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+const MONGODB_URI = process.env.MONGODB_URI;
 
 let redisClient = null;
 if (REDIS_URL && REDIS_TOKEN) {
@@ -41,6 +48,21 @@ if (REDIS_URL && REDIS_TOKEN) {
     console.log('⚡ Upstash Redis Cloud Database Connected!');
   } catch (e) {
     console.warn('Upstash Redis init warning:', e.message);
+  }
+}
+
+let mongoDb = null;
+if (MONGODB_URI) {
+  try {
+    const mongoClient = new MongoClient(MONGODB_URI);
+    mongoClient.connect().then(() => {
+      mongoDb = mongoClient.db('cinefuel');
+      console.log('🍃 MongoDB Atlas Database Connected!');
+    }).catch(err => {
+      console.warn('MongoDB Atlas connection error:', err.message);
+    });
+  } catch (e) {
+    console.warn('MongoDB Atlas client init error:', e.message);
   }
 }
 
@@ -432,6 +454,31 @@ async function saveMultipleLinks(linksByMovieId) {
         console.warn(`Upstash Redis batch sync warning for ${movieId}:`, redisErr.message);
       }
     }));
+  }
+
+  // 3. MongoDB Atlas Cloud save (if configured)
+  if (mongoDb) {
+    try {
+      const collection = mongoDb.collection('links');
+      const operations = [];
+      for (const [movieId, newLinks] of Object.entries(linksByMovieId)) {
+        for (const link of newLinks) {
+          operations.push({
+            updateOne: {
+              filter: { movieId: String(movieId), url: link.url },
+              update: { $set: { ...link, movieId: String(movieId), updatedAt: new Date() } },
+              upsert: true,
+            },
+          });
+        }
+      }
+      if (operations.length > 0) {
+        await collection.bulkWrite(operations);
+        console.log(`🍃 Synced to MongoDB Atlas: (${operations.length} links)`);
+      }
+    } catch (mongoErr) {
+      console.warn('MongoDB Atlas batch sync warning:', mongoErr.message);
+    }
   }
 
   return true;

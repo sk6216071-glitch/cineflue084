@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processTelegramMessage } from '@/lib/telegramBotCore';
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8944564119:AAHB6ETpf7BgkPRFhum2BYBqpkSZFX40SSU';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
 async function sendTelegramReply(chatId: number, text: string) {
   try {
