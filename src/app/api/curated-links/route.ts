@@ -3,6 +3,7 @@ import {
   getLinksFromDatabase,
   saveLinkToDatabase,
   deleteLinkFromDatabase,
+  deleteMultipleLinksFromDatabase,
   seedLocalLinksToRedis,
 } from '@/lib/redisDb';
 
@@ -68,17 +69,38 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // 1. Check for JSON body batch deletion
+    let body: any = null;
+    const contentType = request.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      try {
+        body = await request.json();
+      } catch {}
+    }
+
+    if (body && Array.isArray(body.items) && body.items.length > 0) {
+      await deleteMultipleLinksFromDatabase(body.items);
+      return NextResponse.json({ success: true, count: body.items.length });
+    }
+
+    // 2. Query param deletion
     const { searchParams } = new URL(request.url);
     const movieId = searchParams.get('movieId') || searchParams.get('id');
     const linkId = searchParams.get('linkId');
+    const linkIds = searchParams.get('linkIds');
 
-    if (!movieId || !linkId) {
-      return NextResponse.json({ error: 'movieId and linkId required' }, { status: 400 });
+    if (movieId && linkIds) {
+      const ids = linkIds.split(',').map((s) => s.trim()).filter(Boolean);
+      await deleteMultipleLinksFromDatabase(ids.map((id) => ({ movieId, linkId: id })));
+      return NextResponse.json({ success: true, count: ids.length });
     }
 
-    await deleteLinkFromDatabase(movieId, linkId);
+    if (movieId && linkId) {
+      await deleteLinkFromDatabase(movieId, linkId);
+      return NextResponse.json({ success: true });
+    }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ error: 'movieId and linkId required' }, { status: 400 });
   } catch (err: any) {
     console.error('Error in DELETE /api/curated-links:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });

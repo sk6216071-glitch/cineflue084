@@ -20,6 +20,7 @@ if (REDIS_URL && REDIS_TOKEN) {
 }
 
 const REDIS_HASH_KEY = 'cinefuel:curated_links';
+const REDIS_DELETED_KEY = 'cinefuel:deleted_link_ids';
 const LOCAL_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 /**
@@ -64,21 +65,51 @@ export async function getLinksFromDatabase(movieId?: number | string): Promise<{
 
   if (redisClient) {
     try {
+      // Get all deleted link IDs to guarantee deleted links are never resurrected
+      let deletedSet = new Set<string>();
+      try {
+        const deletedIds = await redisClient.smembers(REDIS_DELETED_KEY);
+        if (Array.isArray(deletedIds)) {
+          deletedSet = new Set(deletedIds as string[]);
+        }
+      } catch {}
+
       if (movieId) {
         const key = String(movieId);
         const redisLinks = await redisClient.hget<any[]>(REDIS_HASH_KEY, key);
-        if (Array.isArray(redisLinks) && redisLinks.length > 0) {
-          return { links: redisLinks, source: 'upstash_redis' };
+        let list: any[] = [];
+        if (Array.isArray(redisLinks)) {
+          list = redisLinks;
+        } else if (typeof redisLinks === 'string') {
+          try { list = JSON.parse(redisLinks); } catch {}
+        } else {
+          // If key is totally absent in Redis, fallback to local
+          list = localData[key] || [];
         }
-        // Fallback to local if empty in redis
-        return { links: localData[key] || [], source: 'local_json' };
+
+        const filtered = list.filter((l: any) => l?.id && !deletedSet.has(l.id));
+        return { links: filtered, source: 'upstash_redis' };
       }
 
-      const allRedis = await redisClient.hgetall<Record<string, any[]>>(REDIS_HASH_KEY);
+      const allRedis = await redisClient.hgetall<Record<string, any>>(REDIS_HASH_KEY);
       if (allRedis && Object.keys(allRedis).length > 0) {
-        // Merge with local fallback
-        const merged = { ...localData, ...allRedis };
-        return { allLinks: merged, source: 'upstash_redis' };
+        const result: Record<string, any[]> = {};
+        const allKeys = new Set([...Object.keys(localData), ...Object.keys(allRedis)]);
+
+        for (const k of allKeys) {
+          const rawVal = allRedis[k] !== undefined ? allRedis[k] : localData[k];
+          let list: any[] = [];
+          if (Array.isArray(rawVal)) {
+            list = rawVal;
+          } else if (typeof rawVal === 'string') {
+            try { list = JSON.parse(rawVal); } catch {}
+          }
+          const filtered = list.filter((l: any) => l?.id && !deletedSet.has(l.id));
+          if (filtered.length > 0) {
+            result[k] = filtered;
+          }
+        }
+        return { allLinks: result, source: 'upstash_redis' };
       }
     } catch (err: any) {
       console.warn('Upstash Redis read failed, using local JSON fallback:', err.message);
@@ -111,10 +142,18 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
   // 2. Upstash Cloud Redis save
   if (redisClient) {
     try {
+      if (link.id) {
+        // Remove from deleted set in case of re-addition
+        await redisClient.srem(REDIS_DELETED_KEY, link.id).catch(() => {});
+      }
+
       let current: any[] = [];
       try {
-        const fetched = await redisClient.hget<any[]>(REDIS_HASH_KEY, key);
+        const fetched = await redisClient.hget<any>(REDIS_HASH_KEY, key);
         if (Array.isArray(fetched)) current = fetched;
+        else if (typeof fetched === 'string') {
+          try { current = JSON.parse(fetched); } catch {}
+        }
       } catch {}
 
       if (current.length === 0) {
@@ -150,13 +189,73 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
   // 2. Upstash Cloud Redis deletion
   if (redisClient) {
     try {
-      const fetched = await redisClient.hget<any[]>(REDIS_HASH_KEY, key);
+      // Record in permanent tombstone set
+      await redisClient.sadd(REDIS_DELETED_KEY, linkId);
+
+      const fetched = await redisClient.hget<any>(REDIS_HASH_KEY, key);
+      let list: any[] = [];
       if (Array.isArray(fetched)) {
-        const updated = fetched.filter((l: any) => l.id !== linkId);
+        list = fetched;
+      } else if (typeof fetched === 'string') {
+        try { list = JSON.parse(fetched); } catch {}
+      }
+      const updated = list.filter((l: any) => l.id !== linkId);
+      await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+    } catch (err: any) {
+      console.error('Upstash Redis deletion error:', err.message);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Batch deletes multiple links from Upstash Redis and local JSON backup
+ */
+export async function deleteMultipleLinksFromDatabase(items: Array<{ movieId: number | string; linkId: string }>): Promise<boolean> {
+  if (!items || items.length === 0) return true;
+
+  // 1. Local backup deletion
+  try {
+    const localData = getLocalFallbackLinks();
+    const delSet = new Set(items.map((i) => i.linkId));
+    items.forEach(({ movieId }) => {
+      const key = String(movieId);
+      if (localData[key]) {
+        localData[key] = localData[key].filter((l: any) => !delSet.has(l.id));
+      }
+    });
+    saveLocalFallbackLinks(localData);
+  } catch {}
+
+  // 2. Upstash Cloud Redis deletion
+  if (redisClient) {
+    try {
+      const linkIds = items.map((i) => i.linkId);
+      if (linkIds.length > 0) {
+        await redisClient.sadd(REDIS_DELETED_KEY, linkIds[0], ...linkIds.slice(1));
+      }
+
+      const byMovie: Record<string, Set<string>> = {};
+      items.forEach(({ movieId, linkId }) => {
+        const k = String(movieId);
+        if (!byMovie[k]) byMovie[k] = new Set();
+        byMovie[k].add(linkId);
+      });
+
+      for (const [key, delIds] of Object.entries(byMovie)) {
+        const fetched = await redisClient.hget<any>(REDIS_HASH_KEY, key);
+        let list: any[] = [];
+        if (Array.isArray(fetched)) {
+          list = fetched;
+        } else if (typeof fetched === 'string') {
+          try { list = JSON.parse(fetched); } catch {}
+        }
+        const updated = list.filter((l: any) => !delIds.has(l.id));
         await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
       }
     } catch (err: any) {
-      console.error('Upstash Redis deletion error:', err.message);
+      console.error('Upstash Redis batch deletion error:', err.message);
     }
   }
 

@@ -32,6 +32,7 @@ import {
   saveGlobalCustomLink,
   updateGlobalCustomLink,
   deleteGlobalCustomLink,
+  getDeletedLinkIds,
   syncServerLinks,
 } from '@/lib/curatedLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
@@ -126,14 +127,23 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const userCustomLinks = useMemo(() => {
     if (!isMounted) return [];
     const linkMap = new Map<string, CustomLink>();
+    const deletedIds = getDeletedLinkIds();
 
     // 1. Live Server Links (authoritative source of truth)
-    liveServerLinks.forEach((l) => linkMap.set(l.id || l.url, l));
+    liveServerLinks.forEach((l) => {
+      if (!deletedIds.has(l.id)) {
+        linkMap.set(l.id || l.url, l);
+      }
+    });
 
     // 2. If live server links have not loaded yet, fallback to local storage
     if (liveServerLinks.length === 0) {
       const local = getConsolidatedCustomLinks(titleDetails.id);
-      local.forEach((l) => linkMap.set(l.id || l.url, l));
+      local.forEach((l) => {
+        if (!deletedIds.has(l.id)) {
+          linkMap.set(l.id || l.url, l);
+        }
+      });
     }
 
     return Array.from(linkMap.values()).sort(
@@ -261,11 +271,12 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     setLinksRefresh((v) => v + 1);
   };
 
-  const handleDelete = (linkId: string) => {
+  const handleDelete = async (linkId: string) => {
     if (confirm('Delete this custom link permanently?')) {
-      deleteGlobalCustomLink(titleDetails.id, linkId);
+      setLiveServerLinks((prev) => prev.filter((l) => l.id !== linkId));
       removeCustomLink(titleDetails.id, linkId);
       setLinksRefresh((v) => v + 1);
+      await deleteGlobalCustomLink(titleDetails.id, linkId);
     }
   };
 

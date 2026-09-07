@@ -106,6 +106,18 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
     const existing = parsed[key] || [];
     parsed[key] = [link, ...existing.filter((l: CustomLink) => l.id !== link.id && l.url !== link.url)];
     localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+
+    // Un-tombstone in deleted links registry
+    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    if (delStored) {
+      try {
+        const delList: string[] = JSON.parse(delStored);
+        if (delList.includes(link.id)) {
+          localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(delList.filter((id) => id !== link.id)));
+        }
+      } catch {}
+    }
+
     window.dispatchEvent(new Event('cinefuel_links_updated'));
 
     // Also persist to server database
@@ -171,7 +183,7 @@ export function getDeletedLinkIds(): Set<string> {
 /**
  * Delete a custom link permanently (Admin only)
  */
-export function deleteGlobalCustomLink(movieId: number, linkId: string): void {
+export async function deleteGlobalCustomLink(movieId: number, linkId: string): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
     // 1. Mark as deleted in deleted links registry
@@ -215,13 +227,64 @@ export function deleteGlobalCustomLink(movieId: number, linkId: string): void {
       }
     }
 
-    window.dispatchEvent(new Event('cinefuel_links_updated'));
+    // 4. Await server & cloud database deletion FIRST so data is guaranteed purged before sync
+    try {
+      await fetch(`/api/curated-links?movieId=${movieId}&linkId=${linkId}`, {
+        method: 'DELETE',
+      });
+    } catch (netErr) {
+      console.warn('Network deletion error:', netErr);
+    }
 
-    // Also persist deletion to server database
-    fetch(`/api/curated-links?movieId=${movieId}&linkId=${linkId}`, {
-      method: 'DELETE',
-    }).catch(() => {});
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
   } catch (err) {
     console.error('Failed to delete global custom link:', err);
+  }
+}
+
+/**
+ * Batch delete multiple custom links permanently (Admin only)
+ */
+export async function deleteMultipleGlobalCustomLinks(items: Array<{ movieId: number; linkId: string }>): Promise<void> {
+  if (typeof window === 'undefined' || !items.length) return;
+  try {
+    const linkIds = items.map((i) => i.linkId);
+    const delSet = new Set(linkIds);
+
+    // 1. Mark in deleted links registry
+    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delList: string[] = delStored ? JSON.parse(delStored) : [];
+    linkIds.forEach((id) => {
+      if (!delList.includes(id)) delList.push(id);
+    });
+    localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(delList));
+
+    // 2. Remove from custom links storage
+    const stored = localStorage.getItem('cinefuel_custom_links');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      items.forEach(({ movieId }) => {
+        const key = String(movieId);
+        if (parsed[key]) {
+          parsed[key] = parsed[key].filter((l: CustomLink) => !delSet.has(l.id));
+        }
+      });
+      localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+    }
+
+    // 3. Batch API delete to cloud database
+    try {
+      await fetch('/api/curated-links', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+    } catch (netErr) {
+      console.warn('Batch network deletion error:', netErr);
+    }
+
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
+  } catch (err) {
+    console.error('Failed to bulk delete global custom links:', err);
   }
 }

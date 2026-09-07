@@ -48,7 +48,7 @@ import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
-import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, deleteGlobalCustomLink, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
+import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
 
 const DEFAULT_ADMIN_USER = 'shyam';
@@ -245,8 +245,18 @@ export default function AdminPage() {
           if (res.ok) {
             const data = await res.json();
             if (data.allLinks && typeof data.allLinks === 'object') {
-              setCustomLinksMap(data.allLinks);
-              localStorage.setItem('cinefuel_custom_links', JSON.stringify(data.allLinks));
+              const currentDeleted = getDeletedLinkIds();
+              const cleanedMap: Record<string, CustomLink[]> = {};
+              for (const [k, arr] of Object.entries(data.allLinks)) {
+                if (Array.isArray(arr)) {
+                  const filtered = (arr as CustomLink[]).filter((l) => !currentDeleted.has(l.id));
+                  if (filtered.length > 0) {
+                    cleanedMap[k] = filtered;
+                  }
+                }
+              }
+              setCustomLinksMap(cleanedMap);
+              localStorage.setItem('cinefuel_custom_links', JSON.stringify(cleanedMap));
             }
           }
         } catch {}
@@ -279,6 +289,7 @@ export default function AdminPage() {
       setDeletedCuratedLinkIds(getDeletedLinkIds());
 
       const handleLinksUpdated = () => {
+        setDeletedCuratedLinkIds(getDeletedLinkIds());
         fetchAllAdminLinks();
       };
       window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
@@ -956,15 +967,16 @@ export default function AdminPage() {
   };
 
   // Delete Link
-  const handleDeleteLink = (movieId: number, linkId: string, linkTitle: string) => {
+  const handleDeleteLink = async (movieId: number, linkId: string, linkTitle: string) => {
     if (!confirm(`Delete link "${linkTitle}" permanently?`)) return;
-    deleteGlobalCustomLink(movieId, linkId);
-    removeCustomLink(movieId, linkId);
+
+    // 1. Instant optimistic state update
     setDeletedCuratedLinkIds((prev) => {
       const updated = new Set(prev);
       updated.add(linkId);
       return updated;
     });
+
     setCustomLinksMap((prev) => {
       const movieIdStr = String(movieId);
       const existing = prev[movieIdStr] || [];
@@ -972,10 +984,10 @@ export default function AdminPage() {
       const updatedMap = { ...prev, [movieIdStr]: updatedList };
       if (typeof window !== 'undefined') {
         localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
-        window.dispatchEvent(new Event('cinefuel_links_updated'));
       }
       return updatedMap;
     });
+
     setSelectedLinkIds((prev) => {
       if (prev.has(linkId)) {
         const next = new Set(prev);
@@ -984,7 +996,12 @@ export default function AdminPage() {
       }
       return prev;
     });
+
+    removeCustomLink(movieId, linkId);
     addLog(`Admin deleted link "${linkTitle}"`, 'warn');
+
+    // 2. Persist deletion to server & cloud database
+    await deleteGlobalCustomLink(movieId, linkId);
   };
 
   // Multi-Select Toggle for Single Link
@@ -1020,21 +1037,18 @@ export default function AdminPage() {
   };
 
   // Bulk Delete Selected Links
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (selectedLinkIds.size === 0) return;
     const count = selectedLinkIds.size;
     if (!confirm(`Are you sure you want to permanently delete all ${count} selected link${count > 1 ? 's' : ''}?`)) return;
 
     const itemsToDelete = allFlattenedLinks.filter((item) => selectedLinkIds.has(item.link.id));
+    const deleteIds = new Set(selectedLinkIds);
 
-    itemsToDelete.forEach((item) => {
-      deleteGlobalCustomLink(item.movieId, item.link.id);
-      removeCustomLink(item.movieId, item.link.id);
-    });
-
+    // 1. Instant optimistic UI update
     setDeletedCuratedLinkIds((prev) => {
       const updated = new Set(prev);
-      selectedLinkIds.forEach((id) => updated.add(id));
+      deleteIds.forEach((id) => updated.add(id));
       return updated;
     });
 
@@ -1043,18 +1057,23 @@ export default function AdminPage() {
       itemsToDelete.forEach((item) => {
         const movieIdStr = String(item.movieId);
         if (updatedMap[movieIdStr]) {
-          updatedMap[movieIdStr] = updatedMap[movieIdStr].filter((l) => !selectedLinkIds.has(l.id));
+          updatedMap[movieIdStr] = updatedMap[movieIdStr].filter((l) => !deleteIds.has(l.id));
         }
       });
       if (typeof window !== 'undefined') {
         localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
-        window.dispatchEvent(new Event('cinefuel_links_updated'));
       }
       return updatedMap;
     });
 
-    addLog(`Admin bulk deleted ${count} links permanently`, 'warn');
     setSelectedLinkIds(new Set());
+    itemsToDelete.forEach((item) => {
+      removeCustomLink(item.movieId, item.link.id);
+    });
+    addLog(`Admin bulk deleted ${count} links permanently`, 'warn');
+
+    // 2. Fast atomic batch deletion to cloud database
+    await deleteMultipleGlobalCustomLinks(itemsToDelete.map((i) => ({ movieId: i.movieId, linkId: i.link.id })));
   };
 
   // Export Full JSON Backup
@@ -1176,7 +1195,7 @@ export default function AdminPage() {
       const info = resolveTitleInfo(numId);
       const isTv = info.media_type === 'tv' || links.some((l) => l.seasonNumber !== undefined || l.episodeNumber !== undefined || l.linkType === 'single_episode' || l.linkType === 'zip_pack');
       links.forEach((l: CustomLink) => {
-        if (!seenLinkIds.has(l.id)) {
+        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
           seenLinkIds.add(l.id);
           allFlattenedLinks.push({
             movieId: numId,

@@ -543,11 +543,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     if (onLinkAdded) onLinkAdded();
   };
 
-  const handleDelete = (linkId: string) => {
+  const handleDelete = async (linkId: string) => {
     if (confirm('Delete this TV link permanently?')) {
-      deleteGlobalCustomLink(titleDetails.id, linkId);
       removeCustomLink(titleDetails.id, linkId);
       if (onLinkAdded) onLinkAdded();
+      await deleteGlobalCustomLink(titleDetails.id, linkId);
     }
   };
 
