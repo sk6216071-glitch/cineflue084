@@ -9,7 +9,6 @@ import RatingComparator from '@/components/RatingComparator';
 import WhereToWatch from '@/components/WhereToWatch';
 import CustomLinksManager from '@/components/CustomLinksManager';
 import DigitalReleaseTracker from '@/components/DigitalReleaseTracker';
-import SectionCarousel from '@/components/SectionCarousel';
 import DetailActions from './DetailActions';
 import CollapsibleSection from '@/components/CollapsibleSection';
 
@@ -40,7 +39,6 @@ export default async function TitleDetailPage({ params }: PageProps) {
 
   const castList = titleDetails.credits?.cast?.slice(0, 12) || [];
   const director = titleDetails.credits?.crew?.find((c) => c.job === 'Director' || c.department === 'Directing');
-  const similarItems = titleDetails.similar?.results || titleDetails.recommendations?.results || [];
 
   return (
     <div className="min-h-screen pb-20 space-y-10">
@@ -256,17 +254,6 @@ export default async function TitleDetailPage({ params }: PageProps) {
           </div>
         </div>
       </div>
-
-      {/* 3. Similar & Recommendations Reel */}
-      {similarItems.length > 0 && (
-        <div className="pt-8">
-          <SectionCarousel
-            title="More Like This"
-            subtitle="Recommended titles based on mood, genre, and audience ratings"
-            items={similarItems}
-          />
-        </div>
-      )}
     </div>
   );
 }
