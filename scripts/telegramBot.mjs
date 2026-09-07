@@ -203,7 +203,13 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   let cleanText = text
     .replace(/\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/gi, ' ')
     .replace(new RegExp(STRICT_URL_REGEX.source, 'gi'), ' ')
-    .replace(/(?:Link|URL)\s*[-:]\s*[^\s\r\n]+/gi, ' ');
+    .replace(/(?:Link|URL)\s*[-:]\s*[^\s\r\n]+/gi, ' ')
+    .replace(/https?:\/\/[^\s]+/gi, ' ')
+    .replace(/www\.[^\s]+/gi, ' ');
+
+  if (url) {
+    cleanText = cleanText.split(url).join(' ');
+  }
 
   // 1. Explicit key-value labels if present
   const getField = (pattern) => {
@@ -240,28 +246,42 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
 
   // 5. TV Season & Episode detection (supports S01...S100+ and E01...E100+)
-  let season = 1;
-  const sMatch = cleanText.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])(\d{1,3})x\d{1,4}(?:[\s._\-[\]()]|\b)/i);
-  if (sMatch) season = parseInt(sMatch[1], 10);
-
+  let season = undefined;
   let episode = undefined;
-  const eMatch = cleanText.match(/s\d{1,3}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])(?:ep|episode)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])e0*(\d{1,4})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i) ||
-                cleanText.match(/(?:^|[\s._\-[\]()])\d{1,3}x0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
-  if (eMatch) episode = parseInt(eMatch[1], 10);
+
+  // A. Combined Season & Episode e.g. S01E05, S1 E1, S02-EP03, S01.E04, 2x05
+  const seMatch = cleanText.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i) ||
+                  cleanText.match(/(?:^|[\s._\-[\]()])(\d{1,3})x0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
+  if (seMatch) {
+    season = parseInt(seMatch[1], 10);
+    episode = parseInt(seMatch[2], 10);
+  }
+
+  // B. Standalone Season e.g. S01, Season 2, Season-03
+  if (season === undefined) {
+    const sMatch = cleanText.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i) ||
+                  cleanText.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,3})(?:[\s._\-[\]()]|\b)/i);
+    if (sMatch) season = parseInt(sMatch[1], 10);
+  }
+
+  // C. Standalone Episode e.g. E05, Ep 12, Episode 3
+  if (episode === undefined) {
+    const eMatch = cleanText.match(/(?:^|[\s._\-[\]()])(?:ep|episode)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i) ||
+                  cleanText.match(/(?:^|[\s._\-[\]()])e0*(\d{1,4})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i);
+    if (eMatch) episode = parseInt(eMatch[1], 10);
+  }
 
   // 6. Mode Enforcement & Auto-sensing
   let isZip = false;
   if (forcedMode === 'zip') {
     isZip = true;
     explicitType = 'tv';
+    if (!season) season = 1;
     episode = undefined;
   } else if (forcedMode === 'episode') {
     isZip = false;
     explicitType = 'tv';
+    if (!season) season = 1;
     if (episode === undefined) episode = 1;
   } else if (forcedMode === 'movie') {
     isZip = false;
@@ -272,18 +292,19 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     // Auto-sensing:
     // S01..S100, E01..E100, Season, Episode, Zip Pack are 100% EXCLUSIVE TO TV SERIES!
     // Movies NEVER have Seasons or Episodes.
-    const isTvBySeason = Boolean(sMatch);
-    const isTvByEpisode = Boolean(eMatch || episode !== undefined);
-    const isTvByWord = /(?:^|[\s._\-[\]()])(?:s\d{1,3}|e\d{1,4}|season|episodes?|series)(?:[\s._\-[\]()]|\b)/i.test(cleanText);
+    const isTvBySeason = season !== undefined;
+    const isTvByEpisode = episode !== undefined;
+    const isTvByWord = /(?:^|[\s._\-[\]()])(?:s0*\d{1,3}|e0*\d{1,4}|season|episodes?|series)(?:[\s._\-[\]()]|\b)/i.test(cleanText);
     isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText);
 
     if (isTvBySeason || isTvByEpisode || isTvByWord || isZip) {
       // DEFINITIVE TV SERIES: Any season S01..S100 or episode E01..E100 means TV show!
       explicitType = 'tv';
-    } else if (year) {
-      explicitType = 'movie';
+      if (!season) season = 1;
     } else {
       explicitType = 'movie';
+      season = undefined;
+      episode = undefined;
     }
   }
 
@@ -716,8 +737,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
   // Detect sensed mode if not forced
   let sensedOverall = activeMode;
   if (!sensedOverall) {
-    if (blocks.length > 1) sensedOverall = 'bulk';
-    else if (/(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(textToProcess)) sensedOverall = 'zip';
+    if (/(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(textToProcess)) sensedOverall = 'zip';
     else if (/(?:s\d{1,2}[\s._-]*(?:ep|episode|e)[\s._-]?\d{1,3}|\be\d{1,3}\b|\bepisode[\s._-]?\d{1,3}\b)/i.test(textToProcess)) sensedOverall = 'episode';
     else if (/\b(19\d\d|20\d\d)\b/.test(textToProcess) && !/s\d{1,2}/i.test(textToProcess)) sensedOverall = 'movie';
     else sensedOverall = 'auto';
@@ -730,7 +750,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
   const blockItems = blocks
     .filter(b => b.url)
     .map(block => {
-      const blockMode = activeMode || (sensedOverall === 'bulk' ? 'episode' : (sensedOverall !== 'auto' ? sensedOverall : null));
+      const blockMode = activeMode || (sensedOverall !== 'auto' ? sensedOverall : null);
       const meta = extractBlockMetadata(block.text, block.url, blockMode);
       return { block, meta };
     })
@@ -762,10 +782,24 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       continue;
     }
 
-    const isTv = meta.mediaType === 'tv' ||
-                 tmdbItem.media_type === 'tv' ||
-                 meta.episode !== undefined ||
-                 /s\d{1,3}|e\d{1,4}/i.test(block.text);
+    // Strict Movie vs TV Classification:
+    // 1. Explicit user commands (/episode, /zip, /movie) take priority
+    // 2. TMDB result is authoritative: if TMDB found a movie, it is a MOVIE
+    // 3. If TMDB found a TV series, it is a TV SERIES
+    // 4. Otherwise, auto-sensed metadata is used
+    let isTv = false;
+    if (activeMode === 'episode' || activeMode === 'zip') {
+      isTv = true;
+    } else if (activeMode === 'movie') {
+      isTv = false;
+    } else if (tmdbItem.media_type === 'movie') {
+      isTv = false;
+    } else if (tmdbItem.media_type === 'tv') {
+      isTv = true;
+    } else {
+      isTv = meta.mediaType === 'tv';
+    }
+
     const mediaType = isTv ? 'tv' : 'movie';
     const officialTitle = tmdbItem.title || tmdbItem.name || meta.titleQuery;
     const releaseDate = tmdbItem.release_date || tmdbItem.first_air_date || '';
@@ -776,15 +810,17 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     let category = 'Streaming';
 
     if (mediaType === 'tv') {
+      const tvSeason = meta.season || 1;
       if (meta.isZip) {
         category = 'ZipPack';
-        displayTitle = `Season ${meta.season} Complete (${meta.quality} • ${meta.audio})`;
+        displayTitle = `Season ${tvSeason} Complete (${meta.quality} • ${meta.audio})`;
       } else {
         category = 'SingleEpisode';
-        const epStr = meta.episode ? `Episode ${meta.episode}` : 'Episode';
-        displayTitle = `Season ${meta.season} ${epStr} (${meta.quality} • ${meta.audio})`;
+        const epStr = meta.episode ? `Episode ${meta.episode}` : 'Episode 1';
+        displayTitle = `Season ${tvSeason} ${epStr} (${meta.quality} • ${meta.audio})`;
       }
     } else {
+      category = 'Streaming';
       displayTitle = `${meta.quality} • ${meta.audio}`;
     }
 
@@ -795,9 +831,9 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       title: displayTitle,
       url: meta.url,
       category,
-      seasonNumber: mediaType === 'tv' ? meta.season : undefined,
-      episodeNumber: mediaType === 'tv' ? meta.episode : undefined,
-      linkType: mediaType === 'tv' ? (meta.isZip ? 'zip_pack' : 'single_episode') : undefined,
+      seasonNumber: mediaType === 'tv' ? (meta.season || 1) : undefined,
+      episodeNumber: mediaType === 'tv' ? (meta.episode || (meta.isZip ? undefined : 1)) : undefined,
+      linkType: mediaType === 'tv' ? (meta.isZip ? 'zip_pack' : 'single_episode') : 'general',
       quality: meta.quality,
       audioLanguage: meta.audio,
       size: meta.size,
@@ -813,9 +849,9 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       year: releaseYear,
       mediaType,
       movieId,
-      season: meta.season,
-      episode: meta.episode,
-      isZip: meta.isZip,
+      season: mediaType === 'tv' ? (meta.season || 1) : undefined,
+      episode: mediaType === 'tv' ? (meta.episode || (meta.isZip ? undefined : 1)) : undefined,
+      isZip: mediaType === 'tv' ? meta.isZip : false,
       quality: meta.quality,
       audio: meta.audio,
       size: meta.size,
