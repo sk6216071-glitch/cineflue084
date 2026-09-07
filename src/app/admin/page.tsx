@@ -157,6 +157,8 @@ export default function AdminPage() {
   const [adminBulkRawText, setAdminBulkRawText] = useState('');
   const [adminBulkParsedItems, setAdminBulkParsedItems] = useState<ParsedBulkItem[]>([]);
   const [adminBulkSuccessMsg, setAdminBulkSuccessMsg] = useState('');
+  const [adminBulkMediaType, setAdminBulkMediaType] = useState<'movie' | 'tv'>('movie');
+  const [adminBulkMovieCategory, setAdminBulkMovieCategory] = useState<CustomLink['category']>('Streaming');
 
   // Admin Dynamic Episode Grid State (N Containers)
   const [adminGridSeason, setAdminGridSeason] = useState(1);
@@ -423,9 +425,10 @@ export default function AdminPage() {
       setAdminBulkParsedItems([]);
       return;
     }
-    const parsed = parseBulkLinksInput(adminBulkRawText, 1);
+    const currentType = adminBulkMediaType || (selectedTargetTitle?.media_type === 'tv' ? 'tv' : 'movie');
+    const parsed = parseBulkLinksInput(adminBulkRawText, 1, currentType, adminBulkMovieCategory);
     setAdminBulkParsedItems(parsed);
-  }, [adminBulkRawText]);
+  }, [adminBulkRawText, adminBulkMediaType, adminBulkMovieCategory, selectedTargetTitle?.media_type]);
 
   // Handle Target Title Selection
   const handleSelectTargetTitle = (item: {
@@ -454,14 +457,16 @@ export default function AdminPage() {
     setIsTargetDropdownOpen(false);
     setTargetSearchQuery('');
 
-    // Set intelligent default category based on media type
+    // Set intelligent default category and bulk media type based on media type
     if (resolvedType === 'tv') {
       setNewLinkCategory('SingleEpisode');
       setNewLinkType('single_episode');
+      setAdminBulkMediaType('tv');
       syncAdminGridSlots(adminGridEpisodeCount, adminGridSeason, adminGridBasePattern, adminGridQuality, adminGridAudio, adminGridSize, resolvedTitle);
     } else {
       setNewLinkCategory('Streaming');
       setNewLinkType('general');
+      setAdminBulkMediaType('movie');
     }
 
     addLog(`Target title switched to "${resolvedTitle}" (ID: ${item.id})`, 'info');
@@ -659,6 +664,17 @@ export default function AdminPage() {
     );
   };
 
+  // Set category for all items in movie bulk mode
+  const handleSetAllBulkCategory = (cat: CustomLink['category']) => {
+    setAdminBulkMovieCategory(cat);
+    setAdminBulkParsedItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        category: cat,
+      }))
+    );
+  };
+
   // Convert all items in bulk preview to single episodes or zip packs
   const handleSetAllBulkType = (type: 'single_episode' | 'zip_pack') => {
     setAdminBulkParsedItems((prev) =>
@@ -689,20 +705,21 @@ export default function AdminPage() {
   const handleAdminImportBulk = () => {
     if (adminBulkParsedItems.length === 0 || !selectedTargetTitle) return;
 
+    const isMovie = adminBulkMediaType === 'movie';
     const createdObjs: CustomLink[] = [];
     adminBulkParsedItems.forEach((item, index) => {
       const newObj: CustomLink = {
         id: `bulk-admin-${Date.now()}-${index}`,
         title: item.title,
         url: item.url,
-        category: item.category,
+        category: isMovie ? (item.category || adminBulkMovieCategory || 'Streaming') : item.category,
         createdAt: new Date(Date.now() - index * 1000).toISOString(),
-        seasonNumber: item.seasonNumber,
-        episodeNumber: item.episodeNumber,
+        seasonNumber: isMovie ? undefined : item.seasonNumber,
+        episodeNumber: isMovie ? undefined : item.episodeNumber,
         quality: item.quality,
         audioLanguage: item.audioLanguage,
         size: item.size,
-        linkType: item.linkType,
+        linkType: isMovie ? 'general' : item.linkType,
       };
       saveGlobalCustomLink(selectedTargetTitle.id, newObj);
       createdObjs.push(newObj);
@@ -721,11 +738,16 @@ export default function AdminPage() {
     });
 
     const count = adminBulkParsedItems.length;
-    const epCount = adminBulkParsedItems.filter((i) => i.linkType === 'single_episode').length;
-    const zipCount = adminBulkParsedItems.filter((i) => i.linkType === 'zip_pack').length;
+    if (isMovie) {
+      setAdminBulkSuccessMsg(`🎉 Successfully imported ${count} Movie Release${count > 1 ? 's' : ''} to "${selectedTargetTitle.title}"!`);
+      addLog(`Admin bulk imported ${count} movie releases for "${selectedTargetTitle.title}"`, 'success');
+    } else {
+      const epCount = adminBulkParsedItems.filter((i) => i.linkType === 'single_episode').length;
+      const zipCount = adminBulkParsedItems.filter((i) => i.linkType === 'zip_pack').length;
+      setAdminBulkSuccessMsg(`🎉 Successfully imported ${count} links (${epCount} Episodes, ${zipCount} Zip Packs) for "${selectedTargetTitle.title}"!`);
+      addLog(`Admin bulk imported ${count} TV links for "${selectedTargetTitle.title}"`, 'success');
+    }
 
-    setAdminBulkSuccessMsg(`🎉 Successfully imported ${count} links (${epCount} Episodes, ${zipCount} Zip Packs) for "${selectedTargetTitle.title}"!`);
-    addLog(`Admin bulk imported ${count} links for "${selectedTargetTitle.title}"`, 'success');
     setAdminBulkRawText('');
     setAdminBulkParsedItems([]);
 
@@ -1927,14 +1949,90 @@ export default function AdminPage() {
             {/* VIEW B: BULK MULTI-LINK AUTO-DETECTOR CONTAINER */}
             {addLinkMode === 'bulk' && (
               <div className="space-y-4 pt-3 border-t border-zinc-800/80">
+                {/* Bulk Target Format Mode Selector (Movie vs TV) */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-zinc-950 border border-zinc-800/80">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-zinc-300">Bulk Target Format:</span>
+                    <div className="inline-flex rounded-xl p-1 bg-zinc-900 border border-zinc-700/80 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminBulkMediaType('movie');
+                          if (adminBulkRawText.trim()) {
+                            const parsed = parseBulkLinksInput(adminBulkRawText, 1, 'movie', adminBulkMovieCategory);
+                            setAdminBulkParsedItems(parsed);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          adminBulkMediaType === 'movie'
+                            ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                            : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        <Film className="w-3.5 h-3.5" /> Movie Releases Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminBulkMediaType('tv');
+                          if (adminBulkRawText.trim()) {
+                            const parsed = parseBulkLinksInput(adminBulkRawText, 1, 'tv', 'SingleEpisode');
+                            setAdminBulkParsedItems(parsed);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          adminBulkMediaType === 'tv'
+                            ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md'
+                            : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        <Tv className="w-3.5 h-3.5" /> TV Episodes & Packs
+                      </button>
+                    </div>
+                  </div>
+
+                  {adminBulkMediaType === 'movie' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-zinc-400">Default Category:</span>
+                      <select
+                        value={adminBulkMovieCategory}
+                        onChange={(e) => {
+                          const cat = e.target.value as CustomLink['category'];
+                          setAdminBulkMovieCategory(cat);
+                          handleSetAllBulkCategory(cat);
+                        }}
+                        className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1 text-xs text-amber-300 font-bold focus:outline-none focus:border-amber-500"
+                      >
+                        <option value="Streaming">🎬 Streaming & OTT</option>
+                        <option value="Download">📥 Direct Download</option>
+                        <option value="Subtitles">🌐 Subtitles</option>
+                        <option value="Recent">⚡ Recent Release</option>
+                        <option value="Official">🏛️ Official Website</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-zinc-300 block flex items-center justify-between">
-                    <span>2. Paste Multiple Episode & Zip Pack Links for &quot;{selectedTargetTitle?.title}&quot;:</span>
-                    <span className="text-[10px] text-amber-400 font-mono">Auto-detects S01/S02, Zip Packs vs Single EPs, Qualities, and Dubs</span>
+                    <span>
+                      {adminBulkMediaType === 'movie'
+                        ? `2. Paste Multiple Movie Links / Releases for "${selectedTargetTitle?.title}":`
+                        : `2. Paste Multiple Episode & Zip Pack Links for "${selectedTargetTitle?.title}":`}
+                    </span>
+                    <span className="text-[10px] text-amber-400 font-mono">
+                      {adminBulkMediaType === 'movie'
+                        ? 'Auto-detects 4K UHD, 1080p, 720p, HDR, Dubs, and Sizes'
+                        : 'Auto-detects S01/S02, Zip Packs vs Single EPs, Qualities, and Dubs'}
+                    </span>
                   </label>
                   <textarea
                     rows={6}
-                    placeholder={`Paste multiple release lines or download URLs at once! Examples:\n${selectedTargetTitle?.title} S01E01 2160p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/video/1...\n${selectedTargetTitle?.title} S01E02 2160p WEB-DL Hindi DDP 5.1 [6.28 GB] - https://hubcloud.foo/video/2...\n${selectedTargetTitle?.title} S01 Complete 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/3...`}
+                    placeholder={
+                      adminBulkMediaType === 'movie'
+                        ? `Paste multiple movie release lines or download URLs at once! Examples:\n${selectedTargetTitle?.title} 2160p UHD BluRay HEVC TrueHD Atmos 7.1 [Hindi DDP 5.1 + English] [24.5 GB] - https://hubcloud.cx/drive/movie4k\n${selectedTargetTitle?.title} 1080p FHD BluRay x264 [Hindi + English 5.1] [10.2 GB] - https://gdflix.dev/file/movie1080\n${selectedTargetTitle?.title} 720p HD WEB-DL [Hindi Dubbed] [2.1 GB] - https://mnmcloud.fun/files/movie720`
+                        : `Paste multiple release lines or download URLs at once! Examples:\n${selectedTargetTitle?.title} S01E01 2160p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/video/1...\n${selectedTargetTitle?.title} S01E02 2160p WEB-DL Hindi DDP 5.1 [6.28 GB] - https://hubcloud.foo/video/2...\n${selectedTargetTitle?.title} S01 Complete 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/3...`
+                    }
                     value={adminBulkRawText}
                     onChange={(e) => setAdminBulkRawText(e.target.value)}
                     className="w-full bg-zinc-950 border border-zinc-700 rounded-2xl p-3.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500 leading-relaxed shadow-inner"
@@ -1949,34 +2047,73 @@ export default function AdminPage() {
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-amber-400" />
                         <span className="text-xs font-black text-white">
-                          {adminBulkParsedItems.length} Links Auto-Detected:
+                          {adminBulkParsedItems.length} {adminBulkMediaType === 'movie' ? 'Movie Releases' : 'Links'} Auto-Detected:
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold text-[10px]">
-                          📥 {adminBulkParsedItems.filter((i) => i.linkType === 'single_episode').length} Episodes
-                        </span>
-                        <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold text-[10px]">
-                          🗜️ {adminBulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
-                        </span>
+                        {adminBulkMediaType === 'movie' ? (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold text-[10px]">
+                            🎬 {adminBulkParsedItems.length} Movie Releases
+                          </span>
+                        ) : (
+                          <>
+                            <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold text-[10px]">
+                              📥 {adminBulkParsedItems.filter((i) => i.linkType === 'single_episode').length} Episodes
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold text-[10px]">
+                              🗜️ {adminBulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       {/* Quick Bulk Convert Controls */}
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleSetAllBulkType('single_episode')}
-                          className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-[10px] font-bold transition-colors"
-                          title="Convert all items to Single Episodes"
-                        >
-                          📥 Set All as Episodes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSetAllBulkType('zip_pack')}
-                          className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold transition-colors"
-                          title="Convert all items to Zip Packs"
-                        >
-                          🗜️ Set All as Zip Packs
-                        </button>
+                        {adminBulkMediaType === 'movie' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllBulkCategory('Streaming')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold transition-colors"
+                              title="Set all movie items to Streaming"
+                            >
+                              🎬 Set All Streaming
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllBulkCategory('Download')}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-[10px] font-bold transition-colors"
+                              title="Set all movie items to Download"
+                            >
+                              📥 Set All Download
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllBulkCategory('Subtitles')}
+                              className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-[10px] font-bold transition-colors"
+                              title="Set all movie items to Subtitles"
+                            >
+                              🌐 Set All Subtitles
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllBulkType('single_episode')}
+                              className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-[10px] font-bold transition-colors"
+                              title="Convert all items to Single Episodes"
+                            >
+                              📥 Set All as Episodes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetAllBulkType('zip_pack')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold transition-colors"
+                              title="Convert all items to Zip Packs"
+                            >
+                              🗜️ Set All as Zip Packs
+                            </button>
+                          </>
+                        )}
 
                         <button
                           type="button"
@@ -1984,7 +2121,7 @@ export default function AdminPage() {
                           className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-lg hover:scale-105 flex items-center gap-1.5 ml-2"
                         >
                           <ListPlus className="w-4 h-4" />
-                          <span>🚀 Import All ({adminBulkParsedItems.length}) Links to {selectedTargetTitle?.title}</span>
+                          <span>🚀 Import All ({adminBulkParsedItems.length}) {adminBulkMediaType === 'movie' ? 'Movie' : ''} Links to {selectedTargetTitle?.title}</span>
                         </button>
                       </div>
                     </div>
@@ -1997,29 +2134,48 @@ export default function AdminPage() {
                         >
                           <div className="overflow-hidden space-y-1">
                             <div className="flex items-center gap-1.5">
-                              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-black text-[9px] font-mono">
-                                S0{item.seasonNumber}
-                              </span>
+                              {adminBulkMediaType === 'movie' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextCat: CustomLink['category'] =
+                                      item.category === 'Streaming' ? 'Download' : item.category === 'Download' ? 'Subtitles' : 'Streaming';
+                                    setAdminBulkParsedItems((prev) =>
+                                      prev.map((i) => (i.id === item.id ? { ...i, category: nextCat } : i))
+                                    );
+                                  }}
+                                  className="px-2 py-0.5 rounded font-black text-[9px] font-mono transition-all hover:scale-105 bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                  title="Click to toggle category (Streaming / Download / Subtitles)"
+                                >
+                                  {item.category === 'Download' ? '📥 DOWNLOAD' : item.category === 'Subtitles' ? '🌐 SUBTITLES' : '🎬 STREAMING'}
+                                </button>
+                              ) : (
+                                <>
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-black text-[9px] font-mono">
+                                    S0{item.seasonNumber}
+                                  </span>
 
-                              {/* Clickable Badge to Toggle between Single Episode and Zip Pack */}
-                              <button
-                                type="button"
-                                onClick={() => handleToggleBulkItemType(item.id)}
-                                className={`px-2 py-0.5 rounded font-black text-[9px] font-mono transition-all hover:scale-105 ${
-                                  item.linkType === 'zip_pack'
-                                    ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40'
-                                    : 'bg-sky-500/30 text-sky-200 border border-sky-500/40'
-                                }`}
-                                title="Click to toggle between Episode and Zip Pack"
-                              >
-                                {item.linkType === 'zip_pack'
-                                  ? '🗜️ ZIP PACK (Click to switch)'
-                                  : `📥 EP ${item.episodeNumber ? (item.episodeNumber < 10 ? '0' + item.episodeNumber : item.episodeNumber) : '?'} (Click to switch)`}
-                              </button>
+                                  {/* Clickable Badge to Toggle between Single Episode and Zip Pack */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleBulkItemType(item.id)}
+                                    className={`px-2 py-0.5 rounded font-black text-[9px] font-mono transition-all hover:scale-105 ${
+                                      item.linkType === 'zip_pack'
+                                        ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40'
+                                        : 'bg-sky-500/30 text-sky-200 border border-sky-500/40'
+                                    }`}
+                                    title="Click to toggle between Episode and Zip Pack"
+                                  >
+                                    {item.linkType === 'zip_pack'
+                                      ? '🗜️ ZIP PACK (Click to switch)'
+                                      : `📥 EP ${item.episodeNumber ? (item.episodeNumber < 10 ? '0' + item.episodeNumber : item.episodeNumber) : '?'} (Click to switch)`}
+                                  </button>
+                                </>
+                              )}
                             </div>
                             <p className="font-bold text-white truncate text-[11px]">{item.title}</p>
                             <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                              <span>{item.quality}</span>
+                              <span className="font-semibold text-amber-400/90">{item.quality}</span>
                               {item.audioLanguage && <span>• {item.audioLanguage}</span>}
                               {item.size && <span className="text-zinc-500 font-mono">• {item.size}</span>}
                             </div>

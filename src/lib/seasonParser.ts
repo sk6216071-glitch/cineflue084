@@ -258,19 +258,24 @@ export interface ParsedBulkItem {
   id: string;
   title: string;
   url: string;
-  linkType: 'zip_pack' | 'single_episode';
-  seasonNumber: number;
+  linkType?: 'zip_pack' | 'single_episode' | 'general';
+  seasonNumber?: number;
   episodeNumber?: number;
   quality: string;
   audioLanguage: string;
   size?: string;
-  category: 'ZipPack' | 'SingleEpisode';
+  category: CustomLink['category'];
 }
 
 /**
- * Intelligently parse raw bulk/multi-line text into structured season, episode, and zip pack links
+ * Intelligently parse raw bulk/multi-line text into structured season/episode links OR movie release links
  */
-export function parseBulkLinksInput(rawText: string, fallbackSeason: number = 1): ParsedBulkItem[] {
+export function parseBulkLinksInput(
+  rawText: string,
+  fallbackSeason: number = 1,
+  mediaType: 'movie' | 'tv' = 'tv',
+  defaultCategory: CustomLink['category'] = 'Streaming'
+): ParsedBulkItem[] {
   if (!rawText || !rawText.trim()) return [];
 
   const items: ParsedBulkItem[] = [];
@@ -299,6 +304,27 @@ export function parseBulkLinksInput(rawText: string, fallbackSeason: number = 1)
         }
       }
 
+      if (mediaType === 'movie') {
+        const quality = detectQuality(titlePart);
+        const audioLanguage = detectAudio(titlePart);
+        const size = detectSize(titlePart);
+
+        items.push({
+          id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
+          title: titlePart || `Movie Release ${items.length + 1}`,
+          url,
+          linkType: 'general',
+          seasonNumber: undefined,
+          episodeNumber: undefined,
+          quality: quality || '1080p WEB-DL',
+          audioLanguage: audioLanguage || 'English',
+          size,
+          category: defaultCategory || 'Streaming',
+        });
+        i++;
+        continue;
+      }
+
       const meta = parseFullMediaTitle(titlePart);
       const sNum = meta.seasonNumber || fallbackSeason;
 
@@ -321,6 +347,28 @@ export function parseBulkLinksInput(rawText: string, fallbackSeason: number = 1)
         const nextUrlMatch = lines[i + 1].match(urlRegex);
         if (nextUrlMatch) {
           const url = nextUrlMatch[1];
+
+          if (mediaType === 'movie') {
+            const quality = detectQuality(titlePart);
+            const audioLanguage = detectAudio(titlePart);
+            const size = detectSize(titlePart);
+
+            items.push({
+              id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
+              title: titlePart || `Movie Release ${items.length + 1}`,
+              url,
+              linkType: 'general',
+              seasonNumber: undefined,
+              episodeNumber: undefined,
+              quality: quality || '1080p WEB-DL',
+              audioLanguage: audioLanguage || 'English',
+              size,
+              category: defaultCategory || 'Streaming',
+            });
+            i += 2;
+            continue;
+          }
+
           const meta = parseFullMediaTitle(titlePart);
           const sNum = meta.seasonNumber || fallbackSeason;
 
