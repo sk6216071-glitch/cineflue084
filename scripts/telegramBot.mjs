@@ -409,6 +409,11 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     titleForSearch = titleForSearch.replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
+  // Strip leading list numbers, indexes, or release prefixes e.g. "2.", "01.", "[1]", "1 - "
+  titleForSearch = titleForSearch
+    .replace(/^[\s(\[]*\d{1,3}[\s)\]]*[\s._\-:]+/i, '')
+    .trim();
+
   // 7. Quality Detection
   let quality = explicitQuality;
   if (!quality) {
@@ -445,12 +450,46 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   };
 }
 
+// Intelligent TMDB result ranking: prioritizes exact title, exact release year, and penalizes distant sequels
+function rankTmdbResults(items, cleanQ, targetYear, forcedType) {
+  if (!items || items.length === 0) return null;
+  const normQ = cleanQ.toLowerCase().trim();
+  const scored = items.map((item) => {
+    let score = 0;
+    const itemTitle = (item.title || item.name || '').toLowerCase().trim();
+    const itemYear = (item.release_date || item.first_air_date || '').slice(0, 4);
+
+    // Exact title match gets highest boost
+    if (itemTitle === normQ) score += 120;
+    else if (itemTitle.startsWith(normQ)) score += 40;
+
+    // Exact year match
+    if (targetYear && itemYear === String(targetYear)) score += 80;
+    else if (targetYear && Math.abs(Number(itemYear) - Number(targetYear)) <= 1) score += 40;
+
+    // Penalize far future sequels (e.g. 2027 in-production when searching 2025 release)
+    if (targetYear && Number(itemYear) > Number(targetYear) + 1) score -= 60;
+
+    // Type match
+    if (forcedType && item.media_type === forcedType) score += 50;
+
+    // Popularity tie-breaker
+    score += Math.min(item.popularity || 0, 25);
+
+    return { item, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.item || null;
+}
+
 // Global in-memory cache for TMDB results (persists across polls)
 const globalTmdbCache = new Map();
 
 async function searchTmdb(query, year, forcedType = null) {
   if (!query || query.trim().length < 2) return null;
-  const cleanQ = query.trim();
+  // Strip leading list numbers, indexes e.g. "2.", "01.", "[1]"
+  const cleanQ = query.trim().replace(/^[\s(\[]*\d{1,3}[\s)\]]*[\s._\-:]+/i, '').trim();
   const cacheKey = `${cleanQ.toLowerCase()}_${year || 'any'}_${forcedType || 'any'}`;
   if (globalTmdbCache.has(cacheKey)) {
     return globalTmdbCache.get(cacheKey);
@@ -463,32 +502,11 @@ async function searchTmdb(query, year, forcedType = null) {
     if (res && res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
-        const filtered = data.results.filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-        if (forcedType) {
-          const typeMatch = filtered.filter(r => r.media_type === forcedType);
-          if (typeMatch.length > 0) {
-            if (year) {
-              const ym = typeMatch.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
-              if (ym) {
-                globalTmdbCache.set(cacheKey, ym);
-                return ym;
-              }
-            }
-            globalTmdbCache.set(cacheKey, typeMatch[0]);
-            return typeMatch[0];
-          }
-        }
-
-        if (year && filtered.length > 0) {
-          const yearMatch = filtered.find(r => (r.release_date || r.first_air_date || '').startsWith(String(year)));
-          if (yearMatch) {
-            globalTmdbCache.set(cacheKey, yearMatch);
-            return yearMatch;
-          }
-        }
-        if (filtered.length > 0) {
-          globalTmdbCache.set(cacheKey, filtered[0]);
-          return filtered[0];
+        const filtered = data.results.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
+        const best = rankTmdbResults(filtered, cleanQ, year, forcedType);
+        if (best) {
+          globalTmdbCache.set(cacheKey, best);
+          return best;
         }
       }
     }
@@ -506,10 +524,11 @@ async function searchTmdb(query, year, forcedType = null) {
       if (res && res.ok) {
         const data = await res.json();
         if (data.results && data.results.length > 0) {
-          const filtered = data.results.filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-          if (filtered.length > 0) {
-            globalTmdbCache.set(cacheKey, filtered[0]);
-            return filtered[0];
+          const filtered = data.results.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
+          const best = rankTmdbResults(filtered, shortened, year, forcedType);
+          if (best) {
+            globalTmdbCache.set(cacheKey, best);
+            return best;
           }
         }
       }
