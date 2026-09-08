@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { Flame, Star, Tv, Film, Calendar, Compass, ArrowRight } from 'lucide-react';
 import { getTrending, getPopularMovies, getPopularTV, getTopRated, getUpcoming } from '@/lib/tmdb';
 import { POPULAR_GENRES } from '@/lib/mockData';
-import HeroBanner from '@/components/HeroBanner';
 import SectionCarousel from '@/components/SectionCarousel';
 
 export const revalidate = 3600; // ISR cache 1 hour
@@ -19,11 +18,8 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen pb-12 space-y-4">
-      {/* Hero Banner Section */}
-      <HeroBanner items={trending.slice(0, 6)} />
-
       {/* Genre Fast Explorer Bar */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="bg-[#0f121a]/80 backdrop-blur-md border border-zinc-800/80 rounded-2xl p-4 sm:p-5">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
