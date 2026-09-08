@@ -1,9 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dns from 'dns';
 import { Redis } from '@upstash/redis';
 import { MongoClient } from 'mongodb';
 import http from 'http';
+
+// Ensure IPv4 lookup precedence for stable TMDB API and external cloud connections
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -466,6 +472,10 @@ function rankTmdbResults(items, cleanQ, targetYear, forcedType) {
     // Exact year match
     if (targetYear && itemYear === String(targetYear)) score += 80;
     else if (targetYear && Math.abs(Number(itemYear) - Number(targetYear)) <= 1) score += 40;
+    else if (targetYear && itemYear && Math.abs(Number(itemYear) - Number(targetYear)) > 2) {
+      // Penalize titles with heavily mismatched release years (e.g. 1961 series when searching 2012 movie)
+      score -= Math.min(80, Math.abs(Number(itemYear) - Number(targetYear)) * 2);
+    }
 
     // Penalize far future sequels (e.g. 2027 in-production when searching 2025 release)
     if (targetYear && Number(itemYear) > Number(targetYear) + 1) score -= 60;

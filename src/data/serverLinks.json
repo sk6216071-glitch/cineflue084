@@ -265,13 +265,31 @@
       "id": "tg-1788704140861-64kb",
       "title": "Season 1 Complete (1080p FHD • BluRay • Hindi NF DDP 5.1 + English DDP 7.1) [17.24 GB]",
       "url": "https://gdflix.dev/file/RGmU9EIs1hNZSyM",
-      "category": "ZipPack",
-      "seasonNumber": 1,
-      "linkType": "zip_pack",
+      "category": "Streaming",
       "quality": "1080p FHD • BluRay",
       "audioLanguage": "Hindi NF DDP 5.1 + English DDP 7.1",
       "size": "17.24 GB",
       "createdAt": "2026-09-06T14:15:40.861Z"
+    },
+    {
+      "id": "tg-1788818270831-4guh",
+      "title": "2160p 4K • 10bit • BluRay • HEVC • Hindi BD DD 5.1 ~ 640Kbps + English DDP 7.1 [13.05 GB]",
+      "url": "https://hubcloud.foo/drive/mbklp1gpqkm1vu6",
+      "category": "Streaming",
+      "quality": "2160p 4K • 10bit • BluRay • HEVC",
+      "audioLanguage": "Hindi BD DD 5.1 ~ 640Kbps + English DDP 7.1",
+      "size": "13.05 GB",
+      "createdAt": "2026-09-07T21:57:50.831Z"
+    },
+    {
+      "id": "tg-1788818270423-feyt",
+      "title": "2160p 4K • DV HDR • 10bit • BluRay • HEVC • Hindi BD DD 5.1 ~ 640kbps + English DDP 5.1 [19.63 GB]",
+      "url": "https://hubcloud.foo/drive/ecopaegerxweejc",
+      "category": "Streaming",
+      "quality": "2160p 4K • DV HDR • 10bit • BluRay • HEVC",
+      "audioLanguage": "Hindi BD DD 5.1 ~ 640kbps + English DDP 5.1",
+      "size": "19.63 GB",
+      "createdAt": "2026-09-07T21:57:50.423Z"
     }
   ],
   "38472": [
