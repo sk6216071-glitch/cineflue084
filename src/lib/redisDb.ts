@@ -419,3 +419,112 @@ export async function seedLocalLinksToRedis(): Promise<{ success: boolean; total
     return { success: false, totalTitles: 0 };
   }
 }
+
+/**
+ * Migrates an old filehost domain to a new active domain across all links
+ */
+export async function migrateDomainInDatabase(
+  oldDomain: string,
+  newDomain: string
+): Promise<{ success: boolean; updatedCount: number; oldDomain: string; newDomain: string }> {
+  const cleanOld = oldDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+  const cleanNew = newDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+
+  if (!cleanOld || !cleanNew || cleanOld === cleanNew) {
+    return { success: false, updatedCount: 0, oldDomain: cleanOld, newDomain: cleanNew };
+  }
+
+  let totalUpdated = 0;
+
+  // 1. Local fallback update
+  try {
+    const localData = getLocalFallbackLinks();
+    let localCount = 0;
+    for (const [movieId, links] of Object.entries(localData)) {
+      if (!Array.isArray(links)) continue;
+      for (const link of links) {
+        if (link.url && link.url.includes(cleanOld)) {
+          link.url = link.url.replace(cleanOld, cleanNew);
+          link.updatedAt = new Date().toISOString();
+          localCount++;
+        }
+      }
+    }
+    if (localCount > 0) {
+      saveLocalFallbackLinks(localData);
+      totalUpdated = Math.max(totalUpdated, localCount);
+    }
+  } catch (err) {
+    console.error('Local JSON domain migration error:', err);
+  }
+
+  // 2. Upstash Redis Cloud update
+  if (redisClient) {
+    try {
+      const allKeys = await redisClient.hgetall(REDIS_HASH_KEY);
+      if (allKeys && typeof allKeys === 'object') {
+        let redisCount = 0;
+        const toUpdate: Record<string, any[]> = {};
+        for (const [movieId, linksVal] of Object.entries(allKeys)) {
+          let links: any[] = [];
+          if (Array.isArray(linksVal)) links = linksVal;
+          else if (typeof linksVal === 'string') {
+            try { links = JSON.parse(linksVal); } catch {}
+          }
+          let modified = false;
+          for (const link of links) {
+            if (link.url && link.url.includes(cleanOld)) {
+              link.url = link.url.replace(cleanOld, cleanNew);
+              link.updatedAt = new Date().toISOString();
+              modified = true;
+              redisCount++;
+            }
+          }
+          if (modified) {
+            toUpdate[movieId] = links;
+          }
+        }
+        if (Object.keys(toUpdate).length > 0) {
+          await redisClient.hset(REDIS_HASH_KEY, toUpdate);
+          totalUpdated = Math.max(totalUpdated, redisCount);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Redis domain migration warning:', err.message);
+    }
+  }
+
+  // 3. MongoDB Atlas Cloud update
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const collection = db.collection('links');
+      const docs = await collection.find({ url: { $regex: cleanOld, $options: 'i' } }).toArray();
+      if (docs && docs.length > 0) {
+        const ops = docs.map((doc) => {
+          const newUrl = doc.url.replace(new RegExp(cleanOld, 'gi'), cleanNew);
+          return {
+            updateOne: {
+              filter: { _id: doc._id },
+              update: {
+                $set: {
+                  url: newUrl,
+                  updatedAt: new Date(),
+                },
+              },
+            },
+          };
+        });
+        if (ops.length > 0) {
+          await collection.bulkWrite(ops);
+          totalUpdated = Math.max(totalUpdated, ops.length);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas domain migration warning:', err.message);
+  }
+
+  return { success: true, updatedCount: totalUpdated, oldDomain: cleanOld, newDomain: cleanNew };
+}
+

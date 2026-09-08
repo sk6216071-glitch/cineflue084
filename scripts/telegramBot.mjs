@@ -96,6 +96,7 @@ async function registerBotCommands() {
           { command: 'bulk', description: 'Bulk upload multiple TV episodes' },
           { command: 'zip', description: 'Upload a Full Season Zip/Pack' },
           { command: 'auto', description: 'Full Auto-Sensing Mode' },
+          { command: 'updatedomain', description: 'Migrate filehost domain (e.g. /updatedomain hubcloud.foo hubcloud.cx)' },
           { command: 'status', description: 'Check database & bot status' },
           { command: 'help', description: 'Show commands and upload examples' },
         ],
@@ -590,6 +591,202 @@ async function saveMultipleLinks(linksByMovieId) {
   return true;
 }
 
+function getDomainFamily(host) {
+  if (!host) return null;
+  const h = host.toLowerCase().replace(/^www\./, '');
+  if (h.includes('hubcloud')) return { family: 'hubcloud', name: 'HubCloud' };
+  if (h.includes('gdflix')) return { family: 'gdflix', name: 'GDFlix' };
+  return null;
+}
+
+/**
+ * Migrates all links from oldDomain to newDomain across local JSON, Upstash Redis, and MongoDB Atlas.
+ */
+async function migrateDomain(oldDomain, newDomain) {
+  const cleanOld = oldDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+  const cleanNew = newDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+
+  if (!cleanOld || !cleanNew || cleanOld === cleanNew) {
+    return { success: false, updatedCount: 0, oldDomain: cleanOld, newDomain: cleanNew };
+  }
+
+  let totalUpdated = 0;
+
+  // 1. Local JSON update
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
+      let localCount = 0;
+      for (const [movieId, links] of Object.entries(all)) {
+        if (!Array.isArray(links)) continue;
+        for (const link of links) {
+          if (link.url && link.url.toLowerCase().includes(cleanOld)) {
+            link.url = link.url.replace(new RegExp(cleanOld, 'gi'), cleanNew);
+            const sInfo = detectServer(link.url);
+            link.serverName = sInfo.name;
+            link.serverBadge = sInfo.badge;
+            link.updatedAt = new Date().toISOString();
+            localCount++;
+          }
+        }
+      }
+      if (localCount > 0) {
+        fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2), 'utf-8');
+        totalUpdated = Math.max(totalUpdated, localCount);
+        console.log(`📁 Local JSON: migrated ${localCount} links from ${cleanOld} to ${cleanNew}`);
+      }
+    }
+  } catch (err) {
+    console.error('Local JSON domain migration error:', err);
+  }
+
+  // 2. Upstash Redis Cloud update
+  if (redisClient) {
+    try {
+      const allKeys = await redisClient.hgetall('cinefuel:curated_links');
+      if (allKeys && typeof allKeys === 'object') {
+        let redisCount = 0;
+        const toUpdate = {};
+        for (const [movieId, linksVal] of Object.entries(allKeys)) {
+          let links = [];
+          if (Array.isArray(linksVal)) links = linksVal;
+          else if (typeof linksVal === 'string') {
+            try { links = JSON.parse(linksVal); } catch {}
+          }
+          let modified = false;
+          for (const link of links) {
+            if (link.url && link.url.toLowerCase().includes(cleanOld)) {
+              link.url = link.url.replace(new RegExp(cleanOld, 'gi'), cleanNew);
+              const sInfo = detectServer(link.url);
+              link.serverName = sInfo.name;
+              link.serverBadge = sInfo.badge;
+              link.updatedAt = new Date().toISOString();
+              modified = true;
+              redisCount++;
+            }
+          }
+          if (modified) {
+            toUpdate[movieId] = links;
+          }
+        }
+        if (Object.keys(toUpdate).length > 0) {
+          await redisClient.hset('cinefuel:curated_links', toUpdate);
+          totalUpdated = Math.max(totalUpdated, redisCount);
+          console.log(`☁️ Upstash Redis: migrated ${redisCount} links to ${cleanNew}`);
+        }
+      }
+    } catch (redisErr) {
+      console.warn('Redis domain migration warning:', redisErr.message);
+    }
+  }
+
+  // 3. MongoDB Atlas update
+  if (mongoDb) {
+    try {
+      const collection = mongoDb.collection('links');
+      const docs = await collection.find({ url: { $regex: cleanOld, $options: 'i' } }).toArray();
+      if (docs && docs.length > 0) {
+        const ops = docs.map((doc) => {
+          const newUrl = doc.url.replace(new RegExp(cleanOld, 'gi'), cleanNew);
+          const sInfo = detectServer(newUrl);
+          return {
+            updateOne: {
+              filter: { _id: doc._id },
+              update: {
+                $set: {
+                  url: newUrl,
+                  serverName: sInfo.name,
+                  serverBadge: sInfo.badge,
+                  updatedAt: new Date(),
+                },
+              },
+            },
+          };
+        });
+        if (ops.length > 0) {
+          await collection.bulkWrite(ops);
+          totalUpdated = Math.max(totalUpdated, ops.length);
+          console.log(`🍃 MongoDB Atlas: migrated ${ops.length} links from ${cleanOld} to ${cleanNew}`);
+        }
+      }
+    } catch (mongoErr) {
+      console.warn('MongoDB Atlas domain migration warning:', mongoErr.message);
+    }
+  }
+
+  return { success: true, updatedCount: totalUpdated, oldDomain: cleanOld, newDomain: cleanNew };
+}
+
+/**
+ * Checks if incoming link is from a dynamic provider (HubCloud / GDFlix)
+ * and automatically migrates any older links in the database to the new domain.
+ */
+async function autoDetectAndSyncDomain(newUrl) {
+  if (!newUrl) return null;
+  try {
+    let newHost = '';
+    try {
+      const p = new URL(newUrl.startsWith('http') ? newUrl : `https://${newUrl}`);
+      newHost = p.hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      const m = newUrl.match(/(?:https?:\/\/)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
+      newHost = m ? m[1].toLowerCase().replace(/^www\./, '') : '';
+    }
+
+    const familyInfo = getDomainFamily(newHost);
+    if (!familyInfo) return null;
+
+    const oldHostsFound = new Set();
+
+    // Check MongoDB Atlas for older domains under same family
+    if (mongoDb) {
+      try {
+        const collection = mongoDb.collection('links');
+        const regexStr = familyInfo.family === 'hubcloud' ? 'hubcloud\\.' : 'gdflix\\.';
+        const docs = await collection.find({ url: { $regex: regexStr, $options: 'i' } }, { projection: { url: 1 } }).toArray();
+        docs.forEach((d) => {
+          try {
+            const h = new URL(d.url).hostname.toLowerCase().replace(/^www\./, '');
+            if (h && h !== newHost && getDomainFamily(h)?.family === familyInfo.family) {
+              oldHostsFound.add(h);
+            }
+          } catch {}
+        });
+      } catch {}
+    }
+
+    // Also check local JSON
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        const all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
+        Object.values(all).flat().forEach((l) => {
+          try {
+            const h = new URL(l.url).hostname.toLowerCase().replace(/^www\./, '');
+            if (h && h !== newHost && getDomainFamily(h)?.family === familyInfo.family) {
+              oldHostsFound.add(h);
+            }
+          } catch {}
+        });
+      }
+    } catch {}
+
+    if (oldHostsFound.size === 0) return null;
+
+    const migrations = [];
+    for (const oldHost of oldHostsFound) {
+      const res = await migrateDomain(oldHost, newHost);
+      if (res.updatedCount > 0) {
+        migrations.push({ name: familyInfo.name, oldHost, newHost, count: res.updatedCount });
+      }
+    }
+
+    return migrations.length > 0 ? migrations : null;
+  } catch (err) {
+    console.warn('Auto domain sync check warning:', err.message);
+    return null;
+  }
+}
+
 async function saveLink(movieId, link) {
   return saveMultipleLinks({ [String(movieId)]: [link] });
 }
@@ -648,6 +845,7 @@ Send any movie or TV series release to auto-upload directly to CineFuel!
 • \`/bulk\` or \`/batch\` - Bulk TV Episodes Mode
 • \`/zip\` or \`/pack\` - Full Season Zip / RAR / Pack Mode
 • \`/auto\` - Full Auto-Sensing Mode (Default)
+• \`/updatedomain\` - Migrate dead filehost domains (e.g. hubcloud.foo ➡️ hubcloud.cx)
 • \`/status\` - Server database & active link stats
 
 💡 *Two Easy Ways to Use:*
@@ -657,6 +855,7 @@ Send any movie or TV series release to auto-upload directly to CineFuel!
 • \`/ep Daredevil S02E01 1080p WEB-DL Hindi DDP 5.1 https://...\`
 • \`/zip Loki S02 Complete 2160p DV HDR Zip Pack https://...\`
 • \`/bulk [Paste 5, 8, 10 or more episode lines with links]\`
+• \`/updatedomain hubcloud.foo hubcloud.cx\`
 
 2️⃣ *Or Just Send Releases Directly!*
 The bot features **intelligent auto-sensing** — it will detect whether your message is a Movie, Single Episode, Zip Pack, or Bulk list without needing any slash command!`);
@@ -675,6 +874,71 @@ The bot features **intelligent auto-sensing** — it will detect whether your me
 • Server Database: Connected
 • Total Active Links Uploaded: *${count}*
 • Admin Authorized: ✅ Yes (${msg.from?.first_name || 'Shyam'})`);
+  }
+
+  if (command === 'updatedomain' || command === 'migrate' || command === 'migratedomain') {
+    const parts = (commandArgs || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const oldDom = parts[0];
+      const newDom = parts[1];
+      sendChatAction(chatId, 'typing');
+      const res = await migrateDomain(oldDom, newDom);
+      if (res.updatedCount > 0) {
+        return sendTelegram(chatId, `🎉 *Domain Migration Successful!*
+• Provider: \`${res.oldDomain}\` ➡️ \`${res.newDomain}\`
+• Total Links Updated: *${res.updatedCount}*
+• Synced across MongoDB Atlas, Upstash Redis & local cache.
+All movies on CineFuel will now use \`${res.newDomain}\`!`);
+      } else {
+        return sendTelegram(chatId, `⚠️ *No Links Matched \`${oldDom}\`*
+No links in the database currently use \`${oldDom}\`.
+Use \`/updatedomain\` without arguments to see all active domains in your database.`);
+      }
+    }
+
+    sendChatAction(chatId, 'typing');
+    const hostCounts = {};
+    if (mongoDb) {
+      try {
+        const docs = await mongoDb.collection('links').find({}, { projection: { url: 1 } }).toArray();
+        docs.forEach(d => {
+          try {
+            const h = new URL(d.url).hostname.toLowerCase().replace(/^www\./, '');
+            if (h) hostCounts[h] = (hostCounts[h] || 0) + 1;
+          } catch {}
+        });
+      } catch {}
+    }
+    if (Object.keys(hostCounts).length === 0 && fs.existsSync(DATA_FILE)) {
+      try {
+        const all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
+        Object.values(all).flat().forEach(l => {
+          try {
+            const h = new URL(l.url).hostname.toLowerCase().replace(/^www\./, '');
+            if (h) hostCounts[h] = (hostCounts[h] || 0) + 1;
+          } catch {}
+        });
+      } catch {}
+    }
+
+    const sortedHosts = Object.entries(hostCounts).sort((a, b) => b[1] - a[1]);
+    let hostSummary = sortedHosts.map(([h, c]) => `• \`${h}\`: *${c}* links`).join('\n');
+
+    return sendTelegram(chatId, `🔄 *Domain Migration Tool*
+
+Update dead or changed filehost domains across all movies in 1 second!
+
+📌 *Usage:*
+\`/updatedomain <old_domain> <new_domain>\`
+
+📌 *Examples:*
+• \`/updatedomain hubcloud.foo hubcloud.cx\`
+• \`/updatedomain gdflix.dev new1.gdflix.io\`
+
+📊 *Domains Currently Stored in Database:*
+${hostSummary || 'No links found.'}
+
+💡 *Smart Auto-Sync Active:* When you upload any release with a newer mirror, the bot will automatically upgrade older links as well!`);
   }
 
   if (command === 'auto' || command === 'reset') {
@@ -935,6 +1199,30 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     console.log(`✅ Batch published ${publishedItems.length} links across ${Object.keys(linksByMovieId).length} titles!`);
   }
 
+  // Auto-detect and sync newer filehost domains across the database
+  const domainMigrations = [];
+  const checkedHosts = new Set();
+  for (const item of publishedItems) {
+    if (item.url) {
+      try {
+        const h = new URL(item.url.startsWith('http') ? item.url : `https://${item.url}`).hostname.toLowerCase().replace(/^www\./, '');
+        if (!checkedHosts.has(h)) {
+          checkedHosts.add(h);
+          const migs = await autoDetectAndSyncDomain(item.url);
+          if (migs && migs.length > 0) {
+            domainMigrations.push(...migs);
+          }
+        }
+      } catch {}
+    }
+  }
+
+  let autoMigrationNotice = '';
+  if (domainMigrations.length > 0) {
+    const lines = domainMigrations.map(m => `• *${m.name}*: \`${m.oldHost}\` ➡️ \`${m.newHost}\` (*${m.count}* links upgraded)`).join('\n');
+    autoMigrationNotice = `\n\n🔄 *Smart Domain Auto-Sync:*\n${lines}\n_All older releases were auto-upgraded to the new mirror!_`;
+  }
+
   // 5. Send Confirmation Message back to Telegram
   if (publishedItems.length === 0) {
     return sendTelegram(chatId, `⚠️ *Could Not Process Releases*\nCould not find TMDB matches for the titles provided. Please verify spelling.`);
@@ -963,7 +1251,7 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
 [Open ${item.title} on CineFuel](${item.pageUrl})
 
 ✅ *Direct Link Stored:*
-\`${item.url}\``);
+\`${item.url}\`${autoMigrationNotice}`);
   }
 
   // Case B: Batch of TV Episodes for the SAME show and season (e.g. Daredevil Season 2 E01-E13)
@@ -985,7 +1273,7 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
     tvMsg += `💎 *Quality:* \`${first.quality}\`\n`;
     tvMsg += `🔊 *Audio:* \`${first.audio}\`\n\n`;
     tvMsg += `🌐 *View Season on Website:*\n[Open ${first.title} Season ${first.season} on CineFuel](${first.pageUrl})\n\n`;
-    tvMsg += `✅ All ${publishedItems.length} episodes are now live in their respective Season ${first.season} slots!`;
+    tvMsg += `✅ All ${publishedItems.length} episodes are now live in their respective Season ${first.season} slots!${autoMigrationNotice}`;
 
     return sendTelegram(chatId, tvMsg);
   }
@@ -1002,7 +1290,7 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
     batchMsg += `🌐 [Open on CineFuel](${item.pageUrl})\n\n`;
   });
 
-  batchMsg += `✅ All ${publishedItems.length} titles are now live on your site!`;
+  batchMsg += `✅ All ${publishedItems.length} titles are now live on your site!${autoMigrationNotice}`;
 
   return sendTelegram(chatId, batchMsg);
 }

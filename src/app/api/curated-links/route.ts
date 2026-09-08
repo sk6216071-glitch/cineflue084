@@ -6,6 +6,7 @@ import {
   deleteLinkFromDatabase,
   deleteMultipleLinksFromDatabase,
   seedLocalLinksToRedis,
+  migrateDomainInDatabase,
 } from '@/lib/redisDb';
 
 export const dynamic = 'force-dynamic';
@@ -46,7 +47,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { movieId, link, links } = body;
+    const { movieId, link, links, action, oldDomain, newDomain } = body;
+
+    // Handle domain migration action
+    if (action === 'migrate_domain') {
+      if (!oldDomain || !newDomain) {
+        return NextResponse.json({ error: 'oldDomain and newDomain are required' }, { status: 400 });
+      }
+      const migrationRes = await migrateDomainInDatabase(oldDomain, newDomain);
+      return NextResponse.json(migrationRes);
+    }
 
     if (!movieId) {
       return NextResponse.json({ error: 'movieId is required' }, { status: 400 });
