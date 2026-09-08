@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Play, Plus, Check, Star, Info, ChevronLeft, ChevronRight, Tv, Film, Sparkles } from 'lucide-react';
+import { Play, Plus, Check, Star, Info, ChevronLeft, ChevronRight, Tv, Film } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { getBackdropURL } from '@/lib/tmdb';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -72,10 +72,6 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
         <div className="max-w-2xl space-y-4">
           {/* Badges / Meta Info */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold">
-            <span className="px-2.5 py-1 rounded-md bg-amber-500 text-black font-bold uppercase tracking-wider flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> Featured Spotlight
-            </span>
-
             <span className="px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md text-zinc-300 border border-white/10 uppercase">
               {mediaType === 'tv' ? 'TV Series' : 'Feature Film'}
             </span>
