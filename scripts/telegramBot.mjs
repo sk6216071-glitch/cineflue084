@@ -96,7 +96,9 @@ async function registerBotCommands() {
           { command: 'bulk', description: 'Bulk upload multiple TV episodes' },
           { command: 'zip', description: 'Upload a Full Season Zip/Pack' },
           { command: 'auto', description: 'Full Auto-Sensing Mode' },
-          { command: 'updatedomain', description: 'Migrate filehost domain (e.g. /updatedomain hubcloud.foo hubcloud.cx)' },
+          { command: 'domain', description: '1-Click switch HubCloud or GDFlix domain across all links' },
+          { command: 'hubcloud', description: 'Update all HubCloud links (e.g. /hubcloud hubcloud.cx)' },
+          { command: 'gdflix', description: 'Update all GDFlix links (e.g. /gdflix new1.gdflix.io)' },
           { command: 'status', description: 'Check database & bot status' },
           { command: 'help', description: 'Show commands and upload examples' },
         ],
@@ -787,6 +789,110 @@ async function autoDetectAndSyncDomain(newUrl) {
   }
 }
 
+/**
+ * Automatically detects the provider (HubCloud / GDFlix) from the given input (domain or URL)
+ * and replaces ALL existing links of that provider across the entire database with the new domain.
+ */
+async function migrateProviderToNewDomain(input, forcedProvider = null) {
+  if (!input) return { success: false, error: 'No domain or link provided' };
+
+  let cleanHost = '';
+  try {
+    const p = new URL(input.startsWith('http') ? input : `https://${input}`);
+    cleanHost = p.hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    cleanHost = input.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '').trim();
+  }
+
+  if (!cleanHost || !cleanHost.includes('.')) {
+    return { success: false, error: `Invalid domain: "${input}"` };
+  }
+
+  let family = null;
+  if (forcedProvider === 'hubcloud' || cleanHost.includes('hubcloud')) {
+    family = { id: 'hubcloud', name: 'HubCloud', regexStr: 'hubcloud\\.' };
+  } else if (forcedProvider === 'gdflix' || cleanHost.includes('gdflix')) {
+    family = { id: 'gdflix', name: 'GDFlix', regexStr: 'gdflix\\.' };
+  } else {
+    return {
+      success: false,
+      error: `Could not auto-detect provider for "${cleanHost}". Please use \`/hubcloud ${cleanHost}\` or \`/gdflix ${cleanHost}\``,
+    };
+  }
+
+  const oldHostsMap = new Map();
+
+  // 1. Find all older hosts currently stored in MongoDB Atlas
+  if (mongoDb) {
+    try {
+      const docs = await mongoDb
+        .collection('links')
+        .find({ url: { $regex: family.regexStr, $options: 'i' } }, { projection: { url: 1 } })
+        .toArray();
+      docs.forEach((d) => {
+        try {
+          const h = new URL(d.url).hostname.toLowerCase().replace(/^www\./, '');
+          if (h && h !== cleanHost) {
+            oldHostsMap.set(h, (oldHostsMap.get(h) || 0) + 1);
+          }
+        } catch {}
+      });
+    } catch (e) {
+      console.warn('MongoDB query error in migrateProviderToNewDomain:', e.message);
+    }
+  }
+
+  // 2. Also check local JSON fallback
+  if (fs.existsSync(DATA_FILE)) {
+    try {
+      const all = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8') || '{}');
+      Object.values(all)
+        .flat()
+        .forEach((l) => {
+          try {
+            const h = new URL(l.url).hostname.toLowerCase().replace(/^www\./, '');
+            if (h && h !== cleanHost && getDomainFamily(h)?.family === family.id) {
+              if (!oldHostsMap.has(h)) {
+                oldHostsMap.set(h, (oldHostsMap.get(h) || 0) + 1);
+              }
+            }
+          } catch {}
+        });
+    } catch {}
+  }
+
+  if (oldHostsMap.size === 0) {
+    return {
+      success: true,
+      provider: family.name,
+      newDomain: cleanHost,
+      oldHosts: [],
+      updatedCount: 0,
+      alreadyUpToDate: true,
+    };
+  }
+
+  let grandTotal = 0;
+  const replacedDetails = [];
+
+  for (const [oldHost, expectedCount] of oldHostsMap.entries()) {
+    const res = await migrateDomain(oldHost, cleanHost);
+    if (res.updatedCount > 0) {
+      grandTotal += res.updatedCount;
+      replacedDetails.push({ oldHost, count: res.updatedCount });
+    }
+  }
+
+  return {
+    success: true,
+    provider: family.name,
+    newDomain: cleanHost,
+    oldHosts: replacedDetails,
+    updatedCount: grandTotal,
+    alreadyUpToDate: false,
+  };
+}
+
 async function saveLink(movieId, link) {
   return saveMultipleLinks({ [String(movieId)]: [link] });
 }
@@ -845,7 +951,7 @@ Send any movie or TV series release to auto-upload directly to CineFuel!
 • \`/bulk\` or \`/batch\` - Bulk TV Episodes Mode
 • \`/zip\` or \`/pack\` - Full Season Zip / RAR / Pack Mode
 • \`/auto\` - Full Auto-Sensing Mode (Default)
-• \`/updatedomain\` - Migrate dead filehost domains (e.g. hubcloud.foo ➡️ hubcloud.cx)
+• \`/domain\` or \`/hubcloud\` / \`/gdflix\` - 1-Click switch mirror across all links & website
 • \`/status\` - Server database & active link stats
 
 💡 *Two Easy Ways to Use:*
@@ -855,7 +961,8 @@ Send any movie or TV series release to auto-upload directly to CineFuel!
 • \`/ep Daredevil S02E01 1080p WEB-DL Hindi DDP 5.1 https://...\`
 • \`/zip Loki S02 Complete 2160p DV HDR Zip Pack https://...\`
 • \`/bulk [Paste 5, 8, 10 or more episode lines with links]\`
-• \`/updatedomain hubcloud.foo hubcloud.cx\`
+• \`/hubcloud hubcloud.cx\` (Swaps ALL HubCloud links on your entire website)
+• \`/gdflix new1.gdflix.io\` (Swaps ALL GDFlix links on your entire website)
 
 2️⃣ *Or Just Send Releases Directly!*
 The bot features **intelligent auto-sensing** — it will detect whether your message is a Movie, Single Episode, Zip Pack, or Bulk list without needing any slash command!`);
@@ -876,8 +983,14 @@ The bot features **intelligent auto-sensing** — it will detect whether your me
 • Admin Authorized: ✅ Yes (${msg.from?.first_name || 'Shyam'})`);
   }
 
-  if (command === 'updatedomain' || command === 'migrate' || command === 'migratedomain') {
+  if (command === 'domain' || command === 'setdomain' || command === 'hubcloud' || command === 'gdflix' || command === 'updatedomain' || command === 'migrate') {
+    let forced = null;
+    if (command === 'hubcloud') forced = 'hubcloud';
+    if (command === 'gdflix') forced = 'gdflix';
+
     const parts = (commandArgs || '').trim().split(/\s+/).filter(Boolean);
+
+    // Case 1: Two domains provided explicitly (/updatedomain old new)
     if (parts.length >= 2) {
       const oldDom = parts[0];
       const newDom = parts[1];
@@ -888,14 +1001,46 @@ The bot features **intelligent auto-sensing** — it will detect whether your me
 • Provider: \`${res.oldDomain}\` ➡️ \`${res.newDomain}\`
 • Total Links Updated: *${res.updatedCount}*
 • Synced across MongoDB Atlas, Upstash Redis & local cache.
-All movies on CineFuel will now use \`${res.newDomain}\`!`);
+🌐 All movies on CineFuel will now use \`${res.newDomain}\`!`);
       } else {
         return sendTelegram(chatId, `⚠️ *No Links Matched \`${oldDom}\`*
 No links in the database currently use \`${oldDom}\`.
-Use \`/updatedomain\` without arguments to see all active domains in your database.`);
+Use \`/domain\` without arguments to see all active domains in your database.`);
       }
     }
 
+    // Case 2: One domain or link provided (/domain hubcloud.cx or /hubcloud hubcloud.cx or /gdflix new1.gdflix.io)
+    if (parts.length === 1) {
+      sendChatAction(chatId, 'typing');
+      const res = await migrateProviderToNewDomain(parts[0], forced);
+
+      if (!res.success) {
+        return sendTelegram(chatId, `⚠️ *Domain Migration Error:*\n${res.error}`);
+      }
+
+      if (res.alreadyUpToDate) {
+        return sendTelegram(chatId, `✅ *${res.provider} is Already Up To Date!*
+All existing ${res.provider} links in your database and on CineFuel already use \`${res.newDomain}\`.`);
+      }
+
+      if (res.updatedCount > 0) {
+        const details = res.oldHosts.map(h => `• \`${h.oldHost}\` ➡️ \`${res.newDomain}\` (*${h.count}* links)`).join('\n');
+        return sendTelegram(chatId, `🎉 *${res.provider} Domain Updated Across Entire Website!*
+
+• *New Active Domain:* \`${res.newDomain}\`
+• *Replaced Older Mirrors:*
+${details}
+
+• *Total Links Migrated in Database:* *${res.updatedCount}*
+• *Databases Synced:* MongoDB Atlas, Upstash Redis & local storage
+
+🌐 *Live on Website:* All download buttons on CineFuel now open with \`${res.newDomain}\`!`);
+      }
+
+      return sendTelegram(chatId, `⚠️ No links found to update for ${res.provider}.`);
+    }
+
+    // Case 3: No arguments provided - show current database summary & quick examples
     sendChatAction(chatId, 'typing');
     const hostCounts = {};
     if (mongoDb) {
@@ -921,24 +1066,33 @@ Use \`/updatedomain\` without arguments to see all active domains in your databa
       } catch {}
     }
 
-    const sortedHosts = Object.entries(hostCounts).sort((a, b) => b[1] - a[1]);
-    let hostSummary = sortedHosts.map(([h, c]) => `• \`${h}\`: *${c}* links`).join('\n');
+    const hubcloudHosts = Object.entries(hostCounts).filter(([h]) => h.includes('hubcloud')).map(([h, c]) => `  • \`${h}\`: *${c}* links`).join('\n') || '  • No HubCloud links yet';
+    const gdflixHosts = Object.entries(hostCounts).filter(([h]) => h.includes('gdflix')).map(([h, c]) => `  • \`${h}\`: *${c}* links`).join('\n') || '  • No GDFlix links yet';
+    const otherHosts = Object.entries(hostCounts).filter(([h]) => !h.includes('hubcloud') && !h.includes('gdflix')).slice(0, 5).map(([h, c]) => `  • \`${h}\`: *${c}* links`).join('\n');
 
-    return sendTelegram(chatId, `🔄 *Domain Migration Tool*
+    return sendTelegram(chatId, `🔄 *1-Click Domain Switcher*
 
-Update dead or changed filehost domains across all movies in 1 second!
+Send the new domain (or any link from it), and the bot will auto-detect the provider and update ALL existing links in your database and on your website in 1 second!
 
-📌 *Usage:*
-\`/updatedomain <old_domain> <new_domain>\`
+📌 *How to use:*
+• \`/domain <new_domain_or_link>\`
+• \`/hubcloud <new_domain_or_link>\`
+• \`/gdflix <new_domain_or_link>\`
 
-📌 *Examples:*
-• \`/updatedomain hubcloud.foo hubcloud.cx\`
-• \`/updatedomain gdflix.dev new1.gdflix.io\`
+💡 *Examples (tap to copy):*
+• \`/hubcloud hubcloud.cx\`
+• \`/gdflix new1.gdflix.io\`
+• \`/domain https://hubcloud.cx/drive/4luzeji9zlxioea\`
 
 📊 *Domains Currently Stored in Database:*
-${hostSummary || 'No links found.'}
+*⚡ HubCloud:*
+${hubcloudHosts}
 
-💡 *Smart Auto-Sync Active:* When you upload any release with a newer mirror, the bot will automatically upgrade older links as well!`);
+*🚀 GDFlix:*
+${gdflixHosts}
+${otherHosts ? `\n*📁 Other Hosts:*\n${otherHosts}` : ''}
+
+💡 *Smart Auto-Sync Active:* When you upload any release with a newer mirror, older links are also upgraded automatically!`);
   }
 
   if (command === 'auto' || command === 'reset') {
