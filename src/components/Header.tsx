@@ -49,7 +49,6 @@ export const Header: React.FC = () => {
 
   const navLinks = [
     { href: '/', label: 'Discover' },
-    { href: '/recommendations', label: 'For You' },
     { href: '/movies', label: 'Movies' },
     { href: '/tv', label: 'TV Shows' },
     { href: '/lists', label: 'Lists' },
