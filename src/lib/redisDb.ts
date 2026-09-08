@@ -2,6 +2,8 @@ import { Redis } from '@upstash/redis';
 import fs from 'fs';
 import path from 'path';
 import { getDatabase } from '@/lib/mongodb';
+import { TitleDetails } from '@/types';
+import { getTitleDetails } from '@/lib/tmdb';
 
 // Support both standard Upstash env vars and Vercel KV auto-provisioned env vars
 const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
@@ -527,4 +529,120 @@ export async function migrateDomainInDatabase(
 
   return { success: true, updatedCount: totalUpdated, oldDomain: cleanOld, newDomain: cleanNew };
 }
+
+/**
+ * Fetches the most recently uploaded titles from MongoDB Atlas (or local fallback)
+ * and retrieves their TMDB metadata for display in the "Recently Added" carousel.
+ */
+export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]> {
+  const recentMovieEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv' }> = [];
+  const seen = new Set<string>();
+
+  // 1. Try MongoDB Atlas first
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const collection = db.collection('links');
+      const docs = await collection
+        .find({})
+        .sort({ createdAt: -1, updatedAt: -1 })
+        .limit(100)
+        .toArray();
+
+      for (const doc of docs) {
+        const mId = String(doc.movieId || '');
+        if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
+        seen.add(mId);
+
+        let mediaType: 'movie' | 'tv' = 'movie';
+        if (
+          doc.mediaType === 'tv' ||
+          doc.seasonNumber !== undefined ||
+          doc.linkType === 'zip_pack' ||
+          doc.linkType === 'single_episode' ||
+          doc.category === 'ZipPack' ||
+          doc.category === 'SingleEpisode'
+        ) {
+          mediaType = 'tv';
+        } else if (doc.mediaType === 'movie') {
+          mediaType = 'movie';
+        }
+
+        recentMovieEntries.push({ movieId: mId, mediaType });
+        if (recentMovieEntries.length >= limit) break;
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas getRecentlyAddedTitles warning:', err.message);
+  }
+
+  // 2. If MongoDB returned fewer than limit, supplement from local fallback
+  if (recentMovieEntries.length < limit) {
+    try {
+      const localData = getLocalFallbackLinks();
+      const localList: Array<{ movieId: string; createdAt: string; link: any }> = [];
+      for (const [mId, links] of Object.entries(localData)) {
+        if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
+        if (Array.isArray(links) && links.length > 0) {
+          const latest = links.reduce((a, b) =>
+            new Date(a.createdAt || 0) > new Date(b.createdAt || 0) ? a : b
+          );
+          localList.push({ movieId: mId, createdAt: latest.createdAt || '', link: latest });
+        }
+      }
+
+      localList.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      for (const item of localList) {
+        if (seen.has(item.movieId)) continue;
+        seen.add(item.movieId);
+
+        let mediaType: 'movie' | 'tv' = 'movie';
+        if (
+          item.link?.mediaType === 'tv' ||
+          item.link?.seasonNumber !== undefined ||
+          item.link?.linkType === 'zip_pack' ||
+          item.link?.linkType === 'single_episode' ||
+          item.link?.category === 'ZipPack' ||
+          item.link?.category === 'SingleEpisode'
+        ) {
+          mediaType = 'tv';
+        }
+
+        recentMovieEntries.push({ movieId: item.movieId, mediaType });
+        if (recentMovieEntries.length >= limit) break;
+      }
+    } catch (err) {
+      console.warn('Local fallback getRecentlyAddedTitles error:', err);
+    }
+  }
+
+  if (recentMovieEntries.length === 0) return [];
+
+  // 3. Concurrently fetch TMDB details for the recent titles
+  const results = await Promise.all(
+    recentMovieEntries.map(async ({ movieId, mediaType }) => {
+      try {
+        let details = await getTitleDetails(mediaType, movieId);
+        if (!details?.title && !details?.name) {
+          details = await getTitleDetails(mediaType === 'movie' ? 'tv' : 'movie', movieId);
+        }
+        if (details && (details.title || details.name)) {
+          return {
+            ...details,
+            media_type: mediaType,
+          };
+        }
+      } catch (e) {
+        // ignore missing
+      }
+      return null;
+    })
+  );
+
+  return results.filter(Boolean) as TitleDetails[];
+}
+
 

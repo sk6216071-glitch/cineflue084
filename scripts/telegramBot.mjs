@@ -1311,6 +1311,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
     const linkObj = {
       id: `tg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      movieId: String(movieId),
+      mediaType,
       title: displayTitle,
       url: meta.url,
       category,

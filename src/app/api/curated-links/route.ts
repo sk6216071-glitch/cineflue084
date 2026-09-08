@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import {
   getLinksFromDatabase,
   saveLinkToDatabase,
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
         createdAt: l.createdAt || new Date(Date.now() - index * 1000).toISOString(),
       }));
       await saveMultipleLinksToDatabase(movieId, sanitizedLinks);
+      try { revalidatePath('/'); } catch {}
       return NextResponse.json({ success: true, count: sanitizedLinks.length, links: sanitizedLinks });
     }
 
@@ -85,6 +87,7 @@ export async function POST(request: NextRequest) {
     };
 
     await saveLinkToDatabase(movieId, linkObj);
+    try { revalidatePath('/'); } catch {}
 
     return NextResponse.json({ success: true, link: linkObj });
   } catch (err: any) {
@@ -106,6 +109,7 @@ export async function DELETE(request: NextRequest) {
 
     if (body && Array.isArray(body.items) && body.items.length > 0) {
       await deleteMultipleLinksFromDatabase(body.items);
+      try { revalidatePath('/'); } catch {}
       return NextResponse.json({ success: true, count: body.items.length });
     }
 
@@ -118,11 +122,13 @@ export async function DELETE(request: NextRequest) {
     if (movieId && linkIds) {
       const ids = linkIds.split(',').map((s) => s.trim()).filter(Boolean);
       await deleteMultipleLinksFromDatabase(ids.map((id) => ({ movieId, linkId: id })));
+      try { revalidatePath('/'); } catch {}
       return NextResponse.json({ success: true, count: ids.length });
     }
 
     if (movieId && linkId) {
       await deleteLinkFromDatabase(movieId, linkId);
+      try { revalidatePath('/'); } catch {}
       return NextResponse.json({ success: true });
     }
 

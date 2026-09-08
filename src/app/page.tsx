@@ -1,14 +1,16 @@
 import React from 'react';
 import Link from 'next/link';
-import { Flame, Star, Tv, Film, Calendar, Compass, ArrowRight } from 'lucide-react';
+import { Flame, Star, Tv, Film, Calendar, Compass, ArrowRight, Clock } from 'lucide-react';
 import { getTrending, getPopularMovies, getPopularTV, getTopRated, getUpcoming } from '@/lib/tmdb';
+import { getRecentlyAddedTitles } from '@/lib/redisDb';
 import { POPULAR_GENRES } from '@/lib/mockData';
 import SectionCarousel from '@/components/SectionCarousel';
 
-export const revalidate = 3600; // ISR cache 1 hour
+export const revalidate = 60; // ISR cache 60s for immediate link updates
 
 export default async function HomePage() {
-  const [trending, popularMovies, popularTV, topRated, upcoming] = await Promise.all([
+  const [recentlyAdded, trending, popularMovies, popularTV, topRated, upcoming] = await Promise.all([
+    getRecentlyAddedTitles(18),
     getTrending('all', 'day'),
     getPopularMovies(1),
     getPopularTV(1),
@@ -47,6 +49,16 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* 0. Recently Added Carousel (Populated automatically whenever links are published) */}
+      {recentlyAdded && recentlyAdded.length > 0 && (
+        <SectionCarousel
+          title="Recently Added"
+          subtitle="Fresh movie & TV series download links uploaded to CineFuel"
+          items={recentlyAdded}
+          icon={<Clock className="w-5 h-5 text-amber-400" />}
+        />
+      )}
 
       {/* 1. Trending Now Carousel */}
       <SectionCarousel
