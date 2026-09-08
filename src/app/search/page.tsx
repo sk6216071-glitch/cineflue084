@@ -4,11 +4,23 @@ import React, { useState, useEffect, useTransition, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Search, Filter, Star, Film, Tv, User, X, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Search, Filter, Star, Film, Tv, User, X, SlidersHorizontal, Sparkles, Download, Check, Clock, Layers } from 'lucide-react';
 import { TitleDetails, PersonDetails } from '@/types';
 import { searchMulti, getDiscover, getImageURL } from '@/lib/tmdb';
 import { POPULAR_GENRES } from '@/lib/mockData';
 import MovieCard from '@/components/MovieCard';
+
+const QUALITY_PRESETS = [
+  { id: 'all_uploaded', label: 'All Uploaded', query: {} },
+  { id: '4k_hdr', label: '⚡ 4K HDR', query: { quality: '4k_hdr' } },
+  { id: '1080p', label: '1080p Full HD', query: { quality: '1080p' } },
+  { id: 'remux', label: 'BluRay REMUX', query: { quality: 'remux' } },
+  { id: 'hdr', label: 'HDR / Dolby Vision', query: { quality: 'hdr' } },
+  { id: 'zippack', label: 'Season Packs (Zip)', query: { category: 'zippack', type: 'tv' } },
+  { id: 'hindi', label: 'Hindi / Dual Audio', query: { audio: 'hindi' } },
+  { id: 'movies_only', label: 'Movies (345+)', query: { type: 'movie' } },
+  { id: 'tv_only', label: 'Web Series (108+)', query: { type: 'tv' } },
+];
 
 function SearchContent() {
   const searchParams = useSearchParams();
@@ -16,29 +28,67 @@ function SearchContent() {
 
   const initialQuery = searchParams.get('q') || '';
   const initialGenre = searchParams.get('genre') || '';
-  const initialGenreName = searchParams.get('name') || '';
   const initialType = searchParams.get('type') || 'all';
+  const initialQuality = searchParams.get('quality') || '';
+  const initialCategory = searchParams.get('category') || '';
+  const initialAudio = searchParams.get('audio') || '';
+  const initialOtt = searchParams.get('ott') || '';
 
   const [query, setQuery] = useState(initialQuery);
   const [activeTab, setActiveTab] = useState<'all' | 'movie' | 'tv' | 'person'>(
     (initialType as 'all' | 'movie' | 'tv' | 'person') || 'all'
   );
+  const [selectedQuality, setSelectedQuality] = useState<string>(initialQuality);
+  const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory);
+  const [selectedAudio, setSelectedAudio] = useState<string>(initialAudio);
+  const [selectedOtt, setSelectedOtt] = useState<string>(initialOtt);
   const [selectedGenre, setSelectedGenre] = useState<string>(initialGenre);
   const [minRating, setMinRating] = useState<number>(0);
-  const [results, setResults] = useState<(TitleDetails | PersonDetails)[]>([]);
+
+  const [uploadedResults, setUploadedResults] = useState<TitleDetails[]>([]);
+  const [tmdbResults, setTmdbResults] = useState<(TitleDetails | PersonDetails)[]>([]);
   const [loading, setLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  // Sync state when searchParams change from navigation clicks
+  useEffect(() => {
+    setQuery(searchParams.get('q') || '');
+    setSelectedQuality(searchParams.get('quality') || '');
+    setSelectedCategory(searchParams.get('category') || '');
+    setSelectedAudio(searchParams.get('audio') || '');
+    setSelectedOtt(searchParams.get('ott') || '');
+    setSelectedGenre(searchParams.get('genre') || '');
+    const t = searchParams.get('type') || 'all';
+    setActiveTab((t as any) || 'all');
+  }, [searchParams]);
+
+  // Main search & catalog fetch
   useEffect(() => {
     let isCancelled = false;
 
-    async function performSearch() {
+    async function fetchData() {
       setLoading(true);
       try {
+        const qualityParam = selectedQuality ? `&quality=${encodeURIComponent(selectedQuality)}` : '';
+        const categoryParam = selectedCategory ? `&category=${encodeURIComponent(selectedCategory)}` : '';
+        const audioParam = selectedAudio ? `&audio=${encodeURIComponent(selectedAudio)}` : '';
+        const ottParam = selectedOtt ? `&ott=${encodeURIComponent(selectedOtt)}` : '';
+        const typeParam = activeTab !== 'all' && activeTab !== 'person' ? `&type=${activeTab}` : '';
+        const queryParam = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : '';
+
+        // 1. Fetch from our uploaded files database catalog
+        const catalogUrl = `/api/catalog?limit=80${typeParam}${qualityParam}${categoryParam}${audioParam}${ottParam}${queryParam}`;
+        const catRes = await fetch(catalogUrl);
+        const catData = await catRes.json();
+        if (!isCancelled && catData?.success) {
+          setUploadedResults(catData.items || []);
+        }
+
+        // 2. Fetch TMDB results (supplemental or when user searches a broad term)
         if (query.trim().length > 0) {
           const res = await searchMulti(query.trim());
           if (!isCancelled) {
-            setResults(res.results || []);
+            setTmdbResults(res.results || []);
           }
         } else if (selectedGenre) {
           const genreId = Number(selectedGenre);
@@ -47,58 +97,77 @@ function SearchContent() {
             getDiscover('tv', { genreId }),
           ]);
           if (!isCancelled) {
-            setResults([...movies, ...tvs]);
+            setTmdbResults([...movies, ...tvs]);
           }
         } else {
-          // Default discover
-          const [movies, tvs] = await Promise.all([
-            getDiscover('movie'),
-            getDiscover('tv'),
-          ]);
-          if (!isCancelled) {
-            setResults([...movies, ...tvs]);
-          }
+          setTmdbResults([]);
         }
       } catch (err) {
-        console.error('Search error:', err);
+        console.error('Catalog search error:', err);
       } finally {
         if (!isCancelled) setLoading(false);
       }
     }
 
-    performSearch();
+    fetchData();
 
     return () => {
       isCancelled = true;
     };
-  }, [query, selectedGenre]);
+  }, [query, selectedQuality, selectedCategory, selectedAudio, selectedOtt, activeTab, selectedGenre]);
 
-  const handleQueryChange = (val: string) => {
-    setQuery(val);
+  const updateFilters = (newParams: Record<string, string>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    Object.entries(newParams).forEach(([k, v]) => {
+      if (v) params.set(k, v);
+      else params.delete(k);
+    });
     startTransition(() => {
-      if (val) {
-        router.replace(`/search?q=${encodeURIComponent(val)}`, { scroll: false });
-      } else {
-        router.replace('/search', { scroll: false });
-      }
+      router.replace(`/search?${params.toString()}`, { scroll: false });
     });
   };
 
-  // Filter results by tab and minRating
-  const filteredResults = results.filter((item) => {
-    const isPerson = 'known_for_department' in item || (item as any).media_type === 'person';
-    const isMovie = !isPerson && ((item as any).media_type === 'movie' || (item as any).release_date);
-    const isTV = !isPerson && ((item as any).media_type === 'tv' || (item as any).first_air_date);
+  const handleQualityPresetClick = (preset: typeof QUALITY_PRESETS[0]) => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    Object.entries(preset.query).forEach(([k, v]) => {
+      if (v) params.set(k, v);
+    });
+    startTransition(() => {
+      router.replace(`/search?${params.toString()}`, { scroll: false });
+    });
+  };
 
-    if (activeTab === 'movie' && !isMovie) return false;
-    if (activeTab === 'tv' && !isTV) return false;
-    if (activeTab === 'person' && !isPerson) return false;
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
+    updateFilters({ q: val });
+  };
 
-    if (!isPerson && minRating > 0) {
-      const vote = (item as TitleDetails).vote_average || 0;
-      if (vote < minRating) return false;
+  // Determine active quality label for header
+  const isFiltered = !!(selectedQuality || selectedCategory || selectedAudio || selectedOtt || (activeTab !== 'all'));
+  let filterTitle = 'Uploaded Releases';
+  if (selectedQuality === '4k_hdr' || selectedQuality === '4k') filterTitle = '4K Ultra HD & HDR Releases';
+  else if (selectedQuality === 'remux') filterTitle = 'BluRay REMUX High-Bitrate Releases';
+  else if (selectedQuality === '1080p') filterTitle = '1080p Full HD Releases';
+  else if (selectedQuality === 'hdr') filterTitle = 'HDR & Dolby Vision Releases';
+  else if (selectedCategory === 'zippack') filterTitle = 'Complete Season Zip Packs (All Episodes)';
+  else if (selectedAudio === 'hindi') filterTitle = 'Hindi & Dual Audio Releases';
+  else if (selectedOtt) filterTitle = `${selectedOtt.toUpperCase()} Streaming Releases`;
+  else if (activeTab === 'movie') filterTitle = 'Uploaded Movies';
+  else if (activeTab === 'tv') filterTitle = 'Uploaded Web Series';
+
+  // Deduplicate and filter results
+  const filteredUploaded = uploadedResults.filter((item) => {
+    if (minRating > 0 && (item.vote_average || 0) < minRating) return false;
+    return true;
+  });
+
+  const uploadedIds = new Set(filteredUploaded.map((u) => u.id));
+  const filteredTmdb = tmdbResults.filter((item) => {
+    if (uploadedIds.has(item.id)) return false; // avoid duplicates
+    if (minRating > 0 && (item as TitleDetails).vote_average && (item as TitleDetails).vote_average < minRating) {
+      return false;
     }
-
     return true;
   });
 
@@ -111,7 +180,7 @@ function SearchContent() {
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="Search by movie title, TV series, actor, director..."
+              placeholder="Search uploaded files by movie title, series, or quality (e.g. 4K, Remux, Hindi)..."
               value={query}
               onChange={(e) => handleQueryChange(e.target.value)}
               className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-11 pr-10 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-inner"
@@ -133,7 +202,10 @@ function SearchContent() {
           <div className="sm:w-56">
             <select
               value={selectedGenre}
-              onChange={(e) => setSelectedGenre(e.target.value)}
+              onChange={(e) => {
+                setSelectedGenre(e.target.value);
+                updateFilters({ genre: e.target.value });
+              }}
               className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl px-4 py-3 text-sm font-medium text-zinc-200 focus:outline-none focus:border-amber-500"
               suppressHydrationWarning
             >
@@ -147,12 +219,48 @@ function SearchContent() {
           </div>
         </div>
 
+        {/* Quality Quick Explorer Filter Pills */}
+        <div className="pt-2 border-t border-zinc-800/80">
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5" /> Filter Uploaded Files by Quality:
+            </span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+            {QUALITY_PRESETS.map((preset) => {
+              const isMatch =
+                (preset.id === 'all_uploaded' && !selectedQuality && !selectedCategory && !selectedAudio && activeTab === 'all') ||
+                (preset.query.quality && selectedQuality === preset.query.quality) ||
+                (preset.query.category && selectedCategory === preset.query.category) ||
+                (preset.query.audio && selectedAudio === preset.query.audio) ||
+                (preset.query.type && activeTab === preset.query.type && !selectedQuality);
+
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => handleQualityPresetClick(preset)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-200 border ${
+                    isMatch
+                      ? 'bg-amber-400 text-black border-amber-300 font-bold shadow-md shadow-amber-400/20 scale-105'
+                      : 'bg-zinc-900/90 text-zinc-300 border-zinc-700/70 hover:bg-zinc-800 hover:text-white'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Filters and Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-zinc-800/80">
           {/* Category Tabs */}
           <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 text-xs">
             <button
-              onClick={() => setActiveTab('all')}
+              onClick={() => {
+                setActiveTab('all');
+                updateFilters({ type: '' });
+              }}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
                 activeTab === 'all' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
               }`}
@@ -160,7 +268,10 @@ function SearchContent() {
               All Types
             </button>
             <button
-              onClick={() => setActiveTab('movie')}
+              onClick={() => {
+                setActiveTab('movie');
+                updateFilters({ type: 'movie' });
+              }}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold transition-all ${
                 activeTab === 'movie' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
               }`}
@@ -168,20 +279,15 @@ function SearchContent() {
               <Film className="w-3.5 h-3.5" /> Movies
             </button>
             <button
-              onClick={() => setActiveTab('tv')}
+              onClick={() => {
+                setActiveTab('tv');
+                updateFilters({ type: 'tv' });
+              }}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold transition-all ${
                 activeTab === 'tv' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
               }`}
             >
               <Tv className="w-3.5 h-3.5" /> TV Shows
-            </button>
-            <button
-              onClick={() => setActiveTab('person')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'person' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <User className="w-3.5 h-3.5" /> Cast & People
             </button>
           </div>
 
@@ -204,70 +310,115 @@ function SearchContent() {
         </div>
       </div>
 
-      {/* Results Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          {query ? `Results for "${query}"` : selectedGenre ? `Genre Results` : 'Browse Catalog'}
-          <span className="text-xs font-normal text-zinc-400">({filteredResults.length} found)</span>
-        </h2>
-      </div>
-
       {/* Loading State */}
       {loading && (
         <div className="py-20 text-center space-y-3">
           <div className="w-10 h-10 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-zinc-400">Searching CineFuel catalog...</p>
+          <p className="text-sm text-zinc-400">Loading requested quality releases...</p>
         </div>
       )}
 
-      {/* Results Grid */}
-      {!loading && filteredResults.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
-          {filteredResults.map((item, idx) => {
-            const isPerson = 'known_for_department' in item || (item as any).media_type === 'person';
-
-            if (isPerson) {
-              const person = item as PersonDetails;
-              const photoUrl = getImageURL(person.profile_path, 'w500');
-              return (
-                <Link
-                  key={`person-${person.id}-${idx}`}
-                  href={`/person/${person.id}`}
-                  className="group rounded-2xl bg-[#11141c] border border-white/5 overflow-hidden hover:border-amber-400/40 transition-all p-3 flex flex-col items-center text-center space-y-2 hover:-translate-y-1"
-                >
-                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-zinc-900 border-2 border-zinc-700 group-hover:border-amber-400 transition-colors">
-                    <Image
-                      src={photoUrl}
-                      alt={person.name}
-                      fill
-                      sizes="128px"
-                      className="object-cover group-hover:scale-105 transition-transform"
-                    />
-                  </div>
-                  <h3 className="text-sm font-bold text-zinc-100 group-hover:text-amber-400 transition-colors line-clamp-1">
-                    {person.name}
-                  </h3>
-                  <span className="text-xs text-zinc-400">
-                    {person.known_for_department || 'Actor / Cast'}
+      {/* 1. Uploaded Releases Grid */}
+      {!loading && filteredUploaded.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                <Download className="w-4 h-4 text-amber-400" />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  {filterTitle}
+                  <span className="text-xs font-bold text-amber-400 px-2 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/20">
+                    {filteredUploaded.length} files available
                   </span>
-                </Link>
-              );
-            }
+                </h2>
+                <p className="text-xs text-zinc-400">Direct download links ready in high quality</p>
+              </div>
+            </div>
 
-            return <MovieCard key={`title-${item.id}-${idx}`} item={item as TitleDetails} />;
-          })}
+            {isFiltered && (
+              <button
+                onClick={() => {
+                  setSelectedQuality('');
+                  setSelectedCategory('');
+                  setSelectedAudio('');
+                  setSelectedOtt('');
+                  setActiveTab('all');
+                  router.replace('/search', { scroll: false });
+                }}
+                className="text-xs text-zinc-400 hover:text-white underline"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
+            {filteredUploaded.map((item, idx) => (
+              <MovieCard key={`uploaded-${item.id}-${idx}`} item={item} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 2. Additional Discover / TMDB Results */}
+      {!loading && filteredTmdb.length > 0 && (
+        <div className="space-y-4 pt-6">
+          <div className="border-b border-zinc-800 pb-3">
+            <h3 className="text-base font-bold text-zinc-300 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-sky-400" /> More Matching Titles on TMDB
+              <span className="text-xs text-zinc-500">({filteredTmdb.length})</span>
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
+            {filteredTmdb.map((item, idx) => {
+              const isPerson = 'known_for_department' in item || (item as any).media_type === 'person';
+
+              if (isPerson) {
+                const person = item as PersonDetails;
+                const photoUrl = getImageURL(person.profile_path, 'w500');
+                return (
+                  <Link
+                    key={`person-${person.id}-${idx}`}
+                    href={`/person/${person.id}`}
+                    className="group rounded-2xl bg-[#11141c] border border-white/5 overflow-hidden hover:border-amber-400/40 transition-all p-3 flex flex-col items-center text-center space-y-2 hover:-translate-y-1"
+                  >
+                    <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-zinc-900 border-2 border-zinc-700 group-hover:border-amber-400 transition-colors">
+                      <Image
+                        src={photoUrl}
+                        alt={person.name}
+                        fill
+                        sizes="128px"
+                        className="object-cover group-hover:scale-105 transition-transform"
+                      />
+                    </div>
+                    <h3 className="text-sm font-bold text-zinc-100 group-hover:text-amber-400 transition-colors line-clamp-1">
+                      {person.name}
+                    </h3>
+                    <span className="text-xs text-zinc-400">
+                      {person.known_for_department || 'Actor / Cast'}
+                    </span>
+                  </Link>
+                );
+              }
+
+              return <MovieCard key={`tmdb-${item.id}-${idx}`} item={item as TitleDetails} />;
+            })}
+          </div>
         </div>
       )}
 
       {/* Empty State */}
-      {!loading && filteredResults.length === 0 && (
+      {!loading && filteredUploaded.length === 0 && filteredTmdb.length === 0 && (
         <div className="py-20 text-center max-w-md mx-auto space-y-3">
           <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-500">
             <Search className="w-8 h-8" />
           </div>
-          <h3 className="text-base font-bold text-zinc-200">No titles or people found</h3>
+          <h3 className="text-base font-bold text-zinc-200">No matching uploaded releases found</h3>
           <p className="text-xs text-zinc-400">
-            Try adjusting your search query, selecting another genre, or clearing rating filters.
+            Try choosing another quality option (such as 4K HDR, 1080p, or REMUX) or clearing your search term.
           </p>
         </div>
       )}

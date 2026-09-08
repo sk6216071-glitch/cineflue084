@@ -1,14 +1,16 @@
 import React from 'react';
-import { Film, Star, TrendingUp, Calendar, Sparkles } from 'lucide-react';
+import { Film, Star, TrendingUp, Calendar, Sparkles, Download } from 'lucide-react';
 import { getPopularMovies, getTopRated, getUpcoming } from '@/lib/tmdb';
+import { getFilteredUploadedTitles } from '@/lib/redisDb';
 import MovieCard from '@/components/MovieCard';
 import { POPULAR_GENRES } from '@/lib/mockData';
 import Link from 'next/link';
 
-export const revalidate = 3600;
+export const revalidate = 60; // Fresh 60s updates
 
 export default async function MoviesPage() {
-  const [popular, topRated, upcoming] = await Promise.all([
+  const [uploadedMovies, popular, topRated, upcoming] = await Promise.all([
+    getFilteredUploadedTitles({ type: 'movie', limit: 20 }),
     getPopularMovies(1),
     getTopRated('movie', 1),
     getUpcoming(1),
@@ -23,11 +25,35 @@ export default async function MoviesPage() {
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">Explore Movies</h1>
         <p className="text-sm text-zinc-400 max-w-2xl">
-          Discover box office hits, critically acclaimed masterpieces, and upcoming theatrical & OTT releases.
+          Discover uploaded movie releases with direct download links in 4K, 1080p, REMUX, and HDR.
         </p>
 
-        {/* Quick Genre Pills */}
+        {/* Quick Quality & Genre Pills */}
         <div className="flex gap-2 overflow-x-auto no-scrollbar pt-3">
+          <Link
+            href="/search?type=movie&quality=4k"
+            className="px-3 py-1 rounded-lg bg-amber-400/15 border border-amber-400/40 text-xs font-bold text-amber-300 transition-colors whitespace-nowrap"
+          >
+            ⚡ 4K Ultra HD
+          </Link>
+          <Link
+            href="/search?type=movie&quality=remux"
+            className="px-3 py-1 rounded-lg bg-purple-500/15 border border-purple-400/40 text-xs font-bold text-purple-300 transition-colors whitespace-nowrap"
+          >
+            💎 BluRay REMUX
+          </Link>
+          <Link
+            href="/search?type=movie&quality=1080p"
+            className="px-3 py-1 rounded-lg bg-sky-500/15 border border-sky-400/40 text-xs font-bold text-sky-300 transition-colors whitespace-nowrap"
+          >
+            1080p Full HD
+          </Link>
+          <Link
+            href="/search?type=movie&audio=hindi"
+            className="px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-xs font-bold text-emerald-300 transition-colors whitespace-nowrap"
+          >
+            Hindi / Dual Audio
+          </Link>
           {POPULAR_GENRES.map((genre) => (
             <Link
               key={genre.id}
@@ -39,6 +65,35 @@ export default async function MoviesPage() {
           ))}
         </div>
       </div>
+
+      {/* Uploaded Movies Section */}
+      {uploadedMovies.items && uploadedMovies.items.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Download className="w-5 h-5 text-amber-400" />
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                Available Movie Downloads
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20 font-bold">
+                  {uploadedMovies.items.length} Ready
+                </span>
+              </h2>
+            </div>
+            <Link
+              href="/search?type=movie"
+              className="text-xs font-semibold text-amber-400 hover:text-amber-300"
+            >
+              View All Uploaded ({uploadedMovies.total}) →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
+            {uploadedMovies.items.map((item) => (
+              <MovieCard key={`uploaded-movie-${item.id}`} item={item} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Popular Movies Grid */}
       <section className="space-y-4">

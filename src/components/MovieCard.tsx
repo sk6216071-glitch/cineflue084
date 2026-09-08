@@ -76,12 +76,27 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
         {/* Ambient Dark Gradient Vignette Overlay on Hover */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-3.5 pointer-events-none" />
 
-        {/* Badges Top Left (Media Type) */}
-        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-20">
+        {/* Badges Top Left (Media Type & Quality) */}
+        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-20 flex-wrap max-w-[80%]">
           <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md text-[10px] font-bold text-zinc-200 border border-white/15 uppercase tracking-wider shadow-lg group-hover:border-amber-400/40 transition-colors">
             {mediaType === 'tv' ? <Tv className="w-3 h-3 text-sky-400" /> : <Film className="w-3 h-3 text-amber-400" />}
             {mediaType === 'tv' ? 'TV' : 'Movie'}
           </span>
+          {(item as any).hasZipPack && (
+            <span className="px-2 py-0.5 rounded-lg bg-emerald-500/90 text-black text-[9px] font-black uppercase tracking-wider shadow-md">
+              ZIP
+            </span>
+          )}
+          {(item as any).qualities?.includes('REMUX') && (
+            <span className="px-2 py-0.5 rounded-lg bg-purple-500/90 text-white text-[9px] font-black uppercase tracking-wider shadow-md">
+              REMUX
+            </span>
+          )}
+          {((item as any).qualities?.includes('4K UHD') || (item as any).qualities?.includes('4K')) && (
+            <span className="px-2 py-0.5 rounded-lg bg-amber-400/95 text-black text-[9px] font-black uppercase tracking-wider shadow-md">
+              4K
+            </span>
+          )}
         </div>
 
         {/* Badges Top Right (Rating) */}
@@ -159,6 +174,10 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
           {isMounted && existing?.personalRating ? (
             <span className="flex items-center gap-0.5 text-amber-400 text-[11px] font-black">
               ★ {existing.personalRating}/10
+            </span>
+          ) : (item as any).qualities && (item as any).qualities.length > 0 ? (
+            <span className="text-[10px] text-amber-400 font-bold tracking-wider">
+              {(item as any).qualities.slice(0, 2).join(' • ')}
             </span>
           ) : (
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">HD • 4K</span>

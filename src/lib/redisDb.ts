@@ -678,4 +678,235 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
   return results.filter(Boolean) as TitleDetails[];
 }
 
+export interface FilterUploadedOptions {
+  type?: 'movie' | 'tv' | 'all';
+  quality?: string;
+  category?: string;
+  audio?: string;
+  ott?: string;
+  query?: string;
+  limit?: number;
+}
+
+export interface EnrichedUploadedTitle extends TitleDetails {
+  qualities: string[];
+  linksCount: number;
+  hasZipPack: boolean;
+}
+
+/**
+ * Retrieves uploaded titles from MongoDB Atlas & local links with filtering by
+ * Quality (4K, HDR, REMUX, 1080p), Media Type (Movie/TV), Audio, Category (ZipPack), or OTT platform.
+ */
+export async function getFilteredUploadedTitles(
+  options: FilterUploadedOptions = {}
+): Promise<{ items: EnrichedUploadedTitle[]; total: number }> {
+  const {
+    type = 'all',
+    quality,
+    category,
+    audio,
+    ott,
+    query,
+    limit = 60,
+  } = options;
+
+  const filterConditions: any[] = [];
+
+  // 1. Media Type Filter
+  if (type === 'movie') {
+    filterConditions.push({ mediaType: 'movie' });
+  } else if (type === 'tv') {
+    filterConditions.push({
+      $or: [
+        { mediaType: 'tv' },
+        { linkType: { $in: ['zip_pack', 'single_episode'] } },
+        { category: { $in: ['ZipPack', 'SingleEpisode'] } },
+        { seasonNumber: { $gt: 0 } },
+      ],
+    });
+  }
+
+  // 2. Quality Filter (HDR, REMUX, 1080p, 4K, 4k_hdr)
+  if (quality) {
+    const qLower = quality.toLowerCase();
+    if (qLower === '4k_hdr' || qLower === '4khdr') {
+      filterConditions.push({
+        $or: [
+          { quality: /4k|2160p/i },
+          { quality: /hdr|dolby vision|dovi/i },
+          { title: /4k|2160p/i },
+          { title: /hdr|dolby vision|dovi/i },
+        ],
+      });
+    } else if (qLower === '4k' || qLower === '2160p') {
+      filterConditions.push({
+        $or: [{ quality: /4k|2160p/i }, { title: /4k|2160p/i }],
+      });
+    } else if (qLower === 'hdr') {
+      filterConditions.push({
+        $or: [{ quality: /hdr|dolby vision|dovi/i }, { title: /hdr|dolby vision|dovi/i }],
+      });
+    } else if (qLower === 'remux') {
+      filterConditions.push({
+        $or: [{ quality: /remux/i }, { title: /remux/i }],
+      });
+    } else if (qLower === '1080p' || qLower === 'fhd') {
+      filterConditions.push({
+        $or: [{ quality: /1080p|fhd/i }, { title: /1080p|fhd/i }],
+      });
+    } else if (qLower === '720p' || qLower === 'hd') {
+      filterConditions.push({
+        $or: [{ quality: /720p/i }, { title: /720p/i }],
+      });
+    } else if (qLower === 'bluray') {
+      filterConditions.push({
+        $or: [{ quality: /bluray|bdrip/i }, { title: /bluray|bdrip/i }],
+      });
+    }
+  }
+
+  // 3. Category Filter (zippack)
+  if (category) {
+    const cLower = category.toLowerCase();
+    if (cLower === 'zippack' || cLower === 'zip') {
+      filterConditions.push({
+        $or: [
+          { linkType: 'zip_pack' },
+          { category: 'ZipPack' },
+          { title: /season.*complete/i },
+          { title: /zip.*pack/i },
+        ],
+      });
+    } else if (cLower === 'single_episode' || cLower === 'episode') {
+      filterConditions.push({
+        $or: [{ linkType: 'single_episode' }, { category: 'SingleEpisode' }],
+      });
+    }
+  }
+
+  // 4. Audio Language Filter
+  if (audio) {
+    const aLower = audio.toLowerCase();
+    if (aLower === 'hindi') {
+      filterConditions.push({
+        $or: [{ audioLanguage: /hindi/i }, { title: /hindi/i }],
+      });
+    } else if (aLower === 'dual') {
+      filterConditions.push({
+        $or: [
+          { audioLanguage: /dual|\+|hindi.*eng/i },
+          { title: /dual|\+|hindi.*eng/i },
+        ],
+      });
+    } else if (aLower === 'english') {
+      filterConditions.push({
+        $or: [{ audioLanguage: /english/i }, { title: /english/i }],
+      });
+    }
+  }
+
+  // 5. OTT Provider Filter
+  if (ott) {
+    const oLower = ott.toLowerCase();
+    let ottRegex = new RegExp(oLower, 'i');
+    if (oLower === 'netflix') ottRegex = /\b(nf|netflix)\b/i;
+    else if (oLower === 'prime' || oLower === 'amazon') ottRegex = /\b(amzn|amazon|prime)\b/i;
+    else if (oLower === 'hotstar') ottRegex = /\b(hs|hotstar|disney)\b/i;
+    else if (oLower === 'jiocinema') ottRegex = /\b(jio|jiocinema)\b/i;
+    else if (oLower === 'sonyliv') ottRegex = /\b(sony|sonyliv|liv)\b/i;
+    else if (oLower === 'zee5') ottRegex = /\b(zee|zee5)\b/i;
+    else if (oLower === 'appletv') ottRegex = /\b(atvp|apple)\b/i;
+
+    filterConditions.push({
+      $or: [
+        { audioLanguage: ottRegex },
+        { title: ottRegex },
+        { quality: ottRegex },
+        { url: ottRegex },
+      ],
+    });
+  }
+
+  // 6. Text Query
+  if (query && query.trim().length > 0) {
+    const qReg = new RegExp(query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filterConditions.push({
+      $or: [{ movieTitle: qReg }, { title: qReg }, { quality: qReg }],
+    });
+  }
+
+  const mongoQuery = filterConditions.length > 0 ? { $and: filterConditions } : {};
+
+  // Query MongoDB Atlas
+  const groupedTitles = new Map<string, EnrichedUploadedTitle>();
+
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const collection = db.collection('links');
+      const docs = await collection
+        .find(mongoQuery)
+        .sort({ createdAt: -1, updatedAt: -1 })
+        .limit(300)
+        .toArray();
+
+      for (const doc of docs) {
+        const mId = String(doc.movieId || '');
+        if (!mId || mId === 'undefined' || mId === 'null') continue;
+
+        const qualString = `${doc.quality || ''} ${doc.title || ''}`.toUpperCase();
+        const extractedQualities: string[] = [];
+        if (qualString.includes('4K') || qualString.includes('2160P')) extractedQualities.push('4K UHD');
+        if (qualString.includes('HDR') || qualString.includes('DOVI')) extractedQualities.push('HDR');
+        if (qualString.includes('REMUX')) extractedQualities.push('REMUX');
+        if (qualString.includes('1080P') || qualString.includes('FHD')) extractedQualities.push('1080p');
+        if (qualString.includes('720P')) extractedQualities.push('720p');
+
+        const isZip = doc.linkType === 'zip_pack' || doc.category === 'ZipPack' || /season.*complete/i.test(doc.title || '');
+
+        if (!groupedTitles.has(mId)) {
+          let mediaType: 'movie' | 'tv' = doc.mediaType === 'tv' ? 'tv' : 'movie';
+          if (doc.mediaType !== 'movie' && (isZip || (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0))) {
+            mediaType = 'tv';
+          }
+
+          groupedTitles.set(mId, {
+            id: Number(mId),
+            title: doc.movieTitle || `Title #${mId}`,
+            name: doc.movieTitle || `Title #${mId}`,
+            poster_path: doc.posterPath || null,
+            backdrop_path: doc.backdropPath || doc.posterPath || null,
+            release_date: doc.releaseDate || '',
+            first_air_date: doc.releaseDate || '',
+            vote_average: doc.voteAverage || 7.8,
+            vote_count: 1200,
+            overview: doc.overview || 'Available for high-speed download on CineFuel.',
+            media_type: mediaType,
+            qualities: extractedQualities,
+            linksCount: 1,
+            hasZipPack: isZip,
+          } as EnrichedUploadedTitle);
+        } else {
+          const item = groupedTitles.get(mId)!;
+          item.linksCount++;
+          if (isZip) item.hasZipPack = true;
+          for (const q of extractedQualities) {
+            if (!item.qualities.includes(q)) item.qualities.push(q);
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas getFilteredUploadedTitles warning:', err.message);
+  }
+
+  // Filter out any dummy title
+  const finalItems = Array.from(groupedTitles.values())
+    .filter((t) => t.title && !t.title.startsWith('Series Feature #') && !t.title.startsWith('Cinema Feature #'))
+    .slice(0, limit);
+
+  return { items: finalItems, total: finalItems.length };
+}
+
 
