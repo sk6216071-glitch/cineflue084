@@ -496,6 +496,66 @@ function rankTmdbResults(items, cleanQ, targetYear, forcedType) {
 // Global in-memory cache for TMDB results (persists across polls)
 const globalTmdbCache = new Map();
 
+/**
+ * Dual Identifier: Queries IMDb suggestion API to find authoritative IMDb ID (tt...)
+ * and cross-validates release year and media type.
+ */
+async function searchImdb(cleanQ, targetYear, forcedType) {
+  try {
+    const slug = cleanQ.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(slug)}.json`;
+    const res = await safeFetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      timeoutMs: 3500,
+    }, 2);
+
+    if (res && res.ok) {
+      const data = await res.json();
+      const list = (data.d || []).filter(
+        (item) => item.id && item.id.startsWith('tt') && (item.q === 'feature' || item.q === 'TV series' || item.q === 'TV mini-series')
+      );
+
+      let best = null;
+      let bestScore = -999;
+
+      for (const item of list) {
+        let score = 0;
+        const normTitle = (item.l || '').toLowerCase().trim();
+        if (normTitle === cleanQ.toLowerCase()) score += 100;
+        else if (normTitle.startsWith(cleanQ.toLowerCase())) score += 40;
+
+        if (targetYear && item.y === Number(targetYear)) score += 80;
+        else if (targetYear && item.y && Math.abs(item.y - Number(targetYear)) <= 1) score += 40;
+        else if (targetYear && item.y && Math.abs(item.y - Number(targetYear)) > 2) {
+          score -= Math.min(80, Math.abs(item.y - Number(targetYear)) * 2);
+        }
+
+        if (forcedType === 'movie' && item.q === 'feature') score += 50;
+        if (forcedType === 'tv' && (item.q === 'TV series' || item.q === 'TV mini-series')) score += 50;
+
+        score += Math.max(0, 50 - (item.rank ? item.rank / 1000 : 25));
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = item;
+        }
+      }
+
+      if (best && bestScore >= 80) {
+        return best;
+      }
+    }
+  } catch (err) {
+    // Non-blocking: IMDb acts as co-identifier
+  }
+  return null;
+}
+
+/**
+ * Dual Identifier TMDB Search:
+ * Uses both TMDB and IMDb simultaneously. If IMDb resolves an exact IMDb ID (tt...),
+ * it queries TMDB Find API for 100% precision.
+ */
 async function searchTmdb(query, year, forcedType = null) {
   if (!query || query.trim().length < 2) return null;
   // Strip leading list numbers, indexes e.g. "2.", "01.", "[1]"
@@ -505,12 +565,43 @@ async function searchTmdb(query, year, forcedType = null) {
     return globalTmdbCache.get(cacheKey);
   }
 
-  // 1. First attempt: exact cleaned title
-  try {
-    const url = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQ)}&include_adult=false`;
-    const res = await safeFetch(url, { timeoutMs: 3500 }, 1);
-    if (res && res.ok) {
-      const data = await res.json();
+  // 1. Co-Identifier: Parallel IMDb + TMDB lookup
+  const [imdbCandidate, tmdbMultiRes] = await Promise.all([
+    searchImdb(cleanQ, year, forcedType),
+    safeFetch(
+      `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQ)}&include_adult=false`,
+      { timeoutMs: 4000 },
+      2
+    ).catch(() => null),
+  ]);
+
+  // If IMDb gave a confident title match, resolve with TMDB Find endpoint
+  if (imdbCandidate && imdbCandidate.id) {
+    try {
+      const findUrl = `https://api.themoviedb.org/3/find/${imdbCandidate.id}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+      const findRes = await safeFetch(findUrl, { timeoutMs: 3500 }, 2);
+      if (findRes && findRes.ok) {
+        const findData = await findRes.json();
+        const movies = (findData.movie_results || []).map(m => ({ ...m, media_type: 'movie' }));
+        const tvs = (findData.tv_results || []).map(t => ({ ...t, media_type: 'tv' }));
+        const combined = [...movies, ...tvs];
+
+        if (combined.length > 0) {
+          const matched = rankTmdbResults(combined, cleanQ, year, forcedType);
+          if (matched) {
+            console.log(`🎯 Dual Identifier (TMDB + IMDb) locked [${imdbCandidate.id}]: ${matched.title || matched.name} (${matched.media_type})`);
+            globalTmdbCache.set(cacheKey, matched);
+            return matched;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Fallback to TMDB Multi-Search Ranking if IMDb didn't match or timed out
+  if (tmdbMultiRes && tmdbMultiRes.ok) {
+    try {
+      const data = await tmdbMultiRes.json();
       if (data.results && data.results.length > 0) {
         const filtered = data.results.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
         const best = rankTmdbResults(filtered, cleanQ, year, forcedType);
@@ -519,12 +610,12 @@ async function searchTmdb(query, year, forcedType = null) {
           return best;
         }
       }
+    } catch (err) {
+      console.error(`TMDB multi-search parse error:`, err.message);
     }
-  } catch (err) {
-    console.error(`TMDB search attempt 1 failed for "${cleanQ}":`, err.message);
   }
 
-  // 2. Second quick attempt: shortened if multi-word
+  // 3. Shortened search if multi-word
   const words = cleanQ.split(/\s+/);
   if (words.length > 3) {
     const shortened = words.slice(0, 3).join(' ');
