@@ -50,13 +50,16 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 0. Recently Added Carousel (Populated automatically whenever links are published) */}
+      {/* 0. Recent Carousel (Populated automatically whenever links are published) */}
       {recentlyAdded && recentlyAdded.length > 0 && (
         <SectionCarousel
-          title="Recently Added"
-          subtitle="Fresh movie & TV series download links uploaded to CineFuel"
+          title="Recent"
           items={recentlyAdded}
-          icon={<Clock className="w-5 h-5 text-amber-400" />}
+          icon={
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400" strokeWidth={2.4} />
+            </div>
+          }
         />
       )}
 

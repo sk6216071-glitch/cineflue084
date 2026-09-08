@@ -41,8 +41,8 @@ export const SectionCarousel: React.FC<SectionCarouselProps> = ({
         {/* Header */}
         <div className="flex items-end justify-between mb-4">
           <div>
-            <div className="flex items-center gap-2">
-              {icon && <span className="text-amber-400">{icon}</span>}
+            <div className="flex items-center gap-2.5">
+              {icon && <span className="flex-shrink-0 flex items-center">{icon}</span>}
               <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{title}</h2>
             </div>
             {subtitle && <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">{subtitle}</p>}

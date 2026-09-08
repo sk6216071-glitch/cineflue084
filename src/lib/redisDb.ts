@@ -535,7 +535,7 @@ export async function migrateDomainInDatabase(
  * and retrieves their TMDB metadata for display in the "Recently Added" carousel.
  */
 export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]> {
-  const recentMovieEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv' }> = [];
+  const recentMovieEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc?: any }> = [];
   const seen = new Set<string>();
 
   // 1. Try MongoDB Atlas first
@@ -555,20 +555,21 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
         seen.add(mId);
 
         let mediaType: 'movie' | 'tv' = 'movie';
-        if (
+        const isTv =
           doc.mediaType === 'tv' ||
-          doc.seasonNumber !== undefined ||
+          (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
           doc.linkType === 'zip_pack' ||
           doc.linkType === 'single_episode' ||
           doc.category === 'ZipPack' ||
-          doc.category === 'SingleEpisode'
-        ) {
+          doc.category === 'SingleEpisode';
+
+        if (isTv) {
           mediaType = 'tv';
         } else if (doc.mediaType === 'movie') {
           mediaType = 'movie';
         }
 
-        recentMovieEntries.push({ movieId: mId, mediaType });
+        recentMovieEntries.push({ movieId: mId, mediaType, doc });
         if (recentMovieEntries.length >= limit) break;
       }
     }
@@ -600,18 +601,19 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
         seen.add(item.movieId);
 
         let mediaType: 'movie' | 'tv' = 'movie';
-        if (
+        const isTv =
           item.link?.mediaType === 'tv' ||
-          item.link?.seasonNumber !== undefined ||
+          (typeof item.link?.seasonNumber === 'number' && item.link?.seasonNumber > 0) ||
           item.link?.linkType === 'zip_pack' ||
           item.link?.linkType === 'single_episode' ||
           item.link?.category === 'ZipPack' ||
-          item.link?.category === 'SingleEpisode'
-        ) {
+          item.link?.category === 'SingleEpisode';
+
+        if (isTv) {
           mediaType = 'tv';
         }
 
-        recentMovieEntries.push({ movieId: item.movieId, mediaType });
+        recentMovieEntries.push({ movieId: item.movieId, mediaType, doc: item.link });
         if (recentMovieEntries.length >= limit) break;
       }
     } catch (err) {
@@ -621,23 +623,54 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
 
   if (recentMovieEntries.length === 0) return [];
 
-  // 3. Concurrently fetch TMDB details for the recent titles
+  // Helper to detect synthetic/dummy placeholders
+  const isDummyTitle = (t?: string) =>
+    !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');
+
+  // 3. Resolve metadata: prioritize stored doc metadata first, then live TMDB
   const results = await Promise.all(
-    recentMovieEntries.map(async ({ movieId, mediaType }) => {
+    recentMovieEntries.map(async ({ movieId, mediaType, doc }) => {
+      // 3A. If stored doc in MongoDB/local link already has movieTitle and posterPath, use it instantly!
+      if (doc?.movieTitle && doc?.posterPath && !isDummyTitle(doc.movieTitle)) {
+        return {
+          id: Number(movieId),
+          title: doc.movieTitle,
+          name: doc.movieTitle,
+          overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
+          poster_path: doc.posterPath,
+          backdrop_path: doc.backdropPath || doc.posterPath,
+          release_date: doc.releaseDate || '',
+          first_air_date: doc.releaseDate || '',
+          vote_average: doc.voteAverage || 7.8,
+          vote_count: 1500,
+          media_type: doc.mediaType || mediaType,
+          genres: [{ id: 28, name: 'Featured' }],
+        } as TitleDetails;
+      }
+
+      // 3B. Otherwise, fetch live TMDB details
       try {
         let details = await getTitleDetails(mediaType, movieId);
-        if (!details?.title && !details?.name) {
-          details = await getTitleDetails(mediaType === 'movie' ? 'tv' : 'movie', movieId);
+        if (isDummyTitle(details?.title || details?.name)) {
+          // Retry with alternate mediaType
+          const altType = mediaType === 'movie' ? 'tv' : 'movie';
+          const altDetails = await getTitleDetails(altType, movieId);
+          if (!isDummyTitle(altDetails?.title || altDetails?.name)) {
+            details = altDetails;
+            mediaType = altType;
+          }
         }
-        if (details && (details.title || details.name)) {
+
+        if (details && !isDummyTitle(details.title || details.name)) {
           return {
             ...details,
             media_type: mediaType,
           };
         }
       } catch (e) {
-        // ignore missing
+        // ignore error
       }
+
       return null;
     })
   );
