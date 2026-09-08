@@ -3,7 +3,6 @@ import './globals.css';
 import { WatchlistProvider } from '@/context/WatchlistContext';
 import { AuthProvider } from '@/context/AuthContext';
 import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 
 export const metadata: Metadata = {
   title: 'CineFuel - Discover Movies & TV, Where to Watch & Track Watchlist',
@@ -26,7 +25,6 @@ export default function RootLayout({
           <WatchlistProvider>
             <Header />
             <main className="flex-1 pt-16">{children}</main>
-            <Footer />
           </WatchlistProvider>
         </AuthProvider>
       </body>

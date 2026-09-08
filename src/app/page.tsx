@@ -5,7 +5,6 @@ import { getTrending, getPopularMovies, getPopularTV, getTopRated, getUpcoming }
 import { POPULAR_GENRES } from '@/lib/mockData';
 import HeroBanner from '@/components/HeroBanner';
 import SectionCarousel from '@/components/SectionCarousel';
-import PersonalizedRecommendations from '@/components/PersonalizedRecommendations';
 
 export const revalidate = 3600; // ISR cache 1 hour
 
@@ -22,9 +21,6 @@ export default async function HomePage() {
     <div className="min-h-screen pb-12 space-y-4">
       {/* Hero Banner Section */}
       <HeroBanner items={trending.slice(0, 6)} />
-
-      {/* Personalized AI Recommendations Feed */}
-      <PersonalizedRecommendations />
 
       {/* Genre Fast Explorer Bar */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
