@@ -39,6 +39,7 @@ import {
   parseBulkLinksInput,
   ParsedBulkItem,
 } from '@/lib/seasonParser';
+import { detectServer } from '@/lib/serverDetector';
 import CollapsibleSection from './CollapsibleSection';
 
 interface TVEpisodeLinksManagerProps {
@@ -692,6 +693,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         {pack.title}
                       </h5>
                       <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                        <span className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1 ${detectServer(pack.url).badgeClass}`}>
+                          {detectServer(pack.url).badge}
+                        </span>
                         {pack.quality && (
                           <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20">
                             {pack.quality}
@@ -800,6 +804,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         {ep.title}
                       </h5>
                       <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-400">
+                        <span className={`px-1.5 py-0.5 rounded font-bold border flex items-center gap-1 ${detectServer(ep.url).badgeClass}`}>
+                          {detectServer(ep.url).badge}
+                        </span>
                         {ep.quality && (
                           <span className="text-sky-400 font-semibold">{ep.quality}</span>
                         )}

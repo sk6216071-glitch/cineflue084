@@ -145,6 +145,38 @@ async function safeFetch(url, options = {}, retries = 2) {
 // Never matches audio codec names like DTS-HD.MA or media file extensions!
 const STRICT_URL_REGEX = /(?:https?:\/\/[^\s<>'"`]+|www\.[^\s<>'"`]+|(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|cx|in|co|cc|me|app|dev|to|is|pw|club|vip|link|xyz|live|pro|site|online|top|info|stream|ws|download|tech|click|cloud|movie|nz)\/[^\s<>'"`]*)/gi;
 
+function detectServer(url) {
+  if (!url) return { name: 'Direct Server', badge: '⚡ Direct Server' };
+  let host = '';
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    const m = url.match(/(?:https?:\/\/)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
+    host = m ? m[1].toLowerCase() : '';
+  }
+
+  if (host.includes('hubcloud')) return { name: 'HubCloud', badge: '⚡ HubCloud' };
+  if (host.includes('gdflix')) return { name: 'GDFlix', badge: '🚀 GDFlix' };
+  if (host.includes('drive.google')) return { name: 'Google Drive', badge: '📁 Google Drive' };
+  if (host.includes('gofile')) return { name: 'GoFile', badge: '⚡ GoFile' };
+  if (host.includes('mega.nz') || host.includes('mega.io')) return { name: 'MEGA', badge: '🔴 MEGA' };
+  if (host.includes('1fichier')) return { name: '1Fichier', badge: '🗄️ 1Fichier' };
+  if (host.includes('mediafire')) return { name: 'MediaFire', badge: '🔥 MediaFire' };
+  if (host.includes('terabox')) return { name: 'TeraBox', badge: '📦 TeraBox' };
+  if (host.includes('filepress')) return { name: 'FilePress', badge: '⚡ FilePress' };
+  if (host.includes('streamtape') || host.includes('dood') || host.includes('mixdrop') || host.includes('streamwish')) {
+    return { name: 'Stream Player', badge: '▶️ Stream Player' };
+  }
+  if (host) {
+    const parts = host.split('.');
+    const base = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+    const cap = base.charAt(0).toUpperCase() + base.slice(1);
+    return { name: cap, badge: `🔗 ${cap}` };
+  }
+  return { name: 'Direct Server', badge: '⚡ Direct Server' };
+}
+
 /**
  * Splits multi-line releases into distinct blocks (1 block per link).
  * Each release block spans from the end of the previous URL up to the end of current URL.
@@ -857,6 +889,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
     if (meta.size) displayTitle += ` [${meta.size}]`;
 
+    const serverInfo = detectServer(meta.url);
+
     const linkObj = {
       id: `tg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: displayTitle,
@@ -868,6 +902,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       quality: meta.quality,
       audioLanguage: meta.audio,
       size: meta.size,
+      serverName: serverInfo.name,
+      serverBadge: serverInfo.badge,
       createdAt: new Date().toISOString(),
     };
 
@@ -886,6 +922,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       quality: meta.quality,
       audio: meta.audio,
       size: meta.size,
+      serverName: serverInfo.name,
+      serverBadge: serverInfo.badge,
       url: meta.url,
       pageUrl: `${SITE_URL}/${mediaType}/${movieId}`,
     });
@@ -918,6 +956,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
 🎬 *Title:* ${item.title} ${item.year ? `(${item.year})` : ''}
 🏷️ *Upload Mode:* ${modeBadge}
+🖥️ *Host Server:* \`${item.serverBadge || '⚡ Cloud Server'}\`
 💎 *Quality:* \`${item.quality}\`
 🔊 *Audio:* \`${item.audio}\`
 ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
@@ -942,6 +981,7 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
     tvMsg += `🎬 *Show:* ${first.title} (${first.year})\n`;
     tvMsg += `🏷️ *Upload Mode:* 📦 Bulk Episodes (${publishedItems.length} Episodes: \`${epRange}\`)\n`;
     tvMsg += `📺 *Season:* Season ${first.season}\n`;
+    tvMsg += `🖥️ *Host Server:* \`${first.serverBadge || '⚡ Cloud Server'}\`\n`;
     tvMsg += `💎 *Quality:* \`${first.quality}\`\n`;
     tvMsg += `🔊 *Audio:* \`${first.audio}\`\n\n`;
     tvMsg += `🌐 *View Season on Website:*\n[Open ${first.title} Season ${first.season} on CineFuel](${first.pageUrl})\n\n`;
@@ -956,6 +996,7 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
   publishedItems.forEach((item, index) => {
     const typeIcon = item.mediaType === 'tv' ? (item.isZip ? '🗜️' : '🎬') : '🎥';
     batchMsg += `${index + 1}️⃣ ${typeIcon} *${item.title} (${item.year})*\n`;
+    batchMsg += `🖥️ \`${item.serverBadge || '⚡ Cloud Server'}\`\n`;
     batchMsg += `💎 \`${item.quality}\`${item.size ? ` [${item.size}]` : ''}\n`;
     batchMsg += `🔊 \`${item.audio}\`\n`;
     batchMsg += `🌐 [Open on CineFuel](${item.pageUrl})\n\n`;

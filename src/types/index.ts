@@ -172,6 +172,8 @@ export interface CustomLink {
   audioLanguage?: string; // 'Hindi + English' | 'English' | 'Dual Audio'
   size?: string; // '1.2 GB' | '4.5 GB' | '18 GB Zip'
   linkType?: 'zip_pack' | 'single_episode' | 'general';
+  serverName?: string; // 'HubCloud' | 'GDFlix' | 'Google Drive' | 'Mega'
+  serverBadge?: string; // '⚡ Server 1: HubCloud'
 }
 
 export interface WatchlistItem {

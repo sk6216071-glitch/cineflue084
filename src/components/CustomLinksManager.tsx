@@ -36,6 +36,7 @@ import {
   syncServerLinks,
 } from '@/lib/curatedLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
+import { detectServer } from '@/lib/serverDetector';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
 
@@ -175,6 +176,16 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     }
     return displayLinks.filter((l) => l.category === activeCategoryFilter);
   }, [displayLinks, activeCategoryFilter]);
+
+  // Group links by quality to calculate mirror index (e.g. 1080p -> Server 1, Server 2)
+  const qualityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    filteredCustomLinks.forEach(link => {
+      const key = (link.quality || link.title || 'default').toLowerCase().trim();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [filteredCustomLinks]);
 
   const existing = isMounted ? watchlist.find((w) => w.id === titleDetails.id) : undefined;
   const imdbId = titleDetails.external_ids?.imdb_id;
@@ -413,34 +424,56 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
         {filteredCustomLinks.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredCustomLinks.map((custom) => (
-              <div
-                key={custom.id}
-                className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-amber-500/30 hover:border-amber-400/60 hover:bg-zinc-800/80 transition-all gap-3 group shadow-md"
-              >
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
-                    {getCategoryIcon(custom.category)}
-                  </div>
-                  <div className="overflow-hidden">
-                    <a
-                      href={custom.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-bold text-white hover:text-amber-400 transition-colors block truncate"
-                      title={custom.title}
-                    >
-                      {custom.title}
-                    </a>
-                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 truncate">
-                      <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-semibold border border-amber-500/20">
-                        {custom.category}
-                      </span>
-                      <span>•</span>
-                      <span className="text-zinc-500">{formatRelativeTime(custom.createdAt)}</span>
+            {filteredCustomLinks.map((custom) => {
+              const qualityKey = (custom.quality || custom.title || 'default').toLowerCase().trim();
+              const totalForQuality = qualityCounts.get(qualityKey) || 1;
+              
+              let qualityIndex = 0;
+              for (const l of filteredCustomLinks) {
+                if (l.id === custom.id) break;
+                if ((l.quality || l.title || 'default').toLowerCase().trim() === qualityKey) {
+                  qualityIndex++;
+                }
+              }
+
+              const server = detectServer(custom.url, qualityIndex, totalForQuality);
+
+              return (
+                <div
+                  key={custom.id}
+                  className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-amber-500/30 hover:border-amber-400/60 hover:bg-zinc-800/80 transition-all gap-3 group shadow-md"
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
+                      {getCategoryIcon(custom.category)}
+                    </div>
+                    <div className="overflow-hidden">
+                      <a
+                        href={custom.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-bold text-white hover:text-amber-400 transition-colors block truncate"
+                        title={custom.title}
+                      >
+                        {custom.title}
+                      </a>
+                      <div className="flex items-center flex-wrap gap-1.5 text-[10px] text-zinc-400 mt-1">
+                        {/* Smart Server / Mirror Badge */}
+                        <span className={`px-1.5 py-0.5 rounded font-bold border flex items-center gap-1 ${server.badgeClass}`}>
+                          {server.badge}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-semibold border border-amber-500/20">
+                          {custom.category}
+                        </span>
+                        {custom.size && (
+                          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-medium border border-zinc-700">
+                            {custom.size}
+                          </span>
+                        )}
+                        <span className="text-zinc-500">{formatRelativeTime(custom.createdAt)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
                 <div className="flex items-center gap-1 shrink-0 ml-2">
                   <a
@@ -476,7 +509,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                   )}
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         ) : (
           <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1.5">
