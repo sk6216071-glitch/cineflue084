@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { Flame, Star, Tv, Film, Calendar, Compass, ArrowRight, Clock } from 'lucide-react';
-import { getTrending, getPopularMovies, getPopularTV, getTopRated, getUpcoming } from '@/lib/tmdb';
+import { Calendar, Compass, ArrowRight, Clock } from 'lucide-react';
+import { getUpcoming } from '@/lib/tmdb';
 import { getRecentlyAddedTitles } from '@/lib/redisDb';
 import { POPULAR_GENRES } from '@/lib/mockData';
 import SectionCarousel from '@/components/SectionCarousel';
@@ -9,12 +9,8 @@ import SectionCarousel from '@/components/SectionCarousel';
 export const revalidate = 60; // ISR cache 60s for immediate link updates
 
 export default async function HomePage() {
-  const [recentlyAdded, trending, popularMovies, popularTV, topRated, upcoming] = await Promise.all([
+  const [recentlyAdded, upcoming] = await Promise.all([
     getRecentlyAddedTitles(18),
-    getTrending('all', 'day'),
-    getPopularMovies(1),
-    getPopularTV(1),
-    getTopRated('movie', 1),
     getUpcoming(1),
   ]);
 
@@ -63,43 +59,7 @@ export default async function HomePage() {
         />
       )}
 
-      {/* 1. Trending Now Carousel */}
-      <SectionCarousel
-        title="Trending Today"
-        subtitle="The most popular movies and TV shows worldwide right now"
-        items={trending}
-        viewAllLink="/search?sort=trending"
-        icon={<Flame className="w-5 h-5 text-red-500 fill-red-500/20" />}
-      />
-
-      {/* 2. Popular Movies */}
-      <SectionCarousel
-        title="Popular Movies"
-        subtitle="Blockbuster releases loved by audiences"
-        items={popularMovies}
-        viewAllLink="/movies"
-        icon={<Film className="w-5 h-5 text-amber-400" />}
-      />
-
-      {/* 3. Popular TV Series */}
-      <SectionCarousel
-        title="Top Trending TV Shows"
-        subtitle="Binge-worthy drama, thriller, and sci-fi series"
-        items={popularTV}
-        viewAllLink="/tv"
-        icon={<Tv className="w-5 h-5 text-sky-400" />}
-      />
-
-      {/* 4. Top Rated Masterpieces */}
-      <SectionCarousel
-        title="Top Rated Masterpieces"
-        subtitle="Highest scoring cinema classics on TMDB & IMDb"
-        items={topRated}
-        viewAllLink="/search?sort=top_rated"
-        icon={<Star className="w-5 h-5 text-amber-400 fill-amber-400/20" />}
-      />
-
-      {/* 5. Upcoming Releases */}
+      {/* 1. Upcoming Releases */}
       <SectionCarousel
         title="Upcoming & Anticipated"
         subtitle="Coming soon to OTT and theaters"
