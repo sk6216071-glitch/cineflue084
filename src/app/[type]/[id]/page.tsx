@@ -6,7 +6,6 @@ import { Star, Clock, Calendar, Film, Tv, Play, Plus, Check, Eye, Heart, Share2,
 import { getTitleDetails } from '@/lib/tmdb';
 import { getImageURL, getBackdropURL } from '@/lib/tmdb';
 import RatingComparator from '@/components/RatingComparator';
-import WhereToWatch from '@/components/WhereToWatch';
 import CustomLinksManager from '@/components/CustomLinksManager';
 import DigitalReleaseTracker from '@/components/DigitalReleaseTracker';
 import DetailActions from './DetailActions';
@@ -215,11 +214,8 @@ export default async function TitleDetailPage({ params }: PageProps) {
           <CustomLinksManager titleDetails={titleDetails} />
         </div>
 
-        {/* Right 1 Column: Where to Watch & Media Info */}
+        {/* Right 1 Column: Media Info */}
         <div className="space-y-8">
-          {/* Where to Watch Component */}
-          <WhereToWatch titleDetails={titleDetails} />
-
           {/* Additional Metadata Box */}
           <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-4 text-xs">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider border-b border-zinc-800 pb-3">

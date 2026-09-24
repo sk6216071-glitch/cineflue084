@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Play, Plus, Check, Eye, Heart, Share2, CheckCheck, ListPlus, ExternalLink, Film, Tv } from 'lucide-react';
+import React, { useState } from 'react';
+import { Play, Plus, Check, Eye, Heart, Share2, CheckCheck, ListPlus, ExternalLink } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
-import { getRealAvailableStreamingProviders } from '@/lib/ottLinks';
 import TrailerModal from '@/components/TrailerModal';
 import AddToListModal from '@/components/AddToListModal';
 
@@ -14,7 +13,7 @@ interface DetailActionsProps {
 }
 
 export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trailerKey }) => {
-  const { watchlist, addToWatchlist, removeFromWatchlist, toggleStatus, toggleFavorite, isMounted, settings } = useWatchlist();
+  const { watchlist, addToWatchlist, removeFromWatchlist, toggleStatus, toggleFavorite, isMounted } = useWatchlist();
   const [showTrailer, setShowTrailer] = useState(false);
   const [showListModal, setShowListModal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -27,20 +26,6 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
   const title = titleDetails.title || titleDetails.name || 'Untitled';
   const imdbId = titleDetails.external_ids?.imdb_id;
   const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
-
-  const { availableList } = useMemo(() => {
-    const userRegion = isMounted && settings?.defaultRegion ? settings.defaultRegion : 'IN';
-    const providersMap = titleDetails['watch/providers']?.results || {};
-    const regionData = providersMap[userRegion] || providersMap['IN'] || providersMap['US'];
-
-    return getRealAvailableStreamingProviders(
-      titleDetails.id,
-      title,
-      mediaType as any,
-      regionData,
-      userRegion
-    );
-  }, [titleDetails.id, title, mediaType, titleDetails, isMounted, settings?.defaultRegion]);
 
   const handleWatchlistClick = () => {
     if (isInWatchlist && !isWatched) {
@@ -161,28 +146,8 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
           </button>
         </div>
 
-        {/* Row 2: Verified Direct Title Links */}
+        {/* Row 2: IMDb & TMDB Direct Links */}
         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-1">
-          {/* Active Verified Streaming Options */}
-          {availableList.map((opt) => (
-            <a
-              key={opt.key}
-              href={opt.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900/90 border border-zinc-700 ${opt.accentBorder} text-xs font-semibold text-zinc-200 transition-all hover:scale-105 group`}
-            >
-              <div
-                className="w-4 h-4 rounded flex items-center justify-center font-black text-white text-[9px]"
-                style={{ backgroundColor: opt.logoBg }}
-              >
-                {opt.logoText}
-              </div>
-              <span className={`${opt.accentText} transition-colors`}>{opt.name}</span>
-              <ExternalLink className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors" />
-            </a>
-          ))}
-
           {/* IMDb Direct Link */}
           {imdbId && (
             <a
