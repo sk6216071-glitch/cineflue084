@@ -109,13 +109,26 @@ export async function getTopRated(mediaType: 'movie' | 'tv' = 'movie', page = 1)
   return TOP_RATED_LIST.filter((i) => i.media_type === mediaType);
 }
 
-// 5. Upcoming Releases
+// 5. Upcoming Movie Releases
 export async function getUpcoming(page = 1): Promise<TitleDetails[]> {
   const data = await tmdbFetch<{ results: TitleDetails[] }>('/movie/upcoming', { page });
   if (data?.results && data.results.length > 0) {
     return data.results.map((item) => ({ ...item, media_type: 'movie' }));
   }
   return UPCOMING_LIST;
+}
+
+// 5b. Upcoming & On-The-Air TV Series Releases
+export async function getUpcomingTV(page = 1): Promise<TitleDetails[]> {
+  const data = await tmdbFetch<{ results: TitleDetails[] }>('/tv/on_the_air', { page });
+  if (data?.results && data.results.length > 0) {
+    return data.results.map((item) => ({
+      ...item,
+      media_type: 'tv',
+      title: item.name || item.title || 'Untitled',
+    }));
+  }
+  return TRENDING_LIST.filter((i) => i.media_type === 'tv');
 }
 
 // 6. Multi Search (Movies, TV, People)

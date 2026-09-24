@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { Calendar, Compass, ArrowRight, Clock } from 'lucide-react';
-import { getUpcoming } from '@/lib/tmdb';
+import { Calendar, Compass, ArrowRight, Clock, Tv, Sparkles } from 'lucide-react';
+import { getUpcoming, getUpcomingTV } from '@/lib/tmdb';
 import { getRecentlyAddedTitles } from '@/lib/redisDb';
 import { POPULAR_GENRES } from '@/lib/mockData';
 import SectionCarousel from '@/components/SectionCarousel';
@@ -9,9 +9,16 @@ import SectionCarousel from '@/components/SectionCarousel';
 export const revalidate = 60; // ISR cache 60s for immediate link updates
 
 export default async function HomePage() {
-  const [recentlyAdded, upcoming] = await Promise.all([
-    getRecentlyAddedTitles(18),
+  const [
+    recentMovies,
+    upcomingMovies,
+    recentSeries,
+    upcomingSeries,
+  ] = await Promise.all([
+    getRecentlyAddedTitles(18, 'movie'),
     getUpcoming(1),
+    getRecentlyAddedTitles(18, 'tv'),
+    getUpcomingTV(1),
   ]);
 
   return (
@@ -46,11 +53,13 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 0. Recent Carousel (Populated automatically whenever links are published) */}
-      {recentlyAdded && recentlyAdded.length > 0 && (
+      {/* 1. Recent Movies */}
+      {recentMovies && recentMovies.length > 0 && (
         <SectionCarousel
-          title="Recent"
-          items={recentlyAdded}
+          title="Recent Movies"
+          subtitle="Recently added movies with download & streaming links"
+          items={recentMovies}
+          viewAllLink="/movies"
           icon={
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
               <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400" strokeWidth={2.4} />
@@ -59,13 +68,37 @@ export default async function HomePage() {
         />
       )}
 
-      {/* 1. Upcoming Releases */}
+      {/* 2. Upcoming & Anticipated Movies */}
       <SectionCarousel
         title="Upcoming & Anticipated"
         subtitle="Coming soon to OTT and theaters"
-        items={upcoming}
-        viewAllLink="/search?sort=upcoming"
+        items={upcomingMovies}
+        viewAllLink="/search?type=movie&sort=upcoming"
         icon={<Calendar className="w-5 h-5 text-emerald-400" />}
+      />
+
+      {/* 3. Recent Web Series */}
+      {recentSeries && recentSeries.length > 0 && (
+        <SectionCarousel
+          title="Recent Web Series"
+          subtitle="Recently uploaded television seasons & episodes"
+          items={recentSeries}
+          viewAllLink="/tv"
+          icon={
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
+              <Tv className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" strokeWidth={2.4} />
+            </div>
+          }
+        />
+      )}
+
+      {/* 4. Upcoming & On-Air Web Series */}
+      <SectionCarousel
+        title="Upcoming & Anticipated Series"
+        subtitle="Coming soon & on-air television series"
+        items={upcomingSeries}
+        viewAllLink="/search?type=tv&sort=upcoming"
+        icon={<Sparkles className="w-5 h-5 text-sky-400" />}
       />
     </div>
   );

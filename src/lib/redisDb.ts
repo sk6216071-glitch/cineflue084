@@ -534,7 +534,10 @@ export async function migrateDomainInDatabase(
  * Fetches the most recently uploaded titles from MongoDB Atlas (or local fallback)
  * and retrieves their TMDB metadata for display in the "Recently Added" carousel.
  */
-export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]> {
+export async function getRecentlyAddedTitles(
+  limit = 18,
+  mediaTypeFilter: 'all' | 'movie' | 'tv' = 'all'
+): Promise<TitleDetails[]> {
   const recentMovieEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc?: any }> = [];
   const seen = new Set<string>();
 
@@ -546,13 +549,12 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
       const docs = await collection
         .find({})
         .sort({ createdAt: -1, updatedAt: -1 })
-        .limit(100)
+        .limit(200)
         .toArray();
 
       for (const doc of docs) {
         const mId = String(doc.movieId || '');
         if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
-        seen.add(mId);
 
         let mediaType: 'movie' | 'tv' = 'movie';
         const isTv =
@@ -569,6 +571,11 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
           mediaType = 'movie';
         }
 
+        if (mediaTypeFilter !== 'all' && mediaType !== mediaTypeFilter) {
+          continue;
+        }
+
+        seen.add(mId);
         recentMovieEntries.push({ movieId: mId, mediaType, doc });
         if (recentMovieEntries.length >= limit) break;
       }
@@ -597,9 +604,6 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
       );
 
       for (const item of localList) {
-        if (seen.has(item.movieId)) continue;
-        seen.add(item.movieId);
-
         let mediaType: 'movie' | 'tv' = 'movie';
         const isTv =
           item.link?.mediaType === 'tv' ||
@@ -611,7 +615,16 @@ export async function getRecentlyAddedTitles(limit = 18): Promise<TitleDetails[]
 
         if (isTv) {
           mediaType = 'tv';
+        } else if (item.link?.mediaType === 'movie') {
+          mediaType = 'movie';
         }
+
+        if (mediaTypeFilter !== 'all' && mediaType !== mediaTypeFilter) {
+          continue;
+        }
+
+        if (seen.has(item.movieId)) continue;
+        seen.add(item.movieId);
 
         recentMovieEntries.push({ movieId: item.movieId, mediaType, doc: item.link });
         if (recentMovieEntries.length >= limit) break;
