@@ -183,7 +183,6 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
       media_type: mediaType,
       title: data.title || data.name || 'Untitled',
       imdb_rating: data.vote_average ? Number((data.vote_average + 0.3).toFixed(1)) : 8.4,
-      simkl_rating: data.vote_average ? Number((data.vote_average + 0.2).toFixed(1)) : 8.3,
       mdblist_score: data.vote_average ? Math.round(data.vote_average * 10 + 2) : 86,
     };
   }
@@ -272,7 +271,6 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
     status: 'Released',
     imdb_rating: 8.5,
     imdb_votes: '340,000',
-    simkl_rating: 8.4,
     mdblist_score: 87,
     genres: [
       { id: 28, name: 'Action' },
@@ -282,7 +280,6 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
     external_ids: {
       imdb_id: `tt${String(numId).padStart(7, '0')}`,
       tmdb_id: numId,
-      simkl_id: numId,
     },
     credits: {
       cast: [

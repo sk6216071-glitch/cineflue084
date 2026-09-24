@@ -20,7 +20,7 @@ export const Footer: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-zinc-500 leading-relaxed">
-              Your all-in-one cinema command center. Discover movies and TV shows, check India streaming availability, track your watchlist, and sync with Trakt.
+              Your all-in-one cinema command center. Discover movies and TV shows, check India streaming availability, and track your watchlist.
             </p>
           </div>
 
@@ -42,7 +42,6 @@ export const Footer: React.FC = () => {
               <li><Link href="/watchlist" className="hover:text-amber-400 transition-colors">My Watchlist</Link></li>
               <li><Link href="/watchlist?tab=watched" className="hover:text-amber-400 transition-colors">Watched History</Link></li>
               <li><Link href="/watchlist?tab=favorites" className="hover:text-amber-400 transition-colors">Favorites & Ratings</Link></li>
-              <li><Link href="/simkl" className="hover:text-sky-400 transition-colors">SIMKL Cloud Sync</Link></li>
               <li><Link href="/mdblist" className="hover:text-emerald-400 transition-colors">MDBList Ratings</Link></li>
               <li><Link href="/admin" className="hover:text-amber-400 transition-colors font-semibold text-amber-500/90">🛡️ Admin Panel</Link></li>
             </ul>
@@ -69,7 +68,7 @@ export const Footer: React.FC = () => {
         <div className="border-t border-zinc-800/60 mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-3">
           <p suppressHydrationWarning>© {new Date().getFullYear()} CineFuel. Built for cinema lovers.</p>
           <div className="flex items-center gap-4 text-xs">
-            <span>Data from TMDB, IMDb, SIMKL & MDBList</span>
+            <span>Data from TMDB, IMDb & MDBList</span>
           </div>
         </div>
       </div>

@@ -35,6 +35,8 @@ import {
   Search,
   Tag,
   Eye,
+  EyeOff,
+  User,
   UserCheck,
   X,
   ChevronDown,
@@ -42,14 +44,22 @@ import {
   Zap,
   ListPlus,
   LayoutGrid,
+  Inbox,
+  MessageSquare,
+  CheckCircle,
+  Link2Off,
+  Wrench,
+  ShieldAlert,
+  FileWarning,
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
-import { CustomLink, CustomList, TitleDetails } from '@/types';
+import { CustomLink, CustomList, TitleDetails, UserRequest, DefectiveLinkReport } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
-import { getImageURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
+import { getImageURL, getBackdropURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
+import { detectServer } from '@/lib/serverDetector';
 
 const DEFAULT_ADMIN_USER = 'shyam';
 const DEFAULT_ADMIN_PASS = 'shyam081';
@@ -77,14 +87,64 @@ const PINNED_TITLES: PinnedTitle[] = [
   { id: 579974, title: 'RRR', media_type: 'movie', year: '2022', poster_path: '/nEufeZlyAOLqO2brrs0yeBEoo0R.jpg' },
 ];
 
+interface BackdropTheme {
+  name: string;
+  editionTag: string;
+  quote: string;
+  backdropPath: string;
+}
+
+const BACKDROP_THEMES: Record<string, BackdropTheme> = {
+  spiderman: {
+    name: 'Spider-Man',
+    editionTag: 'SPIDER-MAN : NO WAY HOME EDITION',
+    quote: '“With great power comes great responsibility.”',
+    backdropPath: '/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
+  },
+  dune: {
+    name: 'Dune: Part Two',
+    editionTag: 'DUNE : PART TWO EDITION',
+    quote: '“Long live the fighters.”',
+    backdropPath: '/xOMo8BRK7PfcJv9JCnx7s520fff.jpg',
+  },
+  oppenheimer: {
+    name: 'Oppenheimer',
+    editionTag: 'OPPENHEIMER CINEMATIC EDITION',
+    quote: '“Now I am become Death, the destroyer of worlds.”',
+    backdropPath: '/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg',
+  },
+  interstellar: {
+    name: 'Interstellar',
+    editionTag: 'INTERSTELLAR COSMIC EDITION',
+    quote: '“Mankind was born on Earth. It was never meant to die here.”',
+    backdropPath: '/xJHokMbljvjADYdit5fK5VQsXEG.jpg',
+  },
+};
+
+function formatRelativeTime(isoString?: string): string {
+  if (!isoString) return 'Recently';
+  try {
+    const diffMs = Date.now() - new Date(isoString).getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(isoString).toLocaleDateString();
+  } catch {
+    return 'Recently';
+  }
+}
+
 export default function AdminPage() {
   const {
     watchlist,
     addCustomLink,
     removeCustomLink,
-    simklConfig,
     mdblistConfig,
-    updateSimklConfig,
     updateMdblistConfig,
     stats,
     isMounted,
@@ -106,13 +166,14 @@ export default function AdminPage() {
   const [authError, setAuthError] = useState(false);
   const [adminUser, setAdminUser] = useState(DEFAULT_ADMIN_USER);
   const [adminPass, setAdminPass] = useState(DEFAULT_ADMIN_PASS);
+  const [showPassword, setShowPassword] = useState(false);
+  const [selectedBackdropTheme, setSelectedBackdropTheme] = useState<'spiderman' | 'dune' | 'oppenheimer' | 'interstellar'>('spiderman');
 
-  // Tabs: 'overview' | 'links' | 'titles' | 'users' | 'apis' | 'backup' | 'logs'
-  const [activeTab, setActiveTab] = useState<'overview' | 'links' | 'titles' | 'users' | 'apis' | 'backup' | 'logs'>('overview');
+  // Tabs: 'overview' | 'links' | 'titles' | 'requests' | 'reports' | 'users' | 'apis' | 'backup' | 'logs'
+  const [activeTab, setActiveTab] = useState<'overview' | 'links' | 'titles' | 'requests' | 'reports' | 'users' | 'apis' | 'backup' | 'logs'>('overview');
 
   // API Form States
   const [tmdbKey, setTmdbKey] = useState('');
-  const [simklClientId, setSimklClientId] = useState('');
   const [mdblistKey, setMdblistKey] = useState('');
   const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
   const [isTestingTmdb, setIsTestingTmdb] = useState(false);
@@ -200,11 +261,49 @@ export default function AdminPage() {
   const [manageTitlesResults, setManageTitlesResults] = useState<TitleDetails[]>([]);
   const [isSearchingManageTitles, setIsSearchingManageTitles] = useState(false);
 
+  // User Requests Management States
+  const [requestsList, setRequestsList] = useState<UserRequest[]>([]);
+  const [requestsFilter, setRequestsFilter] = useState<'all' | 'pending' | 'fulfilled' | 'rejected'>('all');
+  const [requestsSearchQuery, setRequestsSearchQuery] = useState('');
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  // Fulfill Modal State
+  const [fulfillingRequest, setFulfillingRequest] = useState<UserRequest | null>(null);
+  const [fulfillUrl, setFulfillUrl] = useState('');
+  const [fulfillTitle, setFulfillTitle] = useState('');
+  const [fulfillQuality, setFulfillQuality] = useState('');
+  const [fulfillAudio, setFulfillAudio] = useState('');
+  const [fulfillSize, setFulfillSize] = useState('');
+  const [fulfillCategory, setFulfillCategory] = useState<CustomLink['category']>('Download');
+  const [isFulfillingSubmit, setIsFulfillingSubmit] = useState(false);
+  const [fulfillSuccessMsg, setFulfillSuccessMsg] = useState('');
+
+  // Defective Links Management States
+  const [reportsList, setReportsList] = useState<DefectiveLinkReport[]>([]);
+  const [reportsFilter, setReportsFilter] = useState<'all' | 'pending' | 'fixed' | 'dismissed'>('all');
+  const [reportsIssueFilter, setReportsIssueFilter] = useState<string>('all');
+  const [reportsSearchQuery, setReportsSearchQuery] = useState('');
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
+  const [pendingReportsCount, setPendingReportsCount] = useState(0);
+
+  // Fix / Replace Link Modal State
+  const [fixingReport, setFixingReport] = useState<DefectiveLinkReport | null>(null);
+  const [replaceUrl, setReplaceUrl] = useState('');
+  const [replaceTitle, setReplaceTitle] = useState('');
+  const [replaceQuality, setReplaceQuality] = useState('');
+  const [replaceAudio, setReplaceAudio] = useState('');
+  const [replaceSize, setReplaceSize] = useState('');
+  const [replaceAdminNote, setReplaceAdminNote] = useState('');
+  const [updateDbWithReplacement, setUpdateDbWithReplacement] = useState(true);
+  const [isFixingSubmit, setIsFixingSubmit] = useState(false);
+  const [fixSuccessMsg, setFixSuccessMsg] = useState('');
+
   // Diagnostics logs
   const [systemLogs, setSystemLogs] = useState<Array<{ timestamp: string; level: 'info' | 'success' | 'warn'; message: string }>>([
     { timestamp: 'Just now', level: 'success', message: 'Admin session initialized for Shyam.' },
     { timestamp: '1m ago', level: 'info', message: 'Bulk Multi-Link Auto-Detector Engine ready for batch episodes & zip packs.' },
-    { timestamp: '2m ago', level: 'info', message: 'TMDB, SIMKL & MDBList engines operational.' },
+    { timestamp: '2m ago', level: 'info', message: 'TMDB & MDBList engines operational.' },
   ]);
 
   // Load Saved Admin State & Keys on mount
@@ -285,22 +384,38 @@ export default function AdminPage() {
         }
       }
 
-      if (simklConfig?.clientId) setSimklClientId(simklConfig.clientId);
       if (mdblistConfig?.apiKey) setMdblistKey(mdblistConfig.apiKey);
 
       setDeletedCuratedLinkIds(getDeletedLinkIds());
 
+      // Initial fetch and interval for user requests
+      fetchAdminRequests();
+      const requestsSyncInterval = setInterval(fetchAdminRequests, 4000);
+
+      // Initial fetch and interval for defective link reports
+      fetchAdminReports();
+      const reportsSyncInterval = setInterval(fetchAdminReports, 4000);
+
       const handleLinksUpdated = () => {
         setDeletedCuratedLinkIds(getDeletedLinkIds());
         fetchAllAdminLinks();
+        fetchAdminRequests();
+        fetchAdminReports();
+      };
+      const handleReportsUpdated = () => {
+        fetchAdminReports();
       };
       window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
+      window.addEventListener('cinefuel_report_submitted', handleReportsUpdated);
       return () => {
         clearInterval(adminSyncInterval);
+        clearInterval(requestsSyncInterval);
+        clearInterval(reportsSyncInterval);
         window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
+        window.removeEventListener('cinefuel_report_submitted', handleReportsUpdated);
       };
     }
-  }, [simklConfig, mdblistConfig]);
+  }, [mdblistConfig]);
 
   // Pre-seed known titles cache with pinned titles and mock titles
   useEffect(() => {
@@ -525,6 +640,371 @@ export default function AdminPage() {
     setSystemLogs((prev) => [{ timestamp: time, level, message }, ...prev.slice(0, 19)]);
   };
 
+  // User Requests Action Handlers
+  const fetchAdminRequests = async () => {
+    try {
+      setIsLoadingRequests(true);
+      const res = await fetch(`/api/requests?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.requests)) {
+          setRequestsList(data.requests);
+          setPendingRequestsCount(data.pendingCount || 0);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch user requests:', e);
+    } finally {
+      setIsLoadingRequests(false);
+    }
+  };
+
+  const handleUpdateStatus = async (
+    id: string,
+    status: 'pending' | 'fulfilled' | 'rejected',
+    meta?: any
+  ) => {
+    try {
+      const res = await fetch('/api/requests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status, ...meta }),
+      });
+      if (res.ok) {
+        setRequestsList((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  status,
+                  ...(status === 'fulfilled' ? { fulfilledAt: new Date().toISOString() } : {}),
+                  ...(meta?.fulfilledLinkUrl ? { fulfilledLinkUrl: meta.fulfilledLinkUrl } : {}),
+                }
+              : r
+          )
+        );
+        addLog(`Request ${id} marked as ${status}.`, 'success');
+        const refreshRes = await fetch(`/api/requests?_t=${Date.now()}`);
+        if (refreshRes.ok) {
+          const d = await refreshRes.json();
+          setPendingRequestsCount(d.pendingCount || 0);
+        }
+      }
+    } catch (err: any) {
+      addLog(`Failed to update request: ${err.message}`, 'warn');
+    }
+  };
+
+  const handleDeleteRequest = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this user request?')) return;
+    try {
+      const res = await fetch(`/api/requests?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setRequestsList((prev) => prev.filter((r) => r.id !== id));
+        addLog(`Request ${id} deleted.`, 'info');
+        const refreshRes = await fetch(`/api/requests?_t=${Date.now()}`);
+        if (refreshRes.ok) {
+          const d = await refreshRes.json();
+          setPendingRequestsCount(d.pendingCount || 0);
+        }
+      }
+    } catch (err: any) {
+      addLog(`Failed to delete request: ${err.message}`, 'warn');
+    }
+  };
+
+  const handleOpenFulfill = (req: UserRequest) => {
+    setFulfillingRequest(req);
+    const yr = req.releaseYear ? ` (${req.releaseYear})` : '';
+    setFulfillTitle(`${req.title}${yr} ${req.quality || '1080p'} [${req.audioLanguage || 'Dual Audio'}]`);
+    setFulfillUrl('');
+    setFulfillQuality(req.quality || '1080p');
+    setFulfillAudio(req.audioLanguage || 'Hindi + English');
+    setFulfillSize('');
+    setFulfillCategory(req.mediaType === 'tv' ? (req.seasonNumber ? 'SingleEpisode' : 'ZipPack') : 'Download');
+    setFulfillSuccessMsg('');
+  };
+
+  const handleFulfillSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fulfillingRequest || !fulfillUrl.trim()) return;
+
+    setIsFulfillingSubmit(true);
+    let targetTmdbId = fulfillingRequest.tmdbId;
+
+    if (!targetTmdbId) {
+      const found = Object.entries(knownTitlesCache).find(([_, info]) =>
+        info.title.toLowerCase() === fulfillingRequest.title.toLowerCase()
+      );
+      if (found) targetTmdbId = Number(found[0]);
+    }
+
+    if (!targetTmdbId) {
+      targetTmdbId = Math.floor(Math.random() * 800000) + 100000;
+    }
+
+    try {
+      let finalUrl = fulfillUrl.trim();
+      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        finalUrl = 'https://' + finalUrl;
+      }
+
+      const generatedLinkId = `link-${Date.now()}`;
+      const newCustomLink: CustomLink = {
+        id: generatedLinkId,
+        title: fulfillTitle.trim(),
+        url: finalUrl,
+        category: fulfillCategory,
+        createdAt: new Date().toISOString(),
+        quality: fulfillQuality.trim() || undefined,
+        audioLanguage: fulfillAudio.trim() || undefined,
+        size: fulfillSize.trim() || undefined,
+        seasonNumber: fulfillingRequest.seasonNumber,
+        episodeNumber: fulfillingRequest.episodeNumber,
+        linkType: fulfillingRequest.mediaType === 'tv' ? (fulfillingRequest.seasonNumber ? 'single_episode' : 'zip_pack') : 'general',
+      };
+
+      // 1. Save link to title database
+      await saveGlobalCustomLink(targetTmdbId, newCustomLink);
+
+      // 2. Mark request as fulfilled
+      const res = await fetch('/api/requests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: fulfillingRequest.id,
+          status: 'fulfilled',
+          fulfilledLinkId: generatedLinkId,
+          fulfilledLinkUrl: finalUrl,
+        }),
+      });
+
+      if (res.ok) {
+        setFulfillSuccessMsg(`🎉 Successfully published link and fulfilled request for "${fulfillingRequest.title}"!`);
+        addLog(`Fulfilled request for "${fulfillingRequest.title}" with link: ${finalUrl}`, 'success');
+        
+        setRequestsList((prev) =>
+          prev.map((r) =>
+            r.id === fulfillingRequest.id
+              ? {
+                  ...r,
+                  status: 'fulfilled',
+                  fulfilledAt: new Date().toISOString(),
+                  fulfilledLinkUrl: finalUrl,
+                }
+              : r
+          )
+        );
+        setPendingRequestsCount((prev) => Math.max(0, prev - 1));
+
+        setTimeout(() => {
+          setFulfillingRequest(null);
+          setFulfillSuccessMsg('');
+        }, 2200);
+      }
+    } catch (err: any) {
+      console.error('Error fulfilling request:', err);
+      addLog(`Failed to fulfill request: ${err.message}`, 'warn');
+    } finally {
+      setIsFulfillingSubmit(false);
+    }
+  };
+
+  // ==============================================================
+  // Defective Links / Broken Reports Handlers
+  // ==============================================================
+  const fetchAdminReports = async () => {
+    try {
+      setIsLoadingReports(true);
+      const res = await fetch(`/api/reports?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.reports)) {
+          setReportsList(data.reports);
+          setPendingReportsCount(data.pendingCount || 0);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch defective link reports:', e);
+    } finally {
+      setIsLoadingReports(false);
+    }
+  };
+
+  const handleUpdateReportStatus = async (
+    id: string,
+    status: 'pending' | 'fixed' | 'dismissed',
+    meta?: any
+  ) => {
+    try {
+      const res = await fetch('/api/reports', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status, ...meta }),
+      });
+      if (res.ok) {
+        setReportsList((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  status,
+                  ...(status === 'fixed' || status === 'dismissed' ? { resolvedAt: new Date().toISOString() } : {}),
+                  ...(meta?.replacementUrl ? { replacementUrl: meta.replacementUrl } : {}),
+                  ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
+                }
+              : r
+          )
+        );
+        addLog(`Defective report ${id} status updated to ${status}.`, 'success');
+        const refreshRes = await fetch(`/api/reports?_t=${Date.now()}`);
+        if (refreshRes.ok) {
+          const d = await refreshRes.json();
+          setPendingReportsCount(d.pendingCount || 0);
+        }
+      }
+    } catch (err: any) {
+      addLog(`Failed to update defective report: ${err.message}`, 'warn');
+    }
+  };
+
+  const handleDeleteBrokenLinkDirectly = async (report: DefectiveLinkReport) => {
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete this broken link from CineFuel?\n\nTitle: ${report.mediaTitle}\nURL: ${report.reportedUrl}`
+      )
+    )
+      return;
+
+    try {
+      // 1. Remove from client state & local storage
+      if (report.linkId && report.movieId) {
+        removeCustomLink(report.movieId, report.linkId);
+        await deleteGlobalCustomLink(report.movieId, report.linkId);
+      }
+
+      // 2. Mark report as fixed with deletion metadata
+      await handleUpdateReportStatus(report.id, 'fixed', {
+        adminNote: 'Broken link permanently removed from CineFuel database.',
+        deleteInDatabase: true,
+        movieId: report.movieId,
+        linkId: report.linkId,
+      });
+
+      addLog(`Deleted defective link permanently for "${report.mediaTitle}"`, 'warn');
+    } catch (err: any) {
+      addLog(`Failed to delete defective link: ${err.message}`, 'warn');
+    }
+  };
+
+  const handleOpenFixModal = (report: DefectiveLinkReport) => {
+    setFixingReport(report);
+    setReplaceUrl('');
+    setReplaceTitle(report.linkTitle);
+    setReplaceQuality(report.quality || '1080p WEB-DL');
+    setReplaceAudio('');
+    setReplaceSize('');
+    setReplaceAdminNote('Replaced with verified working download mirror.');
+    setUpdateDbWithReplacement(true);
+    setFixSuccessMsg('');
+  };
+
+  const handleSubmitFixReplacement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fixingReport || !replaceUrl.trim()) return;
+
+    let finalUrl = replaceUrl.trim();
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+      finalUrl = `https://${finalUrl}`;
+    }
+
+    try {
+      setIsFixingSubmit(true);
+
+      // 1. If updateDbWithReplacement is enabled and we have a valid movieId
+      if (updateDbWithReplacement && fixingReport.movieId) {
+        const replacementLinkObj: CustomLink = {
+          id: fixingReport.linkId || `link-${Date.now()}`,
+          title: replaceTitle.trim() || fixingReport.linkTitle,
+          url: finalUrl,
+          category: 'Download',
+          createdAt: new Date().toISOString(),
+          quality: replaceQuality.trim() || fixingReport.quality,
+          audioLanguage: replaceAudio.trim(),
+          size: replaceSize.trim(),
+        };
+
+        saveGlobalCustomLink(fixingReport.movieId, replacementLinkObj);
+        addCustomLink(fixingReport.movieId, {
+          title: replacementLinkObj.title,
+          url: replacementLinkObj.url,
+          category: 'Download',
+        });
+      }
+
+      // 2. Mark report as fixed in server database
+      const res = await fetch('/api/reports', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: fixingReport.id,
+          status: 'fixed',
+          replacementUrl: finalUrl,
+          adminNote: replaceAdminNote.trim(),
+          replaceInDatabase: updateDbWithReplacement,
+          movieId: fixingReport.movieId,
+          linkId: fixingReport.linkId,
+          updatedLinkTitle: replaceTitle.trim() || fixingReport.linkTitle,
+          updatedQuality: replaceQuality.trim(),
+          updatedAudio: replaceAudio.trim(),
+          updatedSize: replaceSize.trim(),
+        }),
+      });
+
+      if (res.ok) {
+        setFixSuccessMsg('🎉 Defective link replaced and report marked as fixed!');
+        addLog(`Replaced defective link for "${fixingReport.mediaTitle}" with: ${finalUrl}`, 'success');
+
+        setReportsList((prev) =>
+          prev.map((r) =>
+            r.id === fixingReport.id
+              ? {
+                  ...r,
+                  status: 'fixed',
+                  resolvedAt: new Date().toISOString(),
+                  replacementUrl: finalUrl,
+                  adminNote: replaceAdminNote.trim(),
+                }
+              : r
+          )
+        );
+        setPendingReportsCount((prev) => Math.max(0, prev - 1));
+
+        setTimeout(() => {
+          setFixingReport(null);
+          setFixSuccessMsg('');
+        }, 2000);
+      }
+    } catch (err: any) {
+      addLog(`Failed to fix defective link: ${err.message}`, 'warn');
+    } finally {
+      setIsFixingSubmit(false);
+    }
+  };
+
+  const handleDeleteReport = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this defective link report record?')) return;
+    try {
+      const res = await fetch(`/api/reports?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.ok) {
+        setReportsList((prev) => prev.filter((r) => r.id !== id));
+        addLog(`Report ${id} deleted permanently.`, 'info');
+      }
+    } catch (err: any) {
+      addLog(`Failed to delete report: ${err.message}`, 'warn');
+    }
+  };
+
   // Test TMDB API Key Live
   const handleTestTmdb = async () => {
     setIsTestingTmdb(true);
@@ -560,10 +1040,6 @@ export default function AdminPage() {
       } catch {
         localStorage.setItem('cinefuel_settings', JSON.stringify({ tmdbApiKey: tmdbKey.trim() }));
       }
-    }
-
-    if (simklClientId.trim()) {
-      updateSimklConfig({ clientId: simklClientId.trim() });
     }
 
     if (mdblistKey.trim()) {
@@ -1109,7 +1585,6 @@ export default function AdminPage() {
       customLists,
       customLinks: customLinksMap,
       knownTitles: knownTitlesCache,
-      simklConfig,
       mdblistConfig,
       adminNotes: 'CineFuel Master Database Export',
     };
@@ -1138,7 +1613,6 @@ export default function AdminPage() {
         if (parsed.customLists) localStorage.setItem('cinefuel_custom_lists', JSON.stringify(parsed.customLists));
         if (parsed.customLinks) localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed.customLinks));
         if (parsed.knownTitles) localStorage.setItem('cinefuel_known_titles_cache', JSON.stringify(parsed.knownTitles));
-        if (parsed.simklConfig) localStorage.setItem('cinefuel_simkl_config', JSON.stringify(parsed.simklConfig));
         if (parsed.mdblistConfig) localStorage.setItem('cinefuel_mdblist_config', JSON.stringify(parsed.mdblistConfig));
 
         addLog('Database backup restored successfully! Reloading...', 'success');
@@ -1296,73 +1770,192 @@ export default function AdminPage() {
   }, [titleSearchQuery, manageTitlesResults]);
 
   // -------------------------------------------------------------
-  // 1. Password Lock Gate (If not authenticated)
+  // 1. Password Lock Gate (If not authenticated) - Cinematic Glassmorphism Edition
   // -------------------------------------------------------------
   if (!isAuthenticated) {
+    const currentTheme = BACKDROP_THEMES[selectedBackdropTheme] || BACKDROP_THEMES.spiderman;
+    const backdropUrl = getBackdropURL(currentTheme.backdropPath, 'original');
+
     return (
-      <div className="min-h-[80vh] flex items-center justify-center px-4 py-16">
-        <div className="w-full max-w-md bg-[#0f121a] border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
-            <Lock className="w-8 h-8" />
+      <div className="relative min-h-[92vh] w-full flex flex-col justify-between items-center px-4 py-8 overflow-hidden">
+        {/* 1. Full-Screen Cinematic Backdrop Layer */}
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none">
+          <Image
+            src={backdropUrl}
+            alt={currentTheme.name}
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-center opacity-30 scale-105 transition-all duration-1000 filter brightness-90 contrast-125"
+          />
+          {/* Multi-layered cinematic vignette & dark depth gradients */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#07090e] via-[#07090e]/75 to-black/70" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#07090e]/90 via-transparent to-[#07090e]/90" />
+
+          {/* Ambient Cinematic Glow Orbs */}
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-amber-500/10 rounded-full blur-[160px]" />
+          <div className="absolute bottom-10 left-10 w-96 h-96 bg-blue-600/10 rounded-full blur-[140px]" />
+          <div className="absolute top-12 right-10 w-96 h-96 bg-rose-600/10 rounded-full blur-[140px]" />
+        </div>
+
+        {/* 2. Top Floating Glass Navigation Header */}
+        <header className="relative z-10 w-full max-w-4xl flex items-center justify-between py-2.5 px-4 sm:px-6 rounded-2xl bg-zinc-950/40 backdrop-blur-xl border border-white/10 shadow-xl mb-6">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-black font-black text-xs shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
+              <Flame className="w-4 h-4 fill-black" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-black text-white tracking-wider flex items-center gap-1">
+                CINE<span className="text-amber-400">FUEL</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-mono">ADMIN</span>
+              </span>
+            </div>
+          </Link>
+
+          {/* Theme Edition Switcher Pills (like Spider-Man Edition in user screenshot!) */}
+          <div className="hidden sm:flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 text-[11px]">
+            {Object.entries(BACKDROP_THEMES).map(([key, t]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSelectedBackdropTheme(key as any)}
+                className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                  selectedBackdropTheme === key
+                    ? 'bg-amber-500 text-black shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+                title={`Switch backdrop to ${t.name}`}
+              >
+                {t.name.split(':')[0]}
+              </button>
+            ))}
           </div>
 
-          <div className="space-y-1">
-            <h2 className="text-2xl font-black text-white tracking-tight">CineFuel Master Control</h2>
-            <p className="text-xs text-zinc-400">
-              Enter Administrator Credentials to access backend catalog, links, and system controls.
-            </p>
-          </div>
+          <Link
+            href="/"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-300 hover:text-white transition-all shadow-sm"
+          >
+            <span>← Website</span>
+          </Link>
+        </header>
 
-          <form onSubmit={handleLogin} className="space-y-4 text-left">
-            <div>
-              <label className="text-xs font-semibold text-zinc-300 block mb-1.5">Admin Username</label>
-              <input
-                type="text"
-                placeholder="Enter admin name"
-                value={usernameInput}
-                onChange={(e) => {
-                  setUsernameInput(e.target.value);
-                  setAuthError(false);
-                }}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                autoFocus
-                suppressHydrationWarning
-              />
+        {/* 3. Center Glassmorphic Master Control Card */}
+        <div className="relative z-10 w-full max-w-md my-auto py-4">
+          <div className="relative backdrop-blur-2xl bg-[#0b0e17]/75 border border-white/10 hover:border-amber-500/40 rounded-3xl p-7 sm:p-9 shadow-[0_20px_70px_-10px_rgba(0,0,0,0.95)] space-y-6 transition-all duration-300 overflow-hidden">
+            {/* Top Amber Accent Line */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+
+            {/* Glowing Lock Icon */}
+            <div className="relative mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-transparent border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-xl shadow-amber-500/10">
+              <div className="absolute inset-0 rounded-2xl bg-amber-400/15 blur-md -z-10 animate-pulse" />
+              <Lock className="w-7 h-7" />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-zinc-300 block mb-1.5">Admin Password</label>
-              <input
-                type="password"
-                placeholder="Enter admin password"
-                value={passwordInput}
-                onChange={(e) => {
-                  setPasswordInput(e.target.value);
-                  setAuthError(false);
-                }}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
-                suppressHydrationWarning
-              />
-              {authError && (
-                <p className="text-xs text-rose-400 mt-1.5 font-medium flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Incorrect username or password.
-                </p>
-              )}
+            {/* Title & Thematic Subtitle */}
+            <div className="text-center space-y-1.5">
+              <span className="text-[10px] font-mono font-bold tracking-widest text-amber-400 uppercase">
+                {currentTheme.editionTag}
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-md">
+                CineFuel Master Control
+              </h2>
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-xs mx-auto">
+                Enter Administrator Credentials to access backend catalog, links, and system controls.
+              </p>
             </div>
 
-            <button
-              type="submit"
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
-              suppressHydrationWarning
-            >
-              <Unlock className="w-4 h-4" /> Unlock Admin Panel
-            </button>
-          </form>
+            {/* Login Form */}
+            <form onSubmit={handleLogin} className="space-y-4 text-left">
+              {/* Username Input */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider block">
+                  Admin Username
+                </label>
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400">
+                    <User className="w-4 h-4 text-amber-400/80" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Enter admin name"
+                    value={usernameInput}
+                    onChange={(e) => {
+                      setUsernameInput(e.target.value);
+                      setAuthError(false);
+                    }}
+                    className="w-full bg-black/40 border border-white/10 hover:border-white/20 focus:border-amber-400 focus:bg-black/60 rounded-2xl pl-10 pr-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all backdrop-blur-md"
+                    autoFocus
+                    suppressHydrationWarning
+                  />
+                </div>
+              </div>
 
-          <div className="pt-2 border-t border-zinc-800 text-[11px] text-zinc-500">
-            Protected Admin Gate • Master Access
+              {/* Password Input */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider block">
+                  Admin Password
+                </label>
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400">
+                    <Key className="w-4 h-4 text-amber-400/80" />
+                  </div>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter admin password"
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setAuthError(false);
+                    }}
+                    className="w-full bg-black/40 border border-white/10 hover:border-white/20 focus:border-amber-400 focus:bg-black/60 rounded-2xl pl-10 pr-10 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all font-mono backdrop-blur-md"
+                    suppressHydrationWarning
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {authError && (
+                  <p className="text-xs text-rose-400 mt-2 font-medium flex items-center gap-1.5 bg-rose-500/10 border border-rose-500/30 px-3 py-2 rounded-xl">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Invalid credentials. Please verify username and password.</span>
+                  </p>
+                )}
+              </div>
+
+              {/* Unlock Button */}
+              <button
+                type="submit"
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 bg-[length:200%_auto] hover:bg-right transition-all duration-500 text-black font-black text-sm shadow-xl shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                suppressHydrationWarning
+              >
+                <Unlock className="w-4 h-4" />
+                <span>Unlock Admin Panel</span>
+              </button>
+            </form>
+
+            {/* Thematic Quote & Security Details */}
+            <div className="pt-2 text-center space-y-1.5 border-t border-white/5">
+              <p className="text-[11px] text-amber-400/90 italic font-medium">
+                {currentTheme.quote}
+              </p>
+              <div className="flex items-center justify-center gap-2 text-[10px] text-zinc-500 font-mono">
+                <span>Protected Admin Gate</span>
+                <span>•</span>
+                <span>256-Bit SSL Encrypted</span>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* 4. Bottom Footer */}
+        <footer className="relative z-10 text-center py-2 text-[11px] text-zinc-500 font-mono">
+          CineFuel Platform • Confidential Administrator Environment
+        </footer>
       </div>
     );
   }
@@ -1451,6 +2044,52 @@ export default function AdminPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab('requests')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all relative ${
+            activeTab === 'requests'
+              ? 'bg-amber-500 text-black shadow-md'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+          }`}
+          suppressHydrationWarning
+        >
+          <Inbox className="w-4 h-4" /> User Requests
+          {pendingRequestsCount > 0 && (
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                activeTab === 'requests'
+                  ? 'bg-black text-amber-400'
+                  : 'bg-amber-500 text-black animate-pulse'
+              }`}
+            >
+              {pendingRequestsCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('reports')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all relative ${
+            activeTab === 'reports'
+              ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+          }`}
+          suppressHydrationWarning
+        >
+          <AlertTriangle className="w-4 h-4 text-rose-400" /> Defective Links
+          {pendingReportsCount > 0 && (
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                activeTab === 'reports'
+                  ? 'bg-black text-rose-300'
+                  : 'bg-rose-500 text-white animate-pulse'
+              }`}
+            >
+              {pendingReportsCount}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('users')}
           className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
             activeTab === 'users'
@@ -1504,7 +2143,7 @@ export default function AdminPage() {
       {/* ========================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
               <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Tracked Titles</span>
               <p className="text-3xl font-black text-white" suppressHydrationWarning>{isMounted ? watchlist.length : 0}</p>
@@ -1515,6 +2154,30 @@ export default function AdminPage() {
               <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Custom Links</span>
               <p className="text-3xl font-black text-amber-400">{allFlattenedLinks.length}</p>
               <span className="text-[11px] text-zinc-400 font-medium">Across all titles</span>
+            </div>
+
+            <div
+              onClick={() => setActiveTab('requests')}
+              className="p-5 rounded-2xl bg-[#11141c] border border-blue-500/20 hover:border-blue-500/50 cursor-pointer transition-all space-y-1 group"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">User Requests</span>
+                <span className="text-[10px] text-blue-400 group-hover:underline">View →</span>
+              </div>
+              <p className="text-3xl font-black text-blue-400">{pendingRequestsCount}</p>
+              <span className="text-[11px] text-zinc-400 font-medium">{requestsList.length} total submitted</span>
+            </div>
+
+            <div
+              onClick={() => setActiveTab('reports')}
+              className="p-5 rounded-2xl bg-[#11141c] border border-rose-500/20 hover:border-rose-500/50 cursor-pointer transition-all space-y-1 group"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Defective Links</span>
+                <span className="text-[10px] text-rose-400 group-hover:underline">Fix Now →</span>
+              </div>
+              <p className="text-3xl font-black text-rose-400">{pendingReportsCount}</p>
+              <span className="text-[11px] text-zinc-400 font-medium">{reportsList.length} reported links</span>
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
@@ -1583,14 +2246,6 @@ export default function AdminPage() {
                   </span>
                   <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
                     Live Operational
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                  <span className="text-xs font-bold text-white flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> SIMKL Sync Engine
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
-                    Ready
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
@@ -2714,6 +3369,753 @@ export default function AdminPage() {
       )}
 
       {/* ========================================================= */}
+      {/* TAB: USER REQUESTS & FULFILLMENT */}
+      {/* ========================================================= */}
+      {activeTab === 'requests' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Inbox className="w-4 h-4 text-amber-400" /> User Link Requests & Fulfillment Vault
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Review titles requested by visitors, add custom qualities/languages, and fulfill downloads in 1-click.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchAdminRequests}
+                disabled={isLoadingRequests}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-400 hover:text-amber-300 text-xs font-bold transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRequests ? 'animate-spin' : ''}`} />
+                <span>Refresh Requests</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <button
+              onClick={() => setRequestsFilter('all')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                requestsFilter === 'all'
+                  ? 'bg-blue-600/10 border-blue-500 text-white shadow-md'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider block mb-1">Total Requests</span>
+              <p className="text-2xl font-black text-white">{requestsList.length}</p>
+            </button>
+
+            <button
+              onClick={() => setRequestsFilter('pending')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                requestsFilter === 'pending'
+                  ? 'bg-amber-500/15 border-amber-500 text-white shadow-md shadow-amber-500/10'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Pending</span>
+                {pendingRequestsCount > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                )}
+              </div>
+              <p className="text-2xl font-black text-amber-400">{pendingRequestsCount}</p>
+            </button>
+
+            <button
+              onClick={() => setRequestsFilter('fulfilled')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                requestsFilter === 'fulfilled'
+                  ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-1">Fulfilled</span>
+              <p className="text-2xl font-black text-emerald-400">
+                {requestsList.filter((r) => r.status === 'fulfilled').length}
+              </p>
+            </button>
+
+            <button
+              onClick={() => setRequestsFilter('rejected')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                requestsFilter === 'rejected'
+                  ? 'bg-rose-500/15 border-rose-500 text-white shadow-md shadow-rose-500/10'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 block mb-1">Rejected</span>
+              <p className="text-2xl font-black text-rose-400">
+                {requestsList.filter((r) => r.status === 'rejected').length}
+              </p>
+            </button>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="p-4 rounded-2xl bg-[#0f121a] border border-zinc-800 flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Search by title, quality, audio, contact, or notes..."
+                value={requestsSearchQuery}
+                onChange={(e) => setRequestsSearchQuery(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              />
+              {requestsSearchQuery && (
+                <button
+                  onClick={() => setRequestsSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto no-scrollbar">
+              {(['all', 'pending', 'fulfilled', 'rejected'] as const).map((filterKey) => (
+                <button
+                  key={filterKey}
+                  onClick={() => setRequestsFilter(filterKey)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition-all shrink-0 ${
+                    requestsFilter === filterKey
+                      ? 'bg-amber-500 text-black shadow-md'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  {filterKey}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Requests Cards List */}
+          {(() => {
+            const filteredRequests = requestsList.filter((r) => {
+              if (requestsFilter !== 'all' && r.status !== requestsFilter) return false;
+              if (!requestsSearchQuery.trim()) return true;
+              const q = requestsSearchQuery.toLowerCase();
+              return (
+                r.title.toLowerCase().includes(q) ||
+                (r.userContact && r.userContact.toLowerCase().includes(q)) ||
+                (r.notes && r.notes.toLowerCase().includes(q)) ||
+                (r.quality && r.quality.toLowerCase().includes(q)) ||
+                (r.audioLanguage && r.audioLanguage.toLowerCase().includes(q))
+              );
+            });
+
+            if (filteredRequests.length === 0) {
+              return (
+                <div className="p-12 rounded-3xl bg-[#0f121a] border border-zinc-800 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-600">
+                    <Inbox className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-zinc-300">No requests found</h4>
+                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                    {requestsSearchQuery
+                      ? 'No user requests match your current search query.'
+                      : requestsFilter === 'pending'
+                      ? 'All caught up! No pending requests to fulfill.'
+                      : 'No requests submitted under this filter.'}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {filteredRequests.map((req) => {
+                  const posterUrl = req.posterPath ? getImageURL(req.posterPath, 'w200') : null;
+                  const dateStr = new Date(req.createdAt).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+
+                  return (
+                    <div
+                      key={req.id}
+                      className="p-5 rounded-3xl bg-[#0f121a] border border-zinc-800/80 hover:border-zinc-700 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-lg group"
+                    >
+                      {/* Left: Thumbnail & Details */}
+                      <div className="flex items-start gap-4 flex-1 min-w-0">
+                        {posterUrl ? (
+                          <div className="relative w-14 h-20 rounded-xl overflow-hidden shrink-0 border border-zinc-700 bg-zinc-900 shadow-md">
+                            <Image
+                              src={posterUrl}
+                              alt={req.title}
+                              fill
+                              sizes="56px"
+                              className="object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-14 h-20 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 text-zinc-600">
+                            {req.mediaType === 'tv' ? <Tv className="w-6 h-6" /> : <Film className="w-6 h-6" />}
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          {/* Title & Badges */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm sm:text-base font-bold text-white truncate">
+                              {req.title}
+                            </h4>
+                            {req.releaseYear && (
+                              <span className="text-xs text-zinc-400 font-mono">({req.releaseYear})</span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                              {req.mediaType === 'tv' ? <Tv className="w-2.5 h-2.5 text-sky-400" /> : <Film className="w-2.5 h-2.5 text-amber-400" />}
+                              {req.mediaType === 'tv' ? 'TV' : 'Movie'}
+                            </span>
+
+                            {/* Status Badge */}
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                req.status === 'pending'
+                                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                                  : req.status === 'fulfilled'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                              }`}
+                            >
+                              {req.status}
+                            </span>
+                          </div>
+
+                          {/* Requested Quality & Audio Pills */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                            <span className="px-2.5 py-0.5 rounded-lg bg-blue-600/15 border border-blue-500/30 text-blue-300 font-semibold text-[11px] flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-blue-400" />
+                              <span>{req.quality || 'Any Quality'}</span>
+                            </span>
+
+                            <span className="px-2.5 py-0.5 rounded-lg bg-purple-600/15 border border-purple-500/30 text-purple-300 font-semibold text-[11px] flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-purple-400" />
+                              <span>{req.audioLanguage || 'Any Audio'}</span>
+                            </span>
+
+                            {req.mediaType === 'tv' && (req.seasonNumber || req.episodeNumber) && (
+                              <span className="px-2 py-0.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-[11px] font-mono">
+                                {req.seasonNumber ? `S${req.seasonNumber}` : ''}
+                                {req.episodeNumber ? `E${req.episodeNumber}` : ' (Pack)'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* User notes & contact */}
+                          {(req.notes || req.userContact) && (
+                            <div className="pt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+                              {req.notes && (
+                                <p className="italic text-zinc-300 bg-zinc-900/60 px-2.5 py-1 rounded-lg border border-zinc-800 text-[11px]">
+                                  &ldquo;{req.notes}&rdquo;
+                                </p>
+                              )}
+                              {req.userContact && (
+                                <span className="text-[11px] text-blue-400 font-mono flex items-center gap-1">
+                                  <span>User: {req.userContact}</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Fulfilled Link URL preview */}
+                          {req.status === 'fulfilled' && req.fulfilledLinkUrl && (
+                            <div className="pt-1 flex items-center gap-2 text-xs text-emerald-400">
+                              <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span className="font-semibold text-[11px]">Fulfilled Link:</span>
+                              <a
+                                href={req.fulfilledLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="truncate max-w-xs font-mono text-[11px] underline hover:text-emerald-300"
+                              >
+                                {req.fulfilledLinkUrl}
+                              </a>
+                            </div>
+                          )}
+
+                          <div className="text-[10px] text-zinc-500 pt-0.5">
+                            <span>Requested on {dateStr}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Actions */}
+                      <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
+                        {/* 1-Click Fulfill Action Button */}
+                        <button
+                          onClick={() => handleOpenFulfill(req)}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:scale-105 active:scale-95"
+                          title="Open fulfillment dialog to attach link and fulfill request"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>{req.status === 'fulfilled' ? 'Add Another Link' : 'Fulfill & Add Link'}</span>
+                        </button>
+
+                        {/* Status Toggle Quick Buttons */}
+                        {req.status === 'pending' ? (
+                          <button
+                            onClick={() => handleUpdateStatus(req.id, 'rejected')}
+                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-rose-500/50 text-rose-400 hover:text-rose-300 text-xs font-bold transition-colors"
+                            title="Reject this request"
+                          >
+                            Reject
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleUpdateStatus(req.id, 'pending')}
+                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-400 hover:text-amber-300 text-xs font-bold transition-colors"
+                            title="Reopen as pending"
+                          >
+                            Reopen
+                          </button>
+                        )}
+
+                        {/* View Title on Live Site */}
+                        {req.tmdbId && (
+                          <Link
+                            href={`/${req.mediaType}/${req.tmdbId}`}
+                            target="_blank"
+                            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                            title="View Title on Site"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </Link>
+                        )}
+
+                        {/* Delete Request */}
+                        <button
+                          onClick={() => handleDeleteRequest(req.id)}
+                          className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Delete Request"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB: DEFECTIVE LINKS CONTROL CENTER */}
+      {/* ========================================================= */}
+      {activeTab === 'reports' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="p-6 rounded-3xl bg-[#0f121a] border border-rose-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-rose-500/5 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-start sm:items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-400 flex items-center justify-center shrink-0 shadow-lg shadow-rose-500/10">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                    Defective Links Control Center
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-mono font-bold uppercase">
+                    Live Moderation
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
+                  Review and manage links reported by users for 404 dead links, paywall loops, corrupted files, or audio desyncs. Test, replace with working mirrors, or purge broken downloads in 1 click.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+              <button
+                onClick={fetchAdminReports}
+                disabled={isLoadingReports}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                title="Refresh defective reports list"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingReports ? 'animate-spin text-rose-400' : ''}`} />
+                <span>{isLoadingReports ? 'Refreshing...' : 'Refresh'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <button
+              onClick={() => setReportsFilter('all')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                reportsFilter === 'all'
+                  ? 'bg-rose-500/15 border-rose-500 text-white shadow-md shadow-rose-500/10'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Total Reports</span>
+              <p className="text-2xl font-black text-white">{reportsList.length}</p>
+            </button>
+
+            <button
+              onClick={() => setReportsFilter('pending')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                reportsFilter === 'pending'
+                  ? 'bg-rose-500/15 border-rose-500 text-white shadow-md shadow-rose-500/10'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Needs Fix</span>
+                {pendingReportsCount > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                )}
+              </div>
+              <p className="text-2xl font-black text-rose-400">{pendingReportsCount}</p>
+            </button>
+
+            <button
+              onClick={() => setReportsFilter('fixed')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                reportsFilter === 'fixed'
+                  ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-1">Fixed / Replaced</span>
+              <p className="text-2xl font-black text-emerald-400">
+                {reportsList.filter((r) => r.status === 'fixed').length}
+              </p>
+            </button>
+
+            <button
+              onClick={() => setReportsFilter('dismissed')}
+              className={`p-4 rounded-2xl border text-left transition-all ${
+                reportsFilter === 'dismissed'
+                  ? 'bg-zinc-700/40 border-zinc-500 text-white shadow-md'
+                  : 'bg-[#11141c] border-white/5 text-zinc-400 hover:border-zinc-700'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Dismissed (Valid)</span>
+              <p className="text-2xl font-black text-zinc-300">
+                {reportsList.filter((r) => r.status === 'dismissed').length}
+              </p>
+            </button>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="p-4 rounded-2xl bg-[#0f121a] border border-zinc-800 flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Search by title, URL, release name, server, or notes..."
+                value={reportsSearchQuery}
+                onChange={(e) => setReportsSearchQuery(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500"
+              />
+              {reportsSearchQuery && (
+                <button
+                  onClick={() => setReportsSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Status Tabs */}
+            <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto no-scrollbar">
+              {(['all', 'pending', 'fixed', 'dismissed'] as const).map((filterKey) => (
+                <button
+                  key={filterKey}
+                  onClick={() => setReportsFilter(filterKey)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition-all shrink-0 ${
+                    reportsFilter === filterKey
+                      ? 'bg-rose-500 text-white shadow-md shadow-rose-500/20'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  {filterKey}
+                </button>
+              ))}
+            </div>
+
+            {/* Issue Filter Selector */}
+            <select
+              value={reportsIssueFilter}
+              onChange={(e) => setReportsIssueFilter(e.target.value)}
+              className="bg-zinc-900 border border-zinc-800 text-zinc-300 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-rose-500"
+            >
+              <option value="all">All Issue Types</option>
+              <option value="dead_link">Dead Link / 404</option>
+              <option value="paywall_loop">Bypass / Paywall Loop</option>
+              <option value="audio_desync">Audio Desync / Missing</option>
+              <option value="video_glitch">Video Glitch / Corrupted</option>
+              <option value="wrong_episode">Wrong Episode / Title</option>
+              <option value="slow_timeout">Slow Server / Timeout</option>
+              <option value="other">Other Issue</option>
+            </select>
+          </div>
+
+          {/* Reports List Cards */}
+          {(() => {
+            const filteredReports = reportsList.filter((r) => {
+              if (reportsFilter !== 'all' && r.status !== reportsFilter) return false;
+              if (reportsIssueFilter !== 'all' && r.issueType !== reportsIssueFilter) return false;
+              if (!reportsSearchQuery.trim()) return true;
+              const q = reportsSearchQuery.toLowerCase();
+              return (
+                r.mediaTitle.toLowerCase().includes(q) ||
+                r.linkTitle.toLowerCase().includes(q) ||
+                r.reportedUrl.toLowerCase().includes(q) ||
+                (r.server && r.server.toLowerCase().includes(q)) ||
+                (r.additionalNotes && r.additionalNotes.toLowerCase().includes(q)) ||
+                (r.userEmail && r.userEmail.toLowerCase().includes(q))
+              );
+            });
+
+            if (filteredReports.length === 0) {
+              return (
+                <div className="p-12 rounded-3xl bg-[#0f121a] border border-zinc-800 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-600">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">No Defective Link Reports</h4>
+                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                    {reportsFilter === 'all'
+                      ? 'All custom downloads and streams are functioning normally! When a user reports a broken link, it will appear here.'
+                      : `No reports currently matching the filter "${reportsFilter}".`}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {filteredReports.map((report) => {
+                  const issueBadgeStyle = (() => {
+                    switch (report.issueType) {
+                      case 'dead_link':
+                        return 'bg-rose-500/15 text-rose-300 border-rose-500/40';
+                      case 'paywall_loop':
+                        return 'bg-amber-500/15 text-amber-300 border-amber-500/40';
+                      case 'audio_desync':
+                        return 'bg-purple-500/15 text-purple-300 border-purple-500/40';
+                      case 'video_glitch':
+                        return 'bg-pink-500/15 text-pink-300 border-pink-500/40';
+                      case 'wrong_episode':
+                        return 'bg-sky-500/15 text-sky-300 border-sky-500/40';
+                      case 'slow_timeout':
+                        return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/40';
+                      default:
+                        return 'bg-zinc-800 text-zinc-300 border-zinc-700';
+                    }
+                  })();
+
+                  const serverInfo = detectServer(report.reportedUrl);
+
+                  return (
+                    <div
+                      key={report.id}
+                      className="p-5 rounded-3xl bg-[#0f121a] border border-zinc-800/80 hover:border-zinc-700 flex flex-col md:flex-row items-start justify-between gap-5 transition-all shadow-md group"
+                    >
+                      {/* Left: Poster + Details */}
+                      <div className="flex items-start gap-4 overflow-hidden w-full md:w-auto">
+                        {/* Title Poster Thumbnail */}
+                        <div className="w-14 h-20 rounded-xl bg-zinc-900 border border-zinc-800 relative overflow-hidden shrink-0 shadow-md">
+                          {report.posterPath ? (
+                            <Image
+                              src={getImageURL(report.posterPath, 'w200')}
+                              alt={report.mediaTitle}
+                              fill
+                              className="object-cover"
+                              sizes="56px"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-zinc-700 font-black text-xs">
+                              {report.mediaType === 'tv' ? 'TV' : 'MOVIE'}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-2 overflow-hidden flex-1">
+                          {/* Title & Badges */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm font-black text-white hover:text-rose-400 transition-colors">
+                              {report.movieId ? (
+                                <Link
+                                  href={`/${report.mediaType || 'movie'}/${report.movieId}`}
+                                  target="_blank"
+                                  className="flex items-center gap-1.5"
+                                >
+                                  <span>{report.mediaTitle}</span>
+                                  <ExternalLink className="w-3 h-3 text-zinc-500" />
+                                </Link>
+                              ) : (
+                                report.mediaTitle
+                              )}
+                            </h4>
+
+                            <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase">
+                              {report.mediaType === 'tv' ? 'TV Series' : 'Movie'}
+                            </span>
+
+                            {/* Issue Pill */}
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border flex items-center gap-1 ${issueBadgeStyle}`}>
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>{report.issueLabel}</span>
+                            </span>
+
+                            {/* Status Pill */}
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                report.status === 'fixed'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                  : report.status === 'dismissed'
+                                  ? 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/30 animate-pulse'
+                              }`}
+                            >
+                              {report.status === 'fixed' ? '✓ Fixed' : report.status === 'dismissed' ? 'Dismissed' : 'Pending Fix'}
+                            </span>
+                          </div>
+
+                          {/* Link Title / Release Name */}
+                          <div className="text-xs font-bold text-zinc-300 font-mono break-all">
+                            {report.linkTitle}
+                          </div>
+
+                          {/* Server & Quality Tags */}
+                          <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                            <span className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1 ${serverInfo.badgeClass}`}>
+                              {report.server || serverInfo.name}
+                            </span>
+                            {report.quality && (
+                              <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700">
+                                {report.quality}
+                              </span>
+                            )}
+                            <span className="text-zinc-500 font-mono">
+                              Reported {formatRelativeTime(report.createdAt)}
+                            </span>
+                            {report.userEmail && (
+                              <span className="text-zinc-400 font-mono">
+                                • By: {report.userEmail}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Reported Broken URL Box */}
+                          <div className="flex items-center gap-2 p-2 rounded-xl bg-black/40 border border-white/5 text-[11px] font-mono text-zinc-400 max-w-xl">
+                            <span className="text-rose-400 font-bold shrink-0">Dead URL:</span>
+                            <span className="truncate flex-1 text-zinc-300" title={report.reportedUrl}>
+                              {report.reportedUrl}
+                            </span>
+                            <a
+                              href={report.reportedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white flex items-center gap-1 text-[10px] shrink-0 transition-colors"
+                              title="Test link in new tab to see if it 404s"
+                            >
+                              <span>Test Link</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+
+                          {/* User Additional Notes */}
+                          {report.additionalNotes && (
+                            <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 text-xs text-zinc-300 italic">
+                              &ldquo;{report.additionalNotes}&rdquo;
+                            </div>
+                          )}
+
+                          {/* Resolved State Display */}
+                          {report.status === 'fixed' && report.replacementUrl && (
+                            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 flex items-center gap-2">
+                              <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span className="font-semibold">Replaced with:</span>
+                              <a
+                                href={report.replacementUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="truncate underline font-mono text-[11px]"
+                              >
+                                {report.replacementUrl}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right: Admin Action Controls */}
+                      <div className="flex flex-wrap md:flex-col items-center md:items-end gap-2 shrink-0 self-end md:self-center w-full md:w-auto">
+                        {/* 1. Replace & Fix Link Action */}
+                        <button
+                          onClick={() => handleOpenFixModal(report)}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500 hover:from-rose-400 hover:to-amber-400 text-black font-black text-xs shadow-md shadow-rose-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                          title="Open dialog to enter working replacement link"
+                        >
+                          <Wrench className="w-3.5 h-3.5" />
+                          <span>{report.status === 'fixed' ? 'Update Replacement' : 'Replace & Fix Link'}</span>
+                        </button>
+
+                        {/* 2. Direct Delete Broken Link Button */}
+                        <button
+                          onClick={() => handleDeleteBrokenLinkDirectly(report)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all hover:scale-105 cursor-pointer"
+                          title="Permanently remove broken link from CineFuel"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Broken Link</span>
+                        </button>
+
+                        {/* 3. Dismiss / Reopen Actions */}
+                        <div className="flex items-center gap-1.5">
+                          {report.status === 'pending' ? (
+                            <button
+                              onClick={() => handleUpdateReportStatus(report.id, 'dismissed')}
+                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white text-xs font-semibold transition-colors"
+                              title="Mark as false alarm or link is functioning fine"
+                            >
+                              Dismiss (Valid)
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleUpdateReportStatus(report.id, 'pending')}
+                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500 text-amber-400 hover:text-amber-300 text-xs font-semibold transition-colors"
+                              title="Reopen report as pending"
+                            >
+                              Reopen
+                            </button>
+                          )}
+
+                          {/* Delete Report Record */}
+                          <button
+                            onClick={() => handleDeleteReport(report.id)}
+                            className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Delete this report record"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ========================================================= */}
       {/* TAB 4: MANAGE USERS */}
       {/* ========================================================= */}
       {activeTab === 'users' && (
@@ -2816,20 +4218,6 @@ export default function AdminPage() {
                   {tmdbTestResult.msg}
                 </p>
               )}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
-                <span>SIMKL Client ID</span>
-                <span className="text-[10px] text-amber-400 font-normal">simkl.com/apps</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter SIMKL Client ID"
-                value={simklClientId}
-                onChange={(e) => setSimklClientId(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500"
-              />
             </div>
 
             <div className="space-y-1.5">
@@ -3051,6 +4439,290 @@ export default function AdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Fulfill Link Request Modal */}
+      {fulfillingRequest && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#11141d] border border-blue-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-blue-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Fulfill Request: {fulfillingRequest.title}
+                </h4>
+              </div>
+              <button
+                onClick={() => setFulfillingRequest(null)}
+                className="text-zinc-400 hover:text-white text-xs font-bold"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Request Summary Card */}
+            <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">Requested Quality:</span>
+                <span className="text-blue-400 font-bold">{fulfillingRequest.quality || 'Any Quality'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">Requested Audio:</span>
+                <span className="text-purple-400 font-bold">{fulfillingRequest.audioLanguage || 'Any Audio'}</span>
+              </div>
+              {fulfillingRequest.notes && (
+                <div className="pt-1 border-t border-zinc-800/60 text-zinc-300 italic">
+                  &ldquo;{fulfillingRequest.notes}&rdquo;
+                </div>
+              )}
+            </div>
+
+            {fulfillSuccessMsg ? (
+              <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold">
+                {fulfillSuccessMsg}
+              </div>
+            ) : (
+              <form onSubmit={handleFulfillSubmit} className="space-y-3.5">
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                    Link Title / Release Label *
+                  </label>
+                  <input
+                    type="text"
+                    value={fulfillTitle}
+                    onChange={(e) => setFulfillTitle(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                    Download / Streaming Destination URL *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://hubcloud.club/... or GDFlix / Google Drive URL"
+                    value={fulfillUrl}
+                    onChange={(e) => setFulfillUrl(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1080p, 4K"
+                      value={fulfillQuality}
+                      onChange={(e) => setFulfillQuality(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Hindi + Eng"
+                      value={fulfillAudio}
+                      onChange={(e) => setFulfillAudio(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Size</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 2.4 GB"
+                      value={fulfillSize}
+                      onChange={(e) => setFulfillSize(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setFulfillingRequest(null)}
+                    disabled={isFulfillingSubmit}
+                    className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isFulfillingSubmit}
+                    className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs shadow-lg shadow-blue-500/25 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>{isFulfillingSubmit ? 'Publishing Link...' : 'Publish Link & Fulfill'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 2. Admin Replace Defective Link Modal */}
+      {fixingReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div
+            className="relative w-full max-w-lg bg-[#0d111a] border border-rose-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setFixingReport(null)}
+              className="absolute top-5 right-5 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-start gap-3.5 pr-8">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500 to-amber-500 text-black flex items-center justify-center shrink-0 shadow-lg shadow-rose-500/20 font-black">
+                <Wrench className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 uppercase">
+                  {fixingReport.issueLabel}
+                </span>
+                <h3 className="text-lg font-black text-white leading-tight">
+                  Replace Defective Link
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Target: <strong className="text-white">{fixingReport.mediaTitle}</strong>
+                </p>
+              </div>
+            </div>
+
+            {fixSuccessMsg ? (
+              <div className="p-6 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-center space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                <p className="text-sm font-bold text-white">{fixSuccessMsg}</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitFixReplacement} className="space-y-4 text-left">
+                {/* Broken URL Info */}
+                <div className="p-3 rounded-xl bg-black/50 border border-white/5 space-y-1 text-xs">
+                  <div className="text-[10px] uppercase font-bold text-rose-400">Current Defective URL:</div>
+                  <div className="font-mono text-zinc-400 truncate" title={fixingReport.reportedUrl}>
+                    {fixingReport.reportedUrl}
+                  </div>
+                </div>
+
+                {/* New Replacement Working URL */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
+                    <span>New Working Link / Mirror URL *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">High-Speed CDN</span>
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://hubcloud.club/drive/... or https://gdflix..."
+                    value={replaceUrl}
+                    onChange={(e) => setReplaceUrl(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 focus:border-rose-400 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none transition-all"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Link Title */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-zinc-300">Link Title / Release Tag</label>
+                  <input
+                    type="text"
+                    value={replaceTitle}
+                    onChange={(e) => setReplaceTitle(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 focus:border-rose-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                  />
+                </div>
+
+                {/* Quality, Audio, Size */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1080p, 4K"
+                      value={replaceQuality}
+                      onChange={(e) => setReplaceQuality(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Hindi + Eng"
+                      value={replaceAudio}
+                      onChange={(e) => setReplaceAudio(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Size</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 2.4 GB"
+                      value={replaceSize}
+                      onChange={(e) => setReplaceSize(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Admin Note */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-zinc-300">Resolution Note</label>
+                  <input
+                    type="text"
+                    value={replaceAdminNote}
+                    onChange={(e) => setReplaceAdminNote(e.target.value)}
+                    placeholder="e.g. Fixed with clean 1080p GDFlix mirror."
+                    className="w-full bg-zinc-900 border border-zinc-700 focus:border-rose-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  />
+                </div>
+
+                {/* Database update toggle */}
+                <label className="flex items-center gap-2.5 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 text-xs text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={updateDbWithReplacement}
+                    onChange={(e) => setUpdateDbWithReplacement(e.target.checked)}
+                    className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 accent-rose-500"
+                  />
+                  <span>
+                    Auto-update in live database so visitors get the new working link immediately.
+                  </span>
+                </label>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setFixingReport(null)}
+                    disabled={isFixingSubmit}
+                    className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isFixingSubmit}
+                    className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500 hover:from-rose-400 hover:to-amber-400 text-black font-black text-xs shadow-lg shadow-rose-500/25 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span>{isFixingSubmit ? 'Applying Replacement...' : 'Save & Mark as Fixed'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

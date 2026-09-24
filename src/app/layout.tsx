@@ -6,8 +6,8 @@ import Header from '@/components/Header';
 
 export const metadata: Metadata = {
   title: 'CineFuel - Discover Movies & TV, Where to Watch & Track Watchlist',
-  description: 'Your ultimate cinema command center. Discover trending movies & TV shows, check India streaming availability on Hotstar, Netflix, JioCinema, and sync with Trakt.',
-  keywords: 'movies, tv shows, streaming india, trakt sync, watchlist, hotstar, jiocinema, netflix, tmdb, imdb ratings',
+  description: 'Your ultimate cinema command center. Discover trending movies & TV shows, check India streaming availability on Hotstar, Netflix, and JioCinema.',
+  keywords: 'movies, tv shows, streaming india, watchlist, hotstar, jiocinema, netflix, tmdb, imdb ratings',
 };
 
 export default function RootLayout({

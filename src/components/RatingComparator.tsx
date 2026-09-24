@@ -21,7 +21,6 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
 
   const tmdbScore = titleDetails.vote_average ? titleDetails.vote_average.toFixed(1) : 'N/A';
   const imdbScore = titleDetails.imdb_rating ? titleDetails.imdb_rating.toFixed(1) : (titleDetails.vote_average ? (titleDetails.vote_average + 0.3).toFixed(1) : '8.4');
-  const simklScore = titleDetails.simkl_rating ? titleDetails.simkl_rating.toFixed(1) : (titleDetails.vote_average ? (titleDetails.vote_average + 0.2).toFixed(1) : '8.3');
   const mdblistScore = titleDetails.mdblist_score || (titleDetails.vote_average ? Math.round(titleDetails.vote_average * 10 + 2) : 86);
 
   const currentPersonalRating = isMounted ? (existing?.personalRating || 0) : 0;
@@ -52,13 +51,13 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
     <CollapsibleSection
       title="Compare Ratings & Reviews"
       icon={<Award className="w-5 h-5 text-amber-400" />}
-      badge="4 Sources"
+      badge="3 Sources"
       defaultOpen={false}
       className="bg-zinc-950/70 backdrop-blur-md border border-zinc-800/80 w-full"
     >
 
-      {/* Ratings Cards Grid (TMDB, IMDb, SIMKL, and User Rating) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+      {/* Ratings Cards Grid (TMDB, IMDb, and User Rating) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
         {/* TMDB */}
         <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-emerald-500/30 transition-colors">
           <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
@@ -109,31 +108,6 @@ export const RatingComparator: React.FC<RatingComparatorProps> = ({ titleDetails
             <div
               className="bg-amber-400 h-full rounded-full"
               style={{ width: `${Math.min(100, (Number(imdbScore) || 0) * 10)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* SIMKL */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-sky-500/30 transition-colors">
-          <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
-            <span className="text-sky-400 font-bold text-xs">SIMKL</span>
-            <a
-              href={`https://simkl.com/search/?q=${encodeURIComponent(titleName)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-zinc-400 hover:text-white flex items-center gap-0.5 text-[10px]"
-            >
-              Link <ExternalLink className="w-2.5 h-2.5" />
-            </a>
-          </div>
-          <div className="my-1.5 flex items-baseline gap-1">
-            <span className="text-xl sm:text-2xl font-black text-sky-400">{simklScore}</span>
-            <span className="text-[11px] text-zinc-400">/ 10</span>
-          </div>
-          <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-sky-400 h-full rounded-full"
-              style={{ width: `${Math.min(100, (Number(simklScore) || 0) * 10)}%` }}
             />
           </div>
         </div>

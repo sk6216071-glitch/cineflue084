@@ -66,7 +66,7 @@ const NAVIGATION_ITEMS: NavItem[] = [
 export const Header: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
-  const { stats, simklConfig, isMounted } = useWatchlist();
+  const { stats, isMounted } = useWatchlist();
   const { userProfile, isLoggedIn } = useAuth();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);

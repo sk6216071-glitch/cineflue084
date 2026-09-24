@@ -120,9 +120,9 @@ const COMMUNITY_RECENT_LINKS: FlattenedCustomLinkItem[] = [
     },
     link: {
       id: 'demo-link-5',
-      title: 'Hans Zimmer - Time (Orchestral Live in Prague)',
-      url: 'https://open.spotify.com/search/Inception%20Time%20Hans%20Zimmer',
-      category: 'Streaming',
+      title: 'Inception - Behind The Scenes & Making Of',
+      url: 'https://www.youtube.com/results?search_query=Inception+behind+the+scenes',
+      category: 'Official',
       createdAt: new Date(Date.now() - 1000 * 60 * 60 * 36).toISOString(), // 1.5 days ago
     },
   },

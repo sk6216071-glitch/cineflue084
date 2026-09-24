@@ -12,15 +12,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const {
     settings,
     updateSettings,
-    simklConfig,
-    updateSimklConfig,
     mdblistConfig,
     updateMdblistConfig,
     watchlist,
   } = useWatchlist();
   const [tmdbKey, setTmdbKey] = useState(settings.tmdbApiKey);
   const [region, setRegion] = useState(settings.defaultRegion);
-  const [simklClientId, setSimklClientId] = useState(simklConfig.clientId);
   const [mdblistApiKey, setMdblistApiKey] = useState(mdblistConfig.apiKey);
   const [savedMessage, setSavedMessage] = useState('');
 
@@ -29,9 +26,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       tmdbApiKey: tmdbKey.trim(),
       mdblistApiKey: mdblistApiKey.trim(),
       defaultRegion: region,
-    });
-    updateSimklConfig({
-      clientId: simklClientId.trim(),
     });
     updateMdblistConfig({
       apiKey: mdblistApiKey.trim(),
@@ -131,23 +125,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               <option value="GB">United Kingdom (🇬🇧 BBC iPlayer, Sky, Netflix)</option>
               <option value="CA">Canada (🇨🇦 Crave, Netflix, Prime)</option>
             </select>
-          </div>
-
-          {/* SIMKL API Client ID */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 font-medium text-zinc-200">
-              <span className="w-4 h-4 rounded bg-sky-500 text-[10px] text-black font-black flex items-center justify-center">
-                S
-              </span>
-              SIMKL API Client ID (Optional)
-            </label>
-            <input
-              type="text"
-              placeholder="Optional SIMKL Client ID"
-              value={simklClientId}
-              onChange={(e) => setSimklClientId(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-sky-500"
-            />
           </div>
 
           {/* MDBList API Key */}

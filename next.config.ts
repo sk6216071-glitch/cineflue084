@@ -24,11 +24,21 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "assets.fanart.tv",
       },
-      {
-        protocol: "https",
-        hostname: "simkl.in",
-      },
     ],
+  },
+  async redirects() {
+    return [
+      {
+        source: '/simkl',
+        destination: '/watchlist',
+        permanent: false,
+      },
+      {
+        source: '/trakt',
+        destination: '/watchlist',
+        permanent: false,
+      },
+    ];
   },
 };
 

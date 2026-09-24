@@ -19,6 +19,7 @@ import {
   FileText,
   ListPlus,
   LayoutGrid,
+  AlertTriangle,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -41,6 +42,8 @@ import {
 } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import CollapsibleSection from './CollapsibleSection';
+import RequestLinkModal from './RequestLinkModal';
+import ReportBrokenLinkModal, { ReportModalData } from './ReportBrokenLinkModal';
 
 interface TVEpisodeLinksManagerProps {
   titleDetails: TitleDetails;
@@ -72,6 +75,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [isOpenAddModal, setIsOpenAddModal] = useState<boolean>(false);
   const [isOpenBulkContainer, setIsOpenBulkContainer] = useState<boolean>(false);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
+  const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
 
   // Form states for Admin adding single episode / zip link
   const [formSeason, setFormSeason] = useState<number>(1);
@@ -724,6 +729,28 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
 
+                    {/* Report Broken Link Button */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReportingLink({
+                          linkId: pack.id,
+                          movieId: titleDetails.id,
+                          mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                          mediaType: 'tv',
+                          posterPath: titleDetails.poster_path,
+                          linkTitle: pack.title,
+                          reportedUrl: pack.url,
+                          quality: pack.quality,
+                          server: detectServer(pack.url).name,
+                        })
+                      }
+                      className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
+                      title="Report broken or defective zip link"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    </button>
+
                     {isEffectiveAdmin && (
                       <div className="flex items-center gap-1">
                         <button
@@ -837,6 +864,28 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       <ExternalLink className="w-3 h-3" />
                     </a>
 
+                    {/* Report Broken Link Button */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReportingLink({
+                          linkId: ep.id,
+                          movieId: titleDetails.id,
+                          mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                          mediaType: 'tv',
+                          posterPath: titleDetails.poster_path,
+                          linkTitle: ep.title,
+                          reportedUrl: ep.url,
+                          quality: ep.quality,
+                          server: detectServer(ep.url).name,
+                        })
+                      }
+                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
+                      title="Report broken or defective episode link"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    </button>
+
                     {isEffectiveAdmin && (
                       <div className="flex items-center gap-1">
                         <button
@@ -888,6 +937,25 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           )}
         </div>
       )}
+
+      {/* Can't find the link you want? Request custom quality card (matches reference design) */}
+      <div className="mt-5 p-5 sm:p-6 rounded-2xl bg-[#0b0e17] border border-blue-500/25 shadow-xl text-center space-y-3.5 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="w-10 h-10 rounded-full bg-blue-500/15 border border-blue-500/40 flex items-center justify-center mx-auto text-blue-400 shadow-md shadow-blue-500/10">
+          <Info className="w-5 h-5" />
+        </div>
+        <p className="text-xs sm:text-sm text-zinc-200 font-medium max-w-md mx-auto leading-relaxed">
+          Can&apos;t find the link you want? Request custom quality and we&apos;ll add it for you.
+        </p>
+        <button
+          type="button"
+          onClick={() => setIsRequestModalOpen(true)}
+          className="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+        >
+          REQUEST LINK
+        </button>
+      </div>
+
       </CollapsibleSection>
 
       {/* Admin Add Single Custom Episode / Zip Link Modal */}
@@ -1170,6 +1238,24 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           </div>
         </div>
       )}
+
+      {/* TV Series Link Request Modal */}
+      <RequestLinkModal
+        isOpen={isRequestModalOpen}
+        onClose={() => setIsRequestModalOpen(false)}
+        prefillTitle={titleDetails.name || titleDetails.title || 'TV Series'}
+        prefillMediaType="tv"
+        prefillTmdbId={titleDetails.id}
+        prefillPosterPath={titleDetails.poster_path}
+        prefillYear={(titleDetails.first_air_date || titleDetails.release_date || '').split('-')[0]}
+      />
+
+      {/* TV Defective / Broken Link Report Modal */}
+      <ReportBrokenLinkModal
+        isOpen={!!reportingLink}
+        onClose={() => setReportingLink(null)}
+        data={reportingLink}
+      />
     </div>
   );
 };

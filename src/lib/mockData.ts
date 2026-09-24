@@ -35,10 +35,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Released',
     imdb_rating: 8.9,
     imdb_votes: '780,000',
-    simkl_rating: 8.7,
     mdblist_score: 89,
     genres: [{ id: 18, name: 'Drama' }, { id: 36, name: 'History' }, { id: 53, name: 'Thriller' }],
-    external_ids: { imdb_id: 'tt15398776', tmdb_id: 872585, simkl_id: 872585 },
+    external_ids: { imdb_id: 'tt15398776', tmdb_id: 872585 },
     credits: {
       cast: [
         { id: 2037, name: 'Cillian Murphy', character: 'J. Robert Oppenheimer', profile_path: null },
@@ -83,10 +82,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Released',
     imdb_rating: 8.6,
     imdb_votes: '520,000',
-    simkl_rating: 8.5,
     mdblist_score: 88,
     genres: [{ id: 878, name: 'Sci-Fi' }, { id: 12, name: 'Adventure' }, { id: 18, name: 'Drama' }],
-    external_ids: { imdb_id: 'tt15239678', tmdb_id: 693134, simkl_id: 693134 },
+    external_ids: { imdb_id: 'tt15239678', tmdb_id: 693134 },
     credits: {
       cast: [
         { id: 1190668, name: 'Timothée Chalamet', character: 'Paul Atreides', profile_path: null },
@@ -130,10 +128,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Released',
     imdb_rating: 8.7,
     imdb_votes: '2,100,000',
-    simkl_rating: 8.8,
     mdblist_score: 90,
     genres: [{ id: 12, name: 'Adventure' }, { id: 18, name: 'Drama' }, { id: 878, name: 'Sci-Fi' }],
-    external_ids: { imdb_id: 'tt0816692', tmdb_id: 157336, simkl_id: 157336 },
+    external_ids: { imdb_id: 'tt0816692', tmdb_id: 157336 },
     credits: {
       cast: [
         { id: 10297, name: 'Matthew McConaughey', character: 'Joseph Cooper', profile_path: null },
@@ -178,10 +175,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Released',
     imdb_rating: 7.8,
     imdb_votes: '180,000',
-    simkl_rating: 8.0,
     mdblist_score: 83,
     genres: [{ id: 28, name: 'Action' }, { id: 18, name: 'Drama' }],
-    external_ids: { imdb_id: 'tt8178634', tmdb_id: 579974, simkl_id: 579974 },
+    external_ids: { imdb_id: 'tt8178634', tmdb_id: 579974 },
     credits: {
       cast: [
         { id: 1335436, name: 'N. T. Rama Rao Jr.', character: 'Komaram Bheem', profile_path: null },
@@ -226,10 +222,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Ended',
     imdb_rating: 9.5,
     imdb_votes: '2,200,000',
-    simkl_rating: 9.4,
     mdblist_score: 95,
     genres: [{ id: 18, name: 'Drama' }, { id: 80, name: 'Crime' }],
-    external_ids: { imdb_id: 'tt0903747', tmdb_id: 1396, simkl_id: 1396 },
+    external_ids: { imdb_id: 'tt0903747', tmdb_id: 1396 },
     credits: {
       cast: [
         { id: 17419, name: 'Bryan Cranston', character: 'Walter White', profile_path: null },
@@ -271,10 +266,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Released',
     imdb_rating: 9.0,
     imdb_votes: '2,900,000',
-    simkl_rating: 9.1,
     mdblist_score: 93,
     genres: [{ id: 18, name: 'Drama' }, { id: 28, name: 'Action' }, { id: 80, name: 'Crime' }, { id: 53, name: 'Thriller' }],
-    external_ids: { imdb_id: 'tt0468569', tmdb_id: 155, simkl_id: 155 },
+    external_ids: { imdb_id: 'tt0468569', tmdb_id: 155 },
     credits: {
       cast: [
         { id: 3894, name: 'Christian Bale', character: 'Bruce Wayne / Batman', profile_path: null },
@@ -317,10 +311,9 @@ export const MOCK_TITLES: Record<string, TitleDetails> = {
     status: 'Released',
     imdb_rating: 8.8,
     imdb_votes: '2,500,000',
-    simkl_rating: 8.9,
     mdblist_score: 91,
     genres: [{ id: 28, name: 'Action' }, { id: 878, name: 'Sci-Fi' }, { id: 12, name: 'Adventure' }],
-    external_ids: { imdb_id: 'tt1375666', tmdb_id: 27205, simkl_id: 27205 },
+    external_ids: { imdb_id: 'tt1375666', tmdb_id: 27205 },
     credits: {
       cast: [
         { id: 6193, name: 'Leonardo DiCaprio', character: 'Dom Cobb', profile_path: null },

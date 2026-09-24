@@ -101,16 +101,6 @@ function WatchlistContent() {
             </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white">My Cinema Vault</h1>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Link
-              href="/simkl"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 font-semibold text-xs transition-colors"
-            >
-              <span className="w-2 h-2 rounded-full bg-sky-400" />
-              SIMKL Sync
-            </Link>
-          </div>
         </div>
 
         {/* Quick Stats Grid */}

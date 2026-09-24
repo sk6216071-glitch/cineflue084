@@ -108,7 +108,6 @@ export interface TitleDetails {
     imdb_id?: string;
     tmdb_id?: number;
     tvdb_id?: number;
-    simkl_id?: number;
     mdblist_id?: number;
     trakt_id?: number;
     instagram_id?: string;
@@ -116,8 +115,6 @@ export interface TitleDetails {
   };
   imdb_rating?: number;
   imdb_votes?: string;
-  simkl_rating?: number;
-  simkl_votes?: number;
   mdblist_score?: number;
   mdblist_ratings?: MDBListRatingItem[];
   trakt_rating?: number;
@@ -225,19 +222,6 @@ export interface RecommendationItem {
   category: 'rated_match' | 'genre_affinity' | 'actor_director' | 'top_unwatched';
 }
 
-export interface SimklConfig {
-  clientId: string;
-  clientSecret?: string;
-  userToken?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  expiresAt?: number;
-  username?: string;
-  avatar?: string;
-  isConnected: boolean;
-  lastSyncedAt?: string;
-}
-
 export interface MdblistConfig {
   apiKey: string;
   isConnected: boolean;
@@ -251,6 +235,58 @@ export interface AppSettings {
   mdblistApiKey: string;
   defaultRegion: string; // 'IN' default
   theme: 'dark' | 'midnight' | 'oled';
-  autoSyncSimkl: boolean;
   autoSyncMdblist: boolean;
 }
+
+export interface UserRequest {
+  id: string;
+  title: string;
+  mediaType: 'movie' | 'tv';
+  tmdbId?: number;
+  posterPath?: string | null;
+  releaseYear?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  quality: string; // e.g. '4K HDR' | '1080p FHD' | '720p HD' | 'Any'
+  audioLanguage: string; // e.g. 'Hindi + English' | 'Hindi Dubbed' | 'English' | 'Any'
+  notes?: string;
+  userContact?: string;
+  status: 'pending' | 'fulfilled' | 'rejected';
+  createdAt: string;
+  fulfilledAt?: string;
+  fulfilledLinkId?: string;
+  fulfilledLinkUrl?: string;
+  adminNote?: string;
+}
+
+export type DefectiveLinkIssueType =
+  | 'dead_link'
+  | 'paywall_loop'
+  | 'audio_desync'
+  | 'video_glitch'
+  | 'wrong_episode'
+  | 'slow_timeout'
+  | 'other';
+
+export interface DefectiveLinkReport {
+  id: string;
+  linkId?: string;
+  movieId: number;
+  mediaTitle: string;
+  mediaType?: 'movie' | 'tv';
+  posterPath?: string | null;
+  linkTitle: string;
+  reportedUrl: string;
+  issueType: DefectiveLinkIssueType;
+  issueLabel: string;
+  quality?: string;
+  server?: string;
+  additionalNotes?: string;
+  userEmail?: string;
+  status: 'pending' | 'fixed' | 'dismissed';
+  createdAt: string;
+  resolvedAt?: string;
+  replacementUrl?: string;
+  adminNote?: string;
+}
+

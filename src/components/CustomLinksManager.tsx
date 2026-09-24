@@ -23,6 +23,8 @@ import {
   Search,
   Clock,
   X,
+  Info,
+  AlertTriangle,
 } from 'lucide-react';
 import { TitleDetails, CustomLink } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -39,6 +41,8 @@ import { parseFullMediaTitle } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
+import RequestLinkModal from './RequestLinkModal';
+import ReportBrokenLinkModal, { ReportModalData } from './ReportBrokenLinkModal';
 
 interface CustomLinksManagerProps {
   titleDetails: TitleDetails;
@@ -63,6 +67,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const [category, setCategory] = useState<CustomLink['category']>('Streaming');
   const [error, setError] = useState('');
   const [linksRefresh, setLinksRefresh] = useState(0);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
 
   // Edit Modal State
   const [editingLink, setEditingLink] = useState<CustomLink | null>(null);
@@ -486,6 +492,28 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
 
+                  {/* Report Broken Link Button (Matches user reference UI) */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReportingLink({
+                        linkId: custom.id,
+                        movieId: titleDetails.id,
+                        mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Title',
+                        mediaType: mediaType === 'tv' ? 'tv' : 'movie',
+                        posterPath: titleDetails.poster_path,
+                        linkTitle: custom.title,
+                        reportedUrl: custom.url,
+                        quality: custom.quality,
+                        server: server.name || server.badge,
+                      })
+                    }
+                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
+                    title="Report broken or defective link"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  </button>
+
                   {isAdmin && (
                     <>
                       <button
@@ -530,6 +558,24 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             )}
           </div>
         )}
+
+        {/* Can't find the link you want? Request custom quality card (matches reference design) */}
+        <div className="mt-5 p-5 sm:p-6 rounded-2xl bg-[#0b0e17] border border-blue-500/25 shadow-xl text-center space-y-3.5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="w-10 h-10 rounded-full bg-blue-500/15 border border-blue-500/40 flex items-center justify-center mx-auto text-blue-400 shadow-md shadow-blue-500/10">
+            <Info className="w-5 h-5" />
+          </div>
+          <p className="text-xs sm:text-sm text-zinc-200 font-medium max-w-md mx-auto leading-relaxed">
+            Can&apos;t find the link you want? Request custom quality and we&apos;ll add it for you.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsRequestModalOpen(true)}
+            className="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          >
+            REQUEST LINK
+          </button>
+        </div>
       </div>
     )}
 
@@ -749,6 +795,24 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </div>
         </div>
       )}
+
+      {/* User Link Request Modal */}
+      <RequestLinkModal
+        isOpen={isRequestModalOpen}
+        onClose={() => setIsRequestModalOpen(false)}
+        prefillTitle={titleName}
+        prefillMediaType={mediaType === 'tv' ? 'tv' : 'movie'}
+        prefillTmdbId={titleDetails.id}
+        prefillPosterPath={titleDetails.poster_path}
+        prefillYear={releaseYear}
+      />
+
+      {/* User Defective / Broken Link Report Modal */}
+      <ReportBrokenLinkModal
+        isOpen={!!reportingLink}
+        onClose={() => setReportingLink(null)}
+        data={reportingLink}
+      />
 
     </CollapsibleSection>
   );

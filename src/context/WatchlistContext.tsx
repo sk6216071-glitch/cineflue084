@@ -1,8 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { WatchlistItem, CustomLink, SimklConfig, MdblistConfig, AppSettings, TitleDetails } from '@/types';
-import { syncWatchlistToSimkl, syncWatchedToSimkl, syncRatingsToSimkl, DEFAULT_SIMKL_CONFIG } from '@/lib/simkl';
+import { WatchlistItem, CustomLink, MdblistConfig, AppSettings, TitleDetails } from '@/types';
 import { DEFAULT_MDBLIST_CONFIG, testMdblistApiKey } from '@/lib/mdblist';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -11,7 +10,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   mdblistApiKey: '',
   defaultRegion: 'IN',
   theme: 'dark',
-  autoSyncSimkl: true,
   autoSyncMdblist: true,
 };
 
@@ -123,7 +121,6 @@ interface WatchlistContextType {
   watchlist: WatchlistItem[];
   stats: WatchlistStats;
   settings: AppSettings;
-  simklConfig: SimklConfig;
   mdblistConfig: MdblistConfig;
   isMounted: boolean;
   addToWatchlist: (item: TitleDetails, initialStatus?: 'watchlist' | 'watched') => void;
@@ -135,10 +132,8 @@ interface WatchlistContextType {
   isItemInWatchlist: (id: number) => boolean;
   addCustomLink: (titleId: number, link: Omit<CustomLink, 'id' | 'createdAt'>) => void;
   removeCustomLink: (titleId: number, linkId: string) => void;
-  updateSimklConfig: (config: Partial<SimklConfig>) => void;
   updateMdblistConfig: (config: Partial<MdblistConfig>) => void;
   updateSettings: (settings: Partial<AppSettings>) => void;
-  syncWithSimkl: () => Promise<{ success: boolean; message: string }>;
   syncWithMdblist: () => Promise<{ success: boolean; message: string }>;
 }
 
@@ -147,7 +142,6 @@ const WatchlistContext = createContext<WatchlistContextType | undefined>(undefin
 export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(INITIAL_WATCHLIST);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [simklConfig, setSimklConfig] = useState<SimklConfig>(DEFAULT_SIMKL_CONFIG);
   const [mdblistConfig, setMdblistConfig] = useState<MdblistConfig>(DEFAULT_MDBLIST_CONFIG);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -164,11 +158,6 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const storedSettings = localStorage.getItem('cinefuel_settings');
       if (storedSettings) {
         setSettings((prev) => ({ ...prev, ...JSON.parse(storedSettings) }));
-      }
-
-      const storedSimkl = localStorage.getItem('cinefuel_simkl_config');
-      if (storedSimkl) {
-        setSimklConfig((prev) => ({ ...prev, ...JSON.parse(storedSimkl) }));
       }
 
       const storedMdblist = localStorage.getItem('cinefuel_mdblist_config');
@@ -200,15 +189,6 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error('Failed to save settings to localStorage:', e);
     }
   }, [settings, isMounted]);
-
-  useEffect(() => {
-    if (!isMounted) return;
-    try {
-      localStorage.setItem('cinefuel_simkl_config', JSON.stringify(simklConfig));
-    } catch (e) {
-      console.error('Failed to save SIMKL config to localStorage:', e);
-    }
-  }, [simklConfig, isMounted]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -348,53 +328,12 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   };
 
-  const updateSimklConfig = (config: Partial<SimklConfig>) => {
-    setSimklConfig((prev) => ({ ...prev, ...config }));
-  };
-
   const updateMdblistConfig = (config: Partial<MdblistConfig>) => {
     setMdblistConfig((prev) => ({ ...prev, ...config }));
   };
 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
-  };
-
-  const syncWithSimkl = async () => {
-    if (!simklConfig.isConnected || (!simklConfig.accessToken && !simklConfig.userToken)) {
-      return { success: false, message: 'SIMKL account is not connected. Please connect first.' };
-    }
-
-    try {
-      const token = simklConfig.accessToken || simklConfig.userToken || '';
-      await syncWatchlistToSimkl(
-        watchlist.filter((i) => i.status === 'watchlist'),
-        token,
-        simklConfig.clientId
-      );
-
-      await syncWatchedToSimkl(
-        watchlist.filter((i) => i.status === 'watched'),
-        token,
-        simklConfig.clientId
-      );
-
-      await syncRatingsToSimkl(
-        watchlist.filter((i) => typeof i.personalRating === 'number'),
-        token,
-        simklConfig.clientId
-      );
-
-      const timestamp = new Date().toISOString();
-      updateSimklConfig({ lastSyncedAt: timestamp });
-
-      return {
-        success: true,
-        message: 'Successfully synchronized watchlist, watch history, and star ratings with SIMKL!',
-      };
-    } catch (err) {
-      return { success: false, message: `Sync error: ${err}` };
-    }
   };
 
   const syncWithMdblist = async () => {
@@ -450,7 +389,6 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         watchlist,
         stats,
         settings,
-        simklConfig,
         mdblistConfig,
         isMounted,
         addToWatchlist,
@@ -462,10 +400,8 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isItemInWatchlist,
         addCustomLink,
         removeCustomLink,
-        updateSimklConfig,
         updateMdblistConfig,
         updateSettings,
-        syncWithSimkl,
         syncWithMdblist,
       }}
     >
