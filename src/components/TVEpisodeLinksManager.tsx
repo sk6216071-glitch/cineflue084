@@ -9,22 +9,13 @@ import {
   Trash2,
   Pencil,
   Tv,
-  Layers,
-  Sparkles,
   Info,
-  SlidersHorizontal,
   Zap,
-  CheckCircle2,
-  X,
-  FileText,
-  ListPlus,
-  LayoutGrid,
   AlertTriangle,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import {
-  saveGlobalCustomLink,
   updateGlobalCustomLink,
   deleteGlobalCustomLink,
 } from '@/lib/curatedLinks';
@@ -37,8 +28,6 @@ import {
   detectSize,
   getQualityWeight,
   parseFullMediaTitle,
-  parseBulkLinksInput,
-  ParsedBulkItem,
 } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import CollapsibleSection from './CollapsibleSection';
@@ -73,25 +62,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   const [activeMode, setActiveMode] = useState<'zip_pack' | 'single_episodes'>('zip_pack');
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
-  const [isOpenAddModal, setIsOpenAddModal] = useState<boolean>(false);
-  const [isOpenBulkContainer, setIsOpenBulkContainer] = useState<boolean>(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
   const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
-
-  // Form states for Admin adding single episode / zip link
-  const [formSeason, setFormSeason] = useState<number>(1);
-  const [formType, setFormType] = useState<'zip_pack' | 'single_episode'>('zip_pack');
-  const [formEpisode, setFormEpisode] = useState<number>(1);
-  const [formTitle, setFormTitle] = useState<string>('');
-  const [formUrl, setFormUrl] = useState<string>('');
-  const [formQuality, setFormQuality] = useState<string>('1080p WEB-DL');
-  const [formAudio, setFormAudio] = useState<string>('English (Original)');
-  const [formSize, setFormSize] = useState<string>('1.2 GB');
-
-  // Bulk Multi-Link Importer States
-  const [bulkRawText, setBulkRawText] = useState<string>('');
-  const [bulkParsedItems, setBulkParsedItems] = useState<ParsedBulkItem[]>([]);
-  const [bulkSuccessMsg, setBulkSuccessMsg] = useState<string>('');
 
   // Form states for Admin editing an existing link
   const [editingLink, setEditingLink] = useState<CustomLink | null>(null);
@@ -103,27 +75,6 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [editQuality, setEditQuality] = useState<string>('');
   const [editAudio, setEditAudio] = useState<string>('');
   const [editSize, setEditSize] = useState<string>('');
-
-  // --- Dynamic Episode Grid State (e.g. 8 episodes -> opens 8 title and 8 link containers) ---
-  const [isOpenGridContainer, setIsOpenGridContainer] = useState<boolean>(false);
-  const [gridSeason, setGridSeason] = useState<number>(1);
-  const [gridEpisodeCount, setGridEpisodeCount] = useState<number>(8);
-  const [gridBasePattern, setGridBasePattern] = useState<string>('');
-  const [gridQuality, setGridQuality] = useState<string>('2160p 4K');
-  const [gridAudio, setGridAudio] = useState<string>('Hindi + English 5.1');
-  const [gridSize, setGridSize] = useState<string>('');
-  const [gridBulkLinksText, setGridBulkLinksText] = useState<string>('');
-  const [gridSuccessMsg, setGridSuccessMsg] = useState<string>('');
-  const [gridEpisodes, setGridEpisodes] = useState<
-    Array<{
-      episodeNumber: number;
-      title: string;
-      url: string;
-      quality: string;
-      audio: string;
-      size: string;
-    }>
-  >([]);
 
   // Dynamically calculate all seasons present in TMDB metadata AND uploaded custom links (Auto S01, S02, S03...)
   const seasonsList = useMemo(() => {
@@ -148,169 +99,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     }
   }, [seasonsList, selectedSeason]);
 
-  // Auto-parse bulk text whenever user types/pastes
-  useEffect(() => {
-    if (!bulkRawText.trim()) {
-      setBulkParsedItems([]);
-      return;
-    }
-    const parsed = parseBulkLinksInput(bulkRawText, selectedSeason);
-    setBulkParsedItems(parsed);
-  }, [bulkRawText, selectedSeason]);
 
-  // Helper to format an episode title based on season, ep, and base pattern
-  const formatGridEpTitle = (
-    epNum: number,
-    pattern: string,
-    season: number,
-    quality: string,
-    audio: string
-  ) => {
-    const epStr = epNum < 10 ? `0${epNum}` : `${epNum}`;
-    const sStr = season < 10 ? `0${season}` : `${season}`;
-    const showName = titleDetails.name || titleDetails.title || 'Series';
-
-    if (pattern && pattern.trim()) {
-      let t = pattern.trim();
-      if (t.includes('{ep}') || t.includes('{s}')) {
-        return t.replace(/{ep}/g, epStr).replace(/{s}/g, sStr);
-      }
-      if (/s\d{1,2}e\d{1,3}/i.test(t)) {
-        return t.replace(/s(\d{1,2})e\d{1,3}/i, `S$1E${epStr}`);
-      }
-      return `${t} S${sStr}E${epStr}`;
-    }
-
-    return `${showName} S${sStr}E${epStr} ${quality} [${audio}]`;
-  };
-
-  // Re-generate or resize grid slots
-  const syncGridSlots = (
-    count: number,
-    season: number,
-    pattern: string,
-    quality: string,
-    audio: string,
-    size: string
-  ) => {
-    setGridEpisodes((prev) => {
-      const newSlots: Array<{
-        episodeNumber: number;
-        title: string;
-        url: string;
-        quality: string;
-        audio: string;
-        size: string;
-      }> = [];
-
-      for (let i = 1; i <= count; i++) {
-        const existing = prev.find((p) => p.episodeNumber === i);
-        newSlots.push({
-          episodeNumber: i,
-          title:
-            existing?.title && existing.title.trim().length > 3
-              ? existing.title
-              : formatGridEpTitle(i, pattern, season, quality, audio),
-          url: existing?.url || '',
-          quality: existing?.quality || quality || '2160p 4K',
-          audio: existing?.audio || audio || 'Hindi + English 5.1',
-          size: existing?.size || size || '',
-        });
-      }
-      return newSlots;
-    });
-  };
-
-  // Open grid with detected season episode count
-  const handleOpenGrid = (targetSeason?: number) => {
-    const s = targetSeason || selectedSeason;
-    setGridSeason(s);
-    const tmdbSeason = titleDetails.seasons?.find((item) => item.season_number === s);
-    const count = tmdbSeason?.episode_count && tmdbSeason.episode_count > 0 ? tmdbSeason.episode_count : (gridEpisodeCount || 8);
-    setGridEpisodeCount(count);
-    syncGridSlots(count, s, gridBasePattern, gridQuality, gridAudio, gridSize);
-    setIsOpenGridContainer(true);
-  };
-
-  // Distribute multi-line pasted links across the containers
-  const handleDistributeGridUrls = (text: string) => {
-    setGridBulkLinksText(text);
-    const urls = text.match(/(https?:\/\/[^\s<>"']+)/gi) || [];
-    if (urls.length > 0) {
-      setGridEpisodes((prev) =>
-        prev.map((slot, index) => {
-          if (urls[index]) {
-            return { ...slot, url: urls[index] };
-          }
-          return slot;
-        })
-      );
-    }
-  };
-
-  // Update a single episode slot
-  const handleUpdateGridSlot = (
-    epNum: number,
-    field: 'title' | 'url' | 'quality' | 'audio' | 'size',
-    value: string
-  ) => {
-    setGridEpisodes((prev) =>
-      prev.map((slot) => (slot.episodeNumber === epNum ? { ...slot, [field]: value } : slot))
-    );
-  };
-
-  // Apply base pattern to all episode titles
-  const handleApplyPatternToAll = () => {
-    setGridEpisodes((prev) =>
-      prev.map((slot) => ({
-        ...slot,
-        title: formatGridEpTitle(slot.episodeNumber, gridBasePattern, gridSeason, gridQuality, gridAudio),
-      }))
-    );
-  };
-
-  // Save all grid episodes
-  const handleSaveAllGridEpisodes = () => {
-    const valid = gridEpisodes.filter((e) => e.url.trim() && e.title.trim());
-    if (valid.length === 0) {
-      alert('Please fill in at least one episode link before saving.');
-      return;
-    }
-
-    valid.forEach((ep, index) => {
-      let finalUrl = ep.url.trim();
-      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-        finalUrl = `https://${finalUrl}`;
-      }
-
-      const newLink: CustomLink = {
-        id: `tv-grid-${Date.now()}-${ep.episodeNumber}-${index}`,
-        title: ep.title.trim(),
-        url: finalUrl,
-        category: 'SingleEpisode',
-        createdAt: new Date(Date.now() - index * 1000).toISOString(),
-        seasonNumber: gridSeason,
-        episodeNumber: ep.episodeNumber,
-        quality: ep.quality.trim() || gridQuality || '1080p WEB-DL',
-        audioLanguage: ep.audio.trim() || gridAudio || 'Hindi + English 5.1',
-        size: ep.size.trim() || gridSize || undefined,
-        linkType: 'single_episode',
-      };
-
-      saveGlobalCustomLink(titleDetails.id, newLink);
-    });
-
-    const count = valid.length;
-    setGridSuccessMsg(`🎉 Successfully saved ${count} episode container${count > 1 ? 's' : ''} to Season ${gridSeason}!`);
-    setActiveMode('single_episodes');
-    setSelectedSeason(gridSeason);
-    if (onLinkAdded) onLinkAdded();
-
-    setTimeout(() => {
-      setGridSuccessMsg('');
-      setIsOpenGridContainer(false);
-    }, 2800);
-  };
 
   // Enrich each custom link with smart auto-detected season, episode, quality, audio, and type
   const enrichedLinks = useMemo(() => {
@@ -392,121 +181,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     }
   }, [zipPackLinks.length, singleEpisodeLinks.length, activeMode]);
 
-  // Handle title input change with Auto-Classification intelligence
-  const handleTitleInputChange = (val: string) => {
-    setFormTitle(val);
-    if (val.trim().length > 3) {
-      const parsed = parseFullMediaTitle(val);
-      if (parsed.seasonNumber) setFormSeason(parsed.seasonNumber);
-      if (parsed.episodeNumber) {
-        setFormEpisode(parsed.episodeNumber);
-        setFormType('single_episode');
-      } else if (parsed.linkType) {
-        setFormType(parsed.linkType);
-      }
-      if (parsed.quality) setFormQuality(parsed.quality);
-      if (parsed.audioLanguage) setFormAudio(parsed.audioLanguage);
-      if (parsed.size) setFormSize(parsed.size);
-    }
-  };
 
-  const handleAdminAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formTitle.trim() || !formUrl.trim()) return;
-
-    let finalUrl = formUrl.trim();
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      finalUrl = `https://${finalUrl}`;
-    }
-
-    const newLink: CustomLink = {
-      id: `tv-link-${Date.now()}`,
-      title: formTitle.trim(),
-      url: finalUrl,
-      category: formType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
-      createdAt: new Date().toISOString(),
-      seasonNumber: formSeason,
-      episodeNumber: formType === 'single_episode' ? formEpisode : undefined,
-      quality: formQuality.trim() || 'HD',
-      audioLanguage: formAudio.trim() || 'Original',
-      size: formSize.trim() || undefined,
-      linkType: formType,
-    };
-
-    saveGlobalCustomLink(titleDetails.id, newLink);
-    setIsOpenAddModal(false);
-    setFormTitle('');
-    setFormUrl('');
-    if (onLinkAdded) onLinkAdded();
-  };
-
-  // Handle Bulk Import Action
-  const handleImportBulkLinks = () => {
-    if (bulkParsedItems.length === 0) return;
-
-    bulkParsedItems.forEach((item, index) => {
-      const newLink: CustomLink = {
-        id: `tv-bulk-${Date.now()}-${index}`,
-        title: item.title,
-        url: item.url,
-        category: item.category,
-        createdAt: new Date(Date.now() - index * 1000).toISOString(),
-        seasonNumber: item.seasonNumber,
-        episodeNumber: item.episodeNumber,
-        quality: item.quality,
-        audioLanguage: item.audioLanguage,
-        size: item.size,
-        linkType: item.linkType,
-      };
-      saveGlobalCustomLink(titleDetails.id, newLink);
-    });
-
-    const count = bulkParsedItems.length;
-    setBulkSuccessMsg(`🎉 Successfully imported and auto-arranged ${count} link${count > 1 ? 's' : ''}!`);
-    setBulkRawText('');
-    setBulkParsedItems([]);
-    if (onLinkAdded) onLinkAdded();
-
-    setTimeout(() => {
-      setBulkSuccessMsg('');
-      setIsOpenBulkContainer(false);
-    }, 2800);
-  };
-
-  // Toggle type of individual item in bulk preview
-  const handleToggleBulkItemType = (id: string) => {
-    setBulkParsedItems((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const isSingle = item.linkType === 'single_episode';
-          return {
-            ...item,
-            linkType: isSingle ? 'zip_pack' : 'single_episode',
-            category: isSingle ? 'ZipPack' : 'SingleEpisode',
-            episodeNumber: isSingle ? undefined : item.episodeNumber || 1,
-          };
-        }
-        return item;
-      })
-    );
-  };
-
-  // Convert all items in bulk preview to single episodes or zip packs
-  const handleSetAllBulkType = (type: 'single_episode' | 'zip_pack') => {
-    setBulkParsedItems((prev) =>
-      prev.map((item, index) => ({
-        ...item,
-        linkType: type,
-        category: type === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
-        episodeNumber: type === 'single_episode' ? (item.episodeNumber || index + 1) : undefined,
-      }))
-    );
-  };
-
-  // Remove single item from parsed bulk preview before saving
-  const handleRemoveParsedItem = (id: string) => {
-    setBulkParsedItems((prev) => prev.filter((item) => item.id !== id));
-  };
 
   const handleStartEdit = (link: CustomLink) => {
     setEditingLink(link);
@@ -958,148 +633,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
       </CollapsibleSection>
 
-      {/* Admin Add Single Custom Episode / Zip Link Modal */}
-      {isAdmin && isOpenAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#11141d] border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Plus className="w-4 h-4 text-amber-400" />
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Add TV Episode or Zip Pack Link
-                </h4>
-              </div>
-              <button
-                onClick={() => setIsOpenAddModal(false)}
-                className="text-zinc-400 hover:text-white text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
 
-            <form onSubmit={handleAdminAdd} className="space-y-3">
-              <div>
-                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-                  Title / Release Name <span className="text-amber-400 text-[10px]">(Auto-detects S01, S02, Ep, Quality & Audio)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Loki S02 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip"
-                  value={formTitle}
-                  onChange={(e) => handleTitleInputChange(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                  required
-                  autoFocus
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Season #</label>
-                  <select
-                    value={formSeason}
-                    onChange={(e) => setFormSeason(Number(e.target.value))}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                  >
-                    {seasonsList.map((s) => (
-                      <option key={s} value={s}>
-                        Season {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Link Type</label>
-                  <select
-                    value={formType}
-                    onChange={(e) => setFormType(e.target.value as any)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
-                  >
-                    <option value="zip_pack">🗜️ Zip / Batch Pack</option>
-                    <option value="single_episode">📥 Single Episode (Weekly)</option>
-                  </select>
-                </div>
-              </div>
-
-              {formType === 'single_episode' && (
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Episode #</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={formEpisode}
-                    onChange={(e) => setFormEpisode(Number(e.target.value))}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Download / Stream Destination URL</label>
-                <input
-                  type="text"
-                  placeholder="https://..."
-                  value={formUrl}
-                  onChange={(e) => setFormUrl(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality / Format</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 2160p 4K, 1080p"
-                    value={formQuality}
-                    onChange={(e) => setFormQuality(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio / Language</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Hindi + English"
-                    value={formAudio}
-                    onChange={(e) => setFormAudio(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">File Size</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 16.8 GB, 7.4 GB"
-                    value={formSize}
-                    onChange={(e) => setFormSize(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => setIsOpenAddModal(false)}
-                  className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md hover:scale-105"
-                >
-                  Save Link
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Admin Edit TV Link Modal */}
       {isAdmin && editingLink && (

@@ -1,10 +1,8 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import Image from 'next/image';
 import {
   Link2,
-  Plus,
   ExternalLink,
   Trash2,
   Pencil,
@@ -14,28 +12,17 @@ import {
   Subtitles,
   Film,
   Download,
-  Play,
-  Tv,
-  Check,
-  Share2,
-  Sparkles,
-  BookOpen,
-  Search,
   Clock,
-  X,
   Info,
   AlertTriangle,
 } from 'lucide-react';
 import { TitleDetails, CustomLink } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
-import { getImageURL } from '@/lib/tmdb';
 import {
   getConsolidatedCustomLinks,
-  saveGlobalCustomLink,
   updateGlobalCustomLink,
   deleteGlobalCustomLink,
   getDeletedLinkIds,
-  syncServerLinks,
 } from '@/lib/curatedLinks';
 import { parseFullMediaTitle } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
@@ -49,7 +36,6 @@ interface CustomLinksManagerProps {
 }
 
 const CATEGORIES: CustomLink['category'][] = [
-  'Recent',
   'Streaming',
   'Download',
   'Discussion',
@@ -59,13 +45,8 @@ const CATEGORIES: CustomLink['category'][] = [
 ];
 
 export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDetails }) => {
-  const { watchlist, addCustomLink, removeCustomLink, isMounted, settings, addToWatchlist } = useWatchlist();
-  const [isOpenForm, setIsOpenForm] = useState(false);
+  const { watchlist, removeCustomLink, isMounted, settings } = useWatchlist();
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('All');
-  const [title, setTitle] = useState('');
-  const [url, setUrl] = useState('');
-  const [category, setCategory] = useState<CustomLink['category']>('Streaming');
-  const [error, setError] = useState('');
   const [linksRefresh, setLinksRefresh] = useState(0);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
@@ -200,55 +181,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const releaseYear = (titleDetails.release_date || titleDetails.first_air_date || '').split('-')[0];
   const queryName = `${titleName} ${releaseYear}`.trim();
 
-
-
-  const handleAddLink = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || !url.trim()) {
-      setError('Please provide both a label and a valid URL.');
-      return;
-    }
-
-    let finalUrl = url.trim();
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      finalUrl = `https://${finalUrl}`;
-    }
-
-    if (!existing) {
-      addToWatchlist(titleDetails, 'watchlist');
-    }
-
-    const parsed = parseFullMediaTitle(title.trim());
-
-    const newLinkObj: CustomLink = {
-      id: `link-${Date.now()}`,
-      title: title.trim(),
-      url: finalUrl,
-      category,
-      createdAt: new Date().toISOString(),
-      seasonNumber: parsed.seasonNumber,
-      episodeNumber: parsed.episodeNumber,
-      linkType: parsed.linkType,
-      quality: parsed.quality,
-      audioLanguage: parsed.audioLanguage,
-      size: parsed.size,
-    };
-
-    saveGlobalCustomLink(titleDetails.id, newLinkObj);
-
-    addCustomLink(titleDetails.id, {
-      title: title.trim(),
-      url: finalUrl,
-      category,
-    });
-
-    setTitle('');
-    setUrl('');
-    setError('');
-    setIsOpenForm(false);
-    setLinksRefresh((v) => v + 1);
-  };
-
   const handleStartEdit = (link: CustomLink) => {
     setEditingLink(link);
     setEditTitle(link.title);
@@ -336,17 +268,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   const totalLinkCount = userCustomLinks.length;
 
-  const adminAddBtn = isAdmin ? (
-    <button
-      onClick={() => setIsOpenForm(!isOpenForm)}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs transition-all shadow-md shadow-amber-500/10 hover:scale-105 active:scale-95"
-      suppressHydrationWarning
-    >
-      <Plus className="w-3.5 h-3.5" />
-      <span>+ Add Link</span>
-    </button>
-  ) : null;
-
   return (
     <CollapsibleSection
       title={mediaType === 'tv' ? 'TV Series Season & Episode Vault' : 'Custom Saved Links & Downloads'}
@@ -354,10 +275,10 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
       subtitle={
         mediaType === 'tv'
           ? 'Auto-arranged seasons, batch zip archives, and weekly single episode releases.'
-          : 'Community & admin uploaded download sources, 4K releases, and verified custom links.'
+          : 'Verified streaming & download sources, 4K releases, and direct playback links.'
       }
       badge={`${totalLinkCount} files`}
-      action={adminAddBtn}
+      action={null}
       defaultOpen={false}
     >
       {/* TV Series Season & Episode Vault */}
@@ -542,20 +463,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </div>
         ) : (
           <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1.5">
-            <p className="text-xs text-zinc-400">
-              {isAdmin
-                ? 'No custom links added yet for this title.'
-                : 'No custom links published by Admin for this title yet.'}
-            </p>
-            {isAdmin && (
-              <button
-                onClick={() => setIsOpenForm(true)}
-                className="text-xs text-amber-400 font-bold hover:underline"
-                suppressHydrationWarning
-              >
-                + Add First Custom Link (Admin)
-              </button>
-            )}
+            <p className="text-xs text-zinc-300 font-medium">No custom links available yet for this title.</p>
+            <p className="text-[11px] text-zinc-500">Need a streaming or download link? Click &quot;Request Link&quot; below and our team will add it!</p>
           </div>
         )}
 
@@ -578,101 +487,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
         </div>
       </div>
     )}
-
-      {/* Add Custom Link Interactive Form (Admin Only) */}
-      {isAdmin && isOpenForm && (
-        <form
-          onSubmit={handleAddLink}
-          className="bg-zinc-900/95 border border-amber-500/40 rounded-2xl p-5 sm:p-6 space-y-4 shadow-2xl animate-fadeIn"
-        >
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                Attach Custom Link to &quot;{titleName}&quot;
-              </h4>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsOpenForm(false)}
-              className="text-xs text-zinc-400 hover:text-white"
-            >
-              Cancel
-            </button>
-          </div>
-
-          {error && <p className="text-xs text-rose-400 font-medium">{error}</p>}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div>
-              <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-                Link Title / Label
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 4K Web Stream, OpenSubtitles English, Reddit Discussion"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                autoFocus
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-                Destination URL
-              </label>
-              <input
-                type="text"
-                placeholder="https://example.com/..."
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-          </div>
-
-          {/* Category Selection Pills */}
-          <div>
-            <label className="text-[11px] font-semibold text-zinc-300 block mb-1.5">
-              Category Tag
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setCategory(cat)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                    category === cat
-                      ? 'bg-amber-500 text-black font-bold shadow-md shadow-amber-500/20'
-                      : 'bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/80'
-                  }`}
-                >
-                  {cat === 'Recent' && <Clock className="w-3 h-3" />}
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setIsOpenForm(false)}
-              className="px-4 py-2 rounded-xl text-xs text-zinc-400 hover:text-white"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-colors shadow-lg shadow-amber-500/20"
-            >
-              Save Link
-            </button>
-          </div>
-        </form>
-      )}
 
       {/* Edit Custom Link Modal (Admin Only) */}
       {isAdmin && editingLink && (
