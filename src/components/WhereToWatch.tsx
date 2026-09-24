@@ -27,15 +27,11 @@ export const WhereToWatch: React.FC<WhereToWatchProps> = ({ titleDetails }) => {
   const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
 
   const watchProviders = titleDetails['watch/providers']?.results || {};
-  const currentRegionData: WatchProvidersData = watchProviders[selectedRegion] || watchProviders['IN'] || {
-    flatrate: [
-      { provider_id: 8, provider_name: 'Netflix', logo_path: '/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg' },
-      { provider_id: 119, provider_name: 'Amazon Prime Video', logo_path: '/emthp39XA2zhcoYLhp9ow8056vB.jpg' },
-    ],
-    rent: [
-      { provider_id: 2, provider_name: 'Apple TV', logo_path: '/9ghgSC01vJ72.jpg' },
-      { provider_id: 192, provider_name: 'YouTube', logo_path: '/pTnn5JwWr4p3.jpg' },
-    ],
+  const currentRegionData: WatchProvidersData = watchProviders[selectedRegion] || watchProviders['IN'] || watchProviders['US'] || {
+    flatrate: [],
+    rent: [],
+    buy: [],
+    free: [],
   };
 
   const { availableList, justwatchUrl } = React.useMemo(() => {

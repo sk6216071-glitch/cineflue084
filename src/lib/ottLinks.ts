@@ -181,6 +181,11 @@ export const DIRECT_OTT_URLS: Record<number, Record<string, string>> = {
     appletv: 'https://tv.apple.com/in/movie/inside-out-2/umc.cmc.382v92',
     justwatch: 'https://www.justwatch.com/in/movie/inside-out-2',
   },
+  // War (2019) (Amazon Prime Video Exclusive)
+  585268: {
+    prime: 'https://www.primevideo.com/detail/War/0H5K8B4T504786Q61H9H85X61A',
+    justwatch: 'https://www.justwatch.com/in/movie/war',
+  },
 };
 
 /**
@@ -332,7 +337,8 @@ export function getRealAvailableStreamingProviders(
 
       if (nameLower.includes('netflix')) {
         key = 'netflix';
-        url = `https://www.netflix.com/title/${titleId}`;
+        // NEVER use TMDB titleId for Netflix as Netflix has internal IDs! Search ensures 0 NSES-404 errors.
+        url = `https://www.netflix.com/search?q=${encodeURIComponent(titleName)}`;
         logoBg = '#E50914';
         logoText = 'N';
         accentBorder = 'hover:border-red-600';
@@ -340,7 +346,7 @@ export function getRealAvailableStreamingProviders(
         subtext = 'Subscription (4K)';
       } else if (nameLower.includes('prime') || nameLower.includes('amazon')) {
         key = 'prime';
-        url = justwatchUrl;
+        url = `https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${encodeURIComponent(titleName)}`;
         logoBg = '#00A8E1';
         logoText = 'PV';
         accentBorder = 'hover:border-sky-500';
@@ -348,7 +354,7 @@ export function getRealAvailableStreamingProviders(
         subtext = tier === 'Subscription' ? 'Prime Video Subscription' : 'Rent / Buy (4K)';
       } else if (nameLower.includes('hotstar') || nameLower.includes('disney')) {
         key = 'hotstar';
-        url = justwatchUrl;
+        url = `https://www.hotstar.com/in/explore?search_query=${encodeURIComponent(titleName)}`;
         logoBg = '#00147B';
         logoText = 'D+';
         accentBorder = 'hover:border-blue-500';
@@ -364,7 +370,7 @@ export function getRealAvailableStreamingProviders(
         subtext = 'JioCinema Premium';
       } else if (nameLower.includes('apple')) {
         key = 'appletv';
-        url = justwatchUrl;
+        url = `https://tv.apple.com/search?term=${encodeURIComponent(titleName)}`;
         logoBg = '#333333';
         logoText = 'tv';
         accentBorder = 'hover:border-zinc-500';
@@ -372,7 +378,7 @@ export function getRealAvailableStreamingProviders(
         subtext = 'Apple TV (Rent/Buy)';
       } else if (nameLower.includes('youtube') || nameLower.includes('google')) {
         key = 'youtube';
-        url = `https://www.youtube.com/results?search_query=${encodeURIComponent(titleName + ' buy or rent')}`;
+        url = `https://www.youtube.com/results?search_query=${encodeURIComponent(titleName + ' movie')}`;
         logoBg = '#FF0000';
         logoText = '▶';
         accentBorder = 'hover:border-red-500';
@@ -380,12 +386,20 @@ export function getRealAvailableStreamingProviders(
         subtext = 'Rent / Purchase';
       } else if (nameLower.includes('zee')) {
         key = 'zee5';
-        url = `https://www.zee5.com`;
+        url = `https://www.zee5.com/search?q=${encodeURIComponent(titleName)}`;
         logoBg = '#8230C6';
         logoText = 'Z5';
         accentBorder = 'hover:border-purple-500';
         accentText = 'group-hover:text-purple-400';
         subtext = 'ZEE5 Subscription';
+      } else if (nameLower.includes('sony')) {
+        key = 'sonyliv';
+        url = `https://www.sonyliv.com/search/${encodeURIComponent(titleName)}`;
+        logoBg = '#000000';
+        logoText = 'SL';
+        accentBorder = 'hover:border-blue-400';
+        accentText = 'group-hover:text-blue-300';
+        subtext = 'SonyLIV Premium';
       }
 
       if (!availableMap.has(key)) {

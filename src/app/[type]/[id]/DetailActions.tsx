@@ -14,7 +14,7 @@ interface DetailActionsProps {
 }
 
 export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trailerKey }) => {
-  const { watchlist, addToWatchlist, removeFromWatchlist, toggleStatus, toggleFavorite, isMounted } = useWatchlist();
+  const { watchlist, addToWatchlist, removeFromWatchlist, toggleStatus, toggleFavorite, isMounted, settings } = useWatchlist();
   const [showTrailer, setShowTrailer] = useState(false);
   const [showListModal, setShowListModal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -29,13 +29,18 @@ export const DetailActions: React.FC<DetailActionsProps> = ({ titleDetails, trai
   const mediaType = titleDetails.media_type || (titleDetails.name ? 'tv' : 'movie');
 
   const { availableList } = useMemo(() => {
+    const userRegion = isMounted && settings?.defaultRegion ? settings.defaultRegion : 'IN';
+    const providersMap = titleDetails['watch/providers']?.results || {};
+    const regionData = providersMap[userRegion] || providersMap['IN'] || providersMap['US'];
+
     return getRealAvailableStreamingProviders(
       titleDetails.id,
       title,
       mediaType as any,
-      titleDetails['watch/providers']?.results?.['IN']
+      regionData,
+      userRegion
     );
-  }, [titleDetails.id, title, mediaType, titleDetails]);
+  }, [titleDetails.id, title, mediaType, titleDetails, isMounted, settings?.defaultRegion]);
 
   const handleWatchlistClick = () => {
     if (isInWatchlist && !isWatched) {
