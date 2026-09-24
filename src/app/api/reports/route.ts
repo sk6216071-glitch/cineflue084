@@ -108,10 +108,16 @@ export async function PATCH(req: NextRequest) {
       updatedQuality,
       updatedAudio,
       updatedSize,
+      oldMovieId,
     } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Report ID is required' }, { status: 400 });
+    }
+
+    // 0. If link was reassigned to a different movie/TV ID, purge it from the old ID
+    if (oldMovieId && linkId && String(oldMovieId) !== String(movieId)) {
+      await deleteLinkFromDatabase(oldMovieId, linkId);
     }
 
     // 1. If admin provided a replacement link, update the live database

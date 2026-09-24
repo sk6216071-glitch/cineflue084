@@ -198,9 +198,17 @@ export default function AdminPage() {
 
   const [targetSearchQuery, setTargetSearchQuery] = useState('');
   const [targetSearchResults, setTargetSearchResults] = useState<TitleDetails[]>([]);
+  const [targetMediaTypeFilter, setTargetMediaTypeFilter] = useState<'all' | 'movie' | 'tv'>('all');
   const [isSearchingTarget, setIsSearchingTarget] = useState(false);
   const [isTargetDropdownOpen, setIsTargetDropdownOpen] = useState(false);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Manual Custom Title Creation State (for titles not in TMDB or title mismatches)
+  const [isManualTitleModalOpen, setIsManualTitleModalOpen] = useState(false);
+  const [manualTitleName, setManualTitleName] = useState('');
+  const [manualMediaType, setManualMediaType] = useState<'movie' | 'tv'>('movie');
+  const [manualYear, setManualYear] = useState('');
+  const [manualPoster, setManualPoster] = useState('');
 
   // New Link Quick Add State
   const [newLinkTitle, setNewLinkTitle] = useState('');
@@ -298,6 +306,15 @@ export default function AdminPage() {
   const [updateDbWithReplacement, setUpdateDbWithReplacement] = useState(true);
   const [isFixingSubmit, setIsFixingSubmit] = useState(false);
   const [fixSuccessMsg, setFixSuccessMsg] = useState('');
+
+  // Reassign & Title Mismatch States for Fix Modal
+  const [replaceTargetTitle, setReplaceTargetTitle] = useState('');
+  const [replaceTargetMediaType, setReplaceTargetMediaType] = useState<'movie' | 'tv'>('movie');
+  const [replaceTargetMovieId, setReplaceTargetMovieId] = useState<number>(0);
+  const [isChangingTarget, setIsChangingTarget] = useState(false);
+  const [reassignSearchQuery, setReassignSearchQuery] = useState('');
+  const [reassignSearchResults, setReassignSearchResults] = useState<TitleDetails[]>([]);
+  const [isSearchingReassign, setIsSearchingReassign] = useState(false);
 
   // Diagnostics logs
   const [systemLogs, setSystemLogs] = useState<Array<{ timestamp: string; level: 'info' | 'success' | 'warn'; message: string }>>([
@@ -468,14 +485,33 @@ export default function AdminPage() {
     const numericMatch = query.match(/^\d+$/) || query.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
     if (numericMatch) {
       const detectedId = Number(numericMatch[2] || numericMatch[0]);
-      const detectedType = (numericMatch[1] as 'movie' | 'tv') || 'movie';
+      const explicitType = numericMatch[1] as 'movie' | 'tv' | undefined;
       setIsSearchingTarget(true);
-      getTitleDetails(detectedType, detectedId).then((res) => {
-        setIsSearchingTarget(false);
-        if (res && (res.title || res.name)) {
-          setTargetSearchResults([res]);
-        }
-      });
+
+      if (explicitType) {
+        getTitleDetails(explicitType, detectedId).then((res) => {
+          setIsSearchingTarget(false);
+          if (res && (res.title || res.name)) {
+            setTargetSearchResults([{ ...res, media_type: explicitType }]);
+          }
+        });
+      } else {
+        // Query both Movie and TV in parallel so TMDB ID lookup never fails!
+        Promise.allSettled([
+          getTitleDetails('movie', detectedId),
+          getTitleDetails('tv', detectedId),
+        ]).then(([mRes, tRes]) => {
+          setIsSearchingTarget(false);
+          const list: TitleDetails[] = [];
+          if (mRes.status === 'fulfilled' && mRes.value && (mRes.value.title || mRes.value.name)) {
+            list.push({ ...mRes.value, media_type: 'movie' });
+          }
+          if (tRes.status === 'fulfilled' && tRes.value && (tRes.value.title || tRes.value.name)) {
+            list.push({ ...tRes.value, media_type: 'tv' });
+          }
+          setTargetSearchResults(list);
+        });
+      }
       return;
     }
 
@@ -484,10 +520,13 @@ export default function AdminPage() {
       try {
         const data = await searchMulti(query, 1);
         if (data && data.results) {
-          const filtered = data.results.filter(
+          let filtered = data.results.filter(
             (item): item is TitleDetails =>
               (item as any).media_type === 'movie' || (item as any).media_type === 'tv'
           );
+          if (targetMediaTypeFilter !== 'all') {
+            filtered = filtered.filter((i) => (i as any).media_type === targetMediaTypeFilter);
+          }
           setTargetSearchResults(filtered);
         } else {
           setTargetSearchResults([]);
@@ -500,7 +539,60 @@ export default function AdminPage() {
     }, 280);
 
     return () => clearTimeout(handler);
-  }, [targetSearchQuery]);
+  }, [targetSearchQuery, targetMediaTypeFilter]);
+
+  // Debounced TMDB Live Search for Reassigning Title in Defective Link Modal
+  useEffect(() => {
+    const q = reassignSearchQuery.trim();
+    if (!q) {
+      setReassignSearchResults([]);
+      setIsSearchingReassign(false);
+      return;
+    }
+
+    const numericMatch = q.match(/^\d+$/) || q.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
+    if (numericMatch) {
+      const detectedId = Number(numericMatch[2] || numericMatch[0]);
+      setIsSearchingReassign(true);
+      Promise.allSettled([
+        getTitleDetails('movie', detectedId),
+        getTitleDetails('tv', detectedId),
+      ]).then(([mRes, tRes]) => {
+        setIsSearchingReassign(false);
+        const list: TitleDetails[] = [];
+        if (mRes.status === 'fulfilled' && mRes.value && (mRes.value.title || mRes.value.name)) {
+          list.push({ ...mRes.value, media_type: 'movie' });
+        }
+        if (tRes.status === 'fulfilled' && tRes.value && (tRes.value.title || tRes.value.name)) {
+          list.push({ ...tRes.value, media_type: 'tv' });
+        }
+        setReassignSearchResults(list);
+      });
+      return;
+    }
+
+    setIsSearchingReassign(true);
+    const handler = setTimeout(async () => {
+      try {
+        const data = await searchMulti(q, 1);
+        if (data && data.results) {
+          const filtered = data.results.filter(
+            (item): item is TitleDetails =>
+              (item as any).media_type === 'movie' || (item as any).media_type === 'tv'
+          );
+          setReassignSearchResults(filtered);
+        } else {
+          setReassignSearchResults([]);
+        }
+      } catch {
+        setReassignSearchResults([]);
+      } finally {
+        setIsSearchingReassign(false);
+      }
+    }, 280);
+
+    return () => clearTimeout(handler);
+  }, [reassignSearchQuery]);
 
   // Debounced TMDB Live Search for "Manage Titles" Tab
   useEffect(() => {
@@ -585,6 +677,42 @@ export default function AdminPage() {
     }
 
     addLog(`Target title switched to "${resolvedTitle}" (ID: ${item.id})`, 'info');
+  };
+
+  // Handle Manual Custom Title Creation (When TMDB doesn't find title)
+  const handleCreateManualTitle = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!manualTitleName.trim()) return;
+
+    const manualId = Math.floor(900000000 + (Date.now() % 99999999));
+    const targetObj = {
+      id: manualId,
+      title: manualTitleName.trim(),
+      media_type: manualMediaType,
+      poster_path: manualPoster.trim() || null,
+      year: manualYear.trim() || String(new Date().getFullYear()),
+    };
+
+    setSelectedTargetTitle(targetObj);
+    cacheTitle(manualId, targetObj);
+    setIsTargetDropdownOpen(false);
+    setTargetSearchQuery('');
+    setIsManualTitleModalOpen(false);
+    setManualTitleName('');
+    setManualYear('');
+    setManualPoster('');
+
+    if (manualMediaType === 'tv') {
+      setNewLinkCategory('SingleEpisode');
+      setNewLinkType('single_episode');
+      setAdminBulkMediaType('tv');
+    } else {
+      setNewLinkCategory('Streaming');
+      setNewLinkType('general');
+      setAdminBulkMediaType('movie');
+    }
+
+    addLog(`Created and selected custom title "${targetObj.title}" (ID: ${manualId})`, 'success');
   };
 
   // Auto-parse release title for quick link add
@@ -899,14 +1027,26 @@ export default function AdminPage() {
 
   const handleOpenFixModal = (report: DefectiveLinkReport) => {
     setFixingReport(report);
-    setReplaceUrl('');
+    setReplaceUrl(report.reportedUrl || ''); // Pre-fill with existing reported URL so admin can edit it directly!
     setReplaceTitle(report.linkTitle);
     setReplaceQuality(report.quality || '1080p WEB-DL');
     setReplaceAudio('');
     setReplaceSize('');
-    setReplaceAdminNote('Replaced with verified working download mirror.');
+    setReplaceAdminNote(
+      report.issueType === 'wrong_episode'
+        ? 'Corrected media title/type and updated working link.'
+        : 'Replaced with verified working download mirror.'
+    );
     setUpdateDbWithReplacement(true);
     setFixSuccessMsg('');
+
+    // Pre-populate target title, media type, and movieId
+    setReplaceTargetTitle(report.mediaTitle);
+    setReplaceTargetMediaType(report.mediaType || 'movie');
+    setReplaceTargetMovieId(report.movieId);
+    setIsChangingTarget(report.issueType === 'wrong_episode'); // Auto-open title reassign panel if issue was title/episode mismatch!
+    setReassignSearchQuery('');
+    setReassignSearchResults([]);
   };
 
   const handleSubmitFixReplacement = async (e: React.FormEvent) => {
@@ -918,31 +1058,52 @@ export default function AdminPage() {
       finalUrl = `https://${finalUrl}`;
     }
 
+    const targetMovieId = replaceTargetMovieId || fixingReport.movieId;
+    const isTargetChanged = targetMovieId !== fixingReport.movieId || replaceTargetMediaType !== fixingReport.mediaType;
+
     try {
       setIsFixingSubmit(true);
 
-      // 1. If updateDbWithReplacement is enabled and we have a valid movieId
-      if (updateDbWithReplacement && fixingReport.movieId) {
+      // 1. If target changed (e.g. from TV show to Movie, or to another movie ID):
+      if (isTargetChanged && fixingReport.movieId) {
+        deleteGlobalCustomLink(fixingReport.movieId, fixingReport.linkId || '');
+        removeCustomLink(fixingReport.movieId, fixingReport.linkId || '');
+        await deleteMultipleGlobalCustomLinks([{ movieId: fixingReport.movieId, linkId: fixingReport.linkId || '' }]);
+        try {
+          await fetch(`/api/curated-links?movieId=${fixingReport.movieId}&linkId=${fixingReport.linkId}`, {
+            method: 'DELETE',
+          });
+        } catch {}
+      }
+
+      // 2. If updateDbWithReplacement is enabled and we have a valid targetMovieId
+      if (updateDbWithReplacement && targetMovieId) {
+        const isTV = replaceTargetMediaType === 'tv';
+        const parsed = parseFullMediaTitle(replaceTitle.trim());
+
         const replacementLinkObj: CustomLink = {
           id: fixingReport.linkId || `link-${Date.now()}`,
           title: replaceTitle.trim() || fixingReport.linkTitle,
           url: finalUrl,
-          category: 'Download',
+          category: isTV ? 'SingleEpisode' : 'Download',
           createdAt: new Date().toISOString(),
-          quality: replaceQuality.trim() || fixingReport.quality,
+          seasonNumber: isTV ? (parsed.seasonNumber || 1) : undefined,
+          episodeNumber: isTV ? (parsed.episodeNumber || 1) : undefined,
+          linkType: isTV ? 'single_episode' : 'general',
+          quality: replaceQuality.trim() || fixingReport.quality || '1080p WEB-DL',
           audioLanguage: replaceAudio.trim(),
           size: replaceSize.trim(),
         };
 
-        saveGlobalCustomLink(fixingReport.movieId, replacementLinkObj);
-        addCustomLink(fixingReport.movieId, {
+        saveGlobalCustomLink(targetMovieId, replacementLinkObj);
+        addCustomLink(targetMovieId, {
           title: replacementLinkObj.title,
           url: replacementLinkObj.url,
-          category: 'Download',
+          category: isTV ? 'SingleEpisode' : 'Download',
         });
       }
 
-      // 2. Mark report as fixed in server database
+      // 3. Mark report as fixed in server database
       const res = await fetch('/api/reports', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -952,18 +1113,19 @@ export default function AdminPage() {
           replacementUrl: finalUrl,
           adminNote: replaceAdminNote.trim(),
           replaceInDatabase: updateDbWithReplacement,
-          movieId: fixingReport.movieId,
+          movieId: targetMovieId,
           linkId: fixingReport.linkId,
           updatedLinkTitle: replaceTitle.trim() || fixingReport.linkTitle,
           updatedQuality: replaceQuality.trim(),
           updatedAudio: replaceAudio.trim(),
           updatedSize: replaceSize.trim(),
+          oldMovieId: isTargetChanged ? fixingReport.movieId : undefined,
         }),
       });
 
       if (res.ok) {
-        setFixSuccessMsg('🎉 Defective link replaced and report marked as fixed!');
-        addLog(`Replaced defective link for "${fixingReport.mediaTitle}" with: ${finalUrl}`, 'success');
+        setFixSuccessMsg('🎉 Defective link updated, reassigned to correct title, and marked as fixed!');
+        addLog(`Replaced defective link for "${replaceTargetTitle || fixingReport.mediaTitle}" with: ${finalUrl}`, 'success');
 
         setReportsList((prev) =>
           prev.map((r) =>
@@ -974,6 +1136,9 @@ export default function AdminPage() {
                   resolvedAt: new Date().toISOString(),
                   replacementUrl: finalUrl,
                   adminNote: replaceAdminNote.trim(),
+                  mediaTitle: replaceTargetTitle || r.mediaTitle,
+                  mediaType: replaceTargetMediaType || r.mediaType,
+                  movieId: targetMovieId,
                 }
               : r
           )
@@ -2333,11 +2498,43 @@ export default function AdminPage() {
                 )}
               </div>
 
+              {/* Filter Pills for Movie vs TV */}
+              <div className="flex flex-wrap items-center gap-1.5 pb-1 text-[11px]">
+                <span className="text-[10px] uppercase font-bold text-zinc-500">Filter:</span>
+                {(['all', 'movie', 'tv'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setTargetMediaTypeFilter(filter)}
+                    className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all ${
+                      targetMediaTypeFilter === filter
+                        ? 'bg-amber-500 text-black shadow-sm'
+                        : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700/60'
+                    }`}
+                  >
+                    {filter === 'all' ? 'All (Movies & TV)' : filter === 'movie' ? '🎬 Movies Only' : '📺 TV Series Only'}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualTitleName(targetSearchQuery.trim());
+                    setManualMediaType(targetMediaTypeFilter === 'tv' ? 'tv' : 'movie');
+                    setManualYear(String(new Date().getFullYear()));
+                    setIsManualTitleModalOpen(true);
+                  }}
+                  className="sm:ml-auto text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 underline pt-1 sm:pt-0"
+                  title="Create a custom movie or TV series not in TMDB"
+                >
+                  <Plus className="w-3 h-3" /> Custom Title (Not on TMDB)
+                </button>
+              </div>
+
               <div className="relative" ref={searchDropdownRef}>
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Type title name (e.g. Daredevil, Loki, Reacher, Breaking Bad, Inception) or enter TMDB ID..."
+                    placeholder="Type title name (e.g. War, Loki, Inception) or enter TMDB ID (e.g. 585268)..."
                     value={targetSearchQuery}
                     onChange={(e) => {
                       setTargetSearchQuery(e.target.value);
@@ -2367,50 +2564,82 @@ export default function AdminPage() {
 
                 {/* Auto-suggest Search Dropdown */}
                 {isTargetDropdownOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-[#11141d] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto">
+                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-[#11141d] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto">
                     {targetSearchResults.length > 0 ? (
-                      <div className="divide-y divide-zinc-800">
-                        {targetSearchResults.map((item) => {
-                          const title = item.title || item.name || 'Untitled';
-                          const type = (item.media_type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
-                          const year = (item.release_date || item.first_air_date || '').split('-')[0];
-                          const poster = getImageURL(item.poster_path, 'w200');
+                      <div>
+                        <div className="divide-y divide-zinc-800">
+                          {targetSearchResults.map((item) => {
+                            const title = item.title || item.name || 'Untitled';
+                            const type = (item.media_type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
+                            const year = (item.release_date || item.first_air_date || '').split('-')[0];
+                            const poster = getImageURL(item.poster_path, 'w200');
 
-                          return (
-                            <button
-                              key={`${type}-${item.id}`}
-                              type="button"
-                              onClick={() => handleSelectTargetTitle(item)}
-                              className="w-full flex items-center justify-between p-3 hover:bg-zinc-800/80 transition-colors text-left group"
-                            >
-                              <div className="flex items-center gap-3 overflow-hidden">
-                                <div className="w-9 h-12 rounded bg-zinc-800 relative overflow-hidden shrink-0">
-                                  <Image src={poster} alt={title} fill className="object-cover" sizes="36px" />
-                                </div>
-                                <div className="overflow-hidden">
-                                  <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors block truncate">
-                                    {title}
-                                  </span>
-                                  <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-mono">
-                                    <span className={`px-1.5 py-0.2 rounded font-black ${type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}`}>
-                                      {type.toUpperCase()}
+                            return (
+                              <button
+                                key={`${type}-${item.id}`}
+                                type="button"
+                                onClick={() => handleSelectTargetTitle(item)}
+                                className="w-full flex items-center justify-between p-3 hover:bg-zinc-800/80 transition-colors text-left group"
+                              >
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                  <div className="w-9 h-12 rounded bg-zinc-800 relative overflow-hidden shrink-0">
+                                    <Image src={poster} alt={title} fill className="object-cover" sizes="36px" />
+                                  </div>
+                                  <div className="overflow-hidden">
+                                    <span className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors block truncate">
+                                      {title}
                                     </span>
-                                    {year && <span>• {year}</span>}
-                                    <span>• ID: {item.id}</span>
+                                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-mono">
+                                      <span className={`px-1.5 py-0.2 rounded font-black ${type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                                        {type.toUpperCase()}
+                                      </span>
+                                      {year && <span>• {year}</span>}
+                                      <span>• ID: {item.id}</span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              <span className="text-[11px] text-amber-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
-                                Select ➔
-                              </span>
-                            </button>
-                          );
-                        })}
+                                <span className="text-[11px] text-amber-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
+                                  Select ➔
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="p-2.5 border-t border-zinc-800 bg-zinc-950/80 flex items-center justify-between text-[11px] px-3">
+                          <span className="text-zinc-400">Can&apos;t find what you need on TMDB?</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualTitleName(targetSearchQuery.trim());
+                              setManualMediaType(targetMediaTypeFilter === 'tv' ? 'tv' : 'movie');
+                              setManualYear(String(new Date().getFullYear()));
+                              setIsManualTitleModalOpen(true);
+                            }}
+                            className="text-amber-400 hover:text-amber-300 font-bold hover:underline"
+                          >
+                            + Create Custom Title
+                          </button>
+                        </div>
                       </div>
                     ) : targetSearchQuery.trim() ? (
-                      <div className="p-4 text-center text-xs text-zinc-500">
-                        {isSearchingTarget ? 'Searching TMDB catalog...' : `No titles found matching "${targetSearchQuery}".`}
+                      <div className="p-5 text-center space-y-3">
+                        <p className="text-xs text-zinc-400">
+                          {isSearchingTarget ? 'Searching TMDB catalog...' : `No TMDB matches found for "${targetSearchQuery}".`}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManualTitleName(targetSearchQuery.trim());
+                            setManualMediaType(targetMediaTypeFilter === 'tv' ? 'tv' : 'movie');
+                            setManualYear(String(new Date().getFullYear()));
+                            setIsManualTitleModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs hover:scale-105 transition-all shadow-md"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Create &quot;{targetSearchQuery.trim()}&quot; as Custom Title</span>
+                        </button>
                       </div>
                     ) : (
                       <div className="p-3">
@@ -4570,11 +4799,11 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* 2. Admin Replace Defective Link Modal */}
+      {/* 2. Admin Replace Defective Link Modal with Title Mismatch & Editable URL Controls */}
       {fixingReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
           <div
-            className="relative w-full max-w-lg bg-[#0d111a] border border-rose-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5"
+            className="relative w-full max-w-lg bg-[#0d111a] border border-rose-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4 my-8"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -4589,14 +4818,19 @@ export default function AdminPage() {
                 <Wrench className="w-6 h-6" />
               </div>
               <div className="space-y-1">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 uppercase">
-                  {fixingReport.issueLabel}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 uppercase">
+                    {fixingReport.issueLabel}
+                  </span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${replaceTargetMediaType === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                    {replaceTargetMediaType === 'tv' ? 'TV SERIES' : 'MOVIE'}
+                  </span>
+                </div>
                 <h3 className="text-lg font-black text-white leading-tight">
                   Replace Defective Link
                 </h3>
                 <p className="text-xs text-zinc-400">
-                  Target: <strong className="text-white">{fixingReport.mediaTitle}</strong>
+                  Target: <strong className="text-white">{replaceTargetTitle || fixingReport.mediaTitle}</strong> (ID: {replaceTargetMovieId || fixingReport.movieId})
                 </p>
               </div>
             </div>
@@ -4607,20 +4841,172 @@ export default function AdminPage() {
                 <p className="text-sm font-bold text-white">{fixSuccessMsg}</p>
               </div>
             ) : (
-              <form onSubmit={handleSubmitFixReplacement} className="space-y-4 text-left">
-                {/* Broken URL Info */}
-                <div className="p-3 rounded-xl bg-black/50 border border-white/5 space-y-1 text-xs">
-                  <div className="text-[10px] uppercase font-bold text-rose-400">Current Defective URL:</div>
-                  <div className="font-mono text-zinc-400 truncate" title={fixingReport.reportedUrl}>
+              <form onSubmit={handleSubmitFixReplacement} className="space-y-3.5 text-left">
+                {/* Title Mismatch / Reassign Media Box (Addresses "this is a movie not a tv series") */}
+                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-700/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                      <span>Title Mismatch?</span>
+                      <span className="text-[11px] text-amber-400 font-normal">
+                        ({replaceTargetMediaType === 'tv' ? 'Reported as TV Series' : 'Reported as Movie'})
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsChangingTarget(!isChangingTarget)}
+                      className="text-xs text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer"
+                    >
+                      {isChangingTarget ? '✕ Close Reassign' : '⇄ Fix Mismatch / Reassign'}
+                    </button>
+                  </div>
+
+                  {isChangingTarget && (
+                    <div className="pt-2 border-t border-zinc-800 space-y-2.5 animate-fadeIn">
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        If this title was mistakenly reported or uploaded as a TV series instead of a Movie (or vice versa), switch type and reassign below:
+                      </p>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-zinc-400 font-semibold">Change Media Type:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplaceTargetMediaType('movie');
+                            // Clean release title: strip Season/Episode if converting to movie
+                            setReplaceTitle((prev) =>
+                              prev
+                                .replace(/Season\s*\d+\s*Episode\s*\d+/gi, '')
+                                .replace(/S\d+E\d+/gi, '')
+                                .trim()
+                            );
+                          }}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                            replaceTargetMediaType === 'movie'
+                              ? 'bg-amber-500 text-black shadow-md'
+                              : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          🎬 Movie
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReplaceTargetMediaType('tv')}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                            replaceTargetMediaType === 'tv'
+                              ? 'bg-sky-500 text-black shadow-md'
+                              : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          📺 TV Series
+                        </button>
+                      </div>
+
+                      {/* Live TMDB Reassign Search */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-semibold text-zinc-400 block">
+                          Search Correct Title or enter TMDB ID:
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="e.g. War (2019) or enter TMDB ID 585268..."
+                            value={reassignSearchQuery}
+                            onChange={(e) => setReassignSearchQuery(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400 font-mono"
+                          />
+                          {isSearchingReassign && (
+                            <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
+                          )}
+                        </div>
+
+                        {/* Search results dropdown for reassign */}
+                        {reassignSearchResults.length > 0 && (
+                          <div className="max-h-36 overflow-y-auto divide-y divide-zinc-800 bg-black/80 rounded-xl border border-zinc-700 mt-1">
+                            {reassignSearchResults.map((t) => {
+                              const title = t.title || t.name || 'Untitled';
+                              const year = (t.release_date || t.first_air_date || '').split('-')[0];
+                              const type = (t.media_type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
+
+                              return (
+                                <button
+                                  key={`${type}-${t.id}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setReplaceTargetTitle(title);
+                                    setReplaceTargetMovieId(t.id);
+                                    setReplaceTargetMediaType(type);
+                                    if (type === 'movie') {
+                                      setReplaceTitle((prev) =>
+                                        prev
+                                          .replace(/Season\s*\d+\s*Episode\s*\d+/gi, '')
+                                          .replace(/S\d+E\d+/gi, '')
+                                          .trim()
+                                      );
+                                    }
+                                    setReassignSearchQuery('');
+                                    setReassignSearchResults([]);
+                                    setIsChangingTarget(false);
+                                  }}
+                                  className="w-full text-left p-2 hover:bg-zinc-800 flex items-center justify-between text-xs transition-colors"
+                                >
+                                  <div className="truncate">
+                                    <span className="font-bold text-white">{title}</span>
+                                    {year && <span className="text-zinc-400 ml-1.5 font-mono">({year})</span>}
+                                  </div>
+                                  <span className={`text-[10px] font-mono uppercase px-1.5 py-0.2 rounded font-bold shrink-0 ml-2 ${
+                                    type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'
+                                  }`}>
+                                    {type} • ID: {t.id}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Current Defective URL Info with 1-Click "Edit / Copy" and "Test Link" */}
+                <div className="p-3.5 rounded-2xl bg-black/60 border border-zinc-800 space-y-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <span className="text-[10px] uppercase font-bold text-rose-400 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> Current Defective URL:
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setReplaceUrl(fixingReport.reportedUrl)}
+                        className="text-[11px] px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Load this defective URL into the input field below to fix typos or modify it directly"
+                      >
+                        <Edit className="w-3 h-3" /> Edit / Copy to Input
+                      </button>
+                      <a
+                        href={fixingReport.reportedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700 transition-colors flex items-center gap-1"
+                        title="Test whether this link opens or 404s"
+                      >
+                        <ExternalLink className="w-3 h-3" /> Test Link ↗
+                      </a>
+                    </div>
+                  </div>
+                  <div
+                    className="font-mono text-zinc-300 text-[11px] break-all bg-black/40 p-2 rounded-xl border border-white/5 select-all"
+                    title={fixingReport.reportedUrl}
+                  >
                     {fixingReport.reportedUrl}
                   </div>
                 </div>
 
-                {/* New Replacement Working URL */}
+                {/* Working Link URL Input (Pre-filled so admin can edit directly or replace) */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
-                    <span>New Working Link / Mirror URL *</span>
-                    <span className="text-[10px] text-emerald-400 font-mono">High-Speed CDN</span>
+                    <span>Working Link / Replacement URL *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">Direct / Mirror CDN</span>
                   </label>
                   <input
                     type="url"
@@ -4631,6 +5017,9 @@ export default function AdminPage() {
                     className="w-full bg-zinc-900 border border-zinc-700 focus:border-rose-400 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none transition-all"
                     autoFocus
                   />
+                  <p className="text-[10px] text-zinc-500">
+                    💡 You can edit the URL directly above to fix typos, or replace it with a fresh working mirror.
+                  </p>
                 </div>
 
                 {/* Link Title */}
@@ -4708,7 +5097,7 @@ export default function AdminPage() {
                     type="button"
                     onClick={() => setFixingReport(null)}
                     disabled={isFixingSubmit}
-                    className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
+                    className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -4723,6 +5112,107 @@ export default function AdminPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Manual Custom Title Creation Modal (For titles not found on TMDB) */}
+      {isManualTitleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div
+            className="relative w-full max-w-md bg-[#0d111a] border border-amber-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-amber-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Create Custom Title
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualTitleModalOpen(false)}
+                className="text-zinc-400 hover:text-white text-xs font-bold"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              If TMDB catalog does not have your title, create a custom entry here to manage and attach links directly:
+            </p>
+
+            <form onSubmit={handleCreateManualTitle} className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                  Title Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. War (2019) or Mirzapur Season 3"
+                  value={manualTitleName}
+                  onChange={(e) => setManualTitleName(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Media Type *</label>
+                  <select
+                    value={manualMediaType}
+                    onChange={(e) => setManualMediaType(e.target.value as any)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-semibold"
+                  >
+                    <option value="movie">🎬 Movie</option>
+                    <option value="tv">📺 TV Series</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Release Year</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 2024"
+                    value={manualYear}
+                    onChange={(e) => setManualYear(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                  Poster Image URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://... (image url or leave blank)"
+                  value={manualPoster}
+                  onChange={(e) => setManualPoster(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setIsManualTitleModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs hover:scale-105 transition-all shadow-md cursor-pointer"
+                >
+                  Save & Select Title ➔
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
