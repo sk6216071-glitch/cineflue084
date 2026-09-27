@@ -9,10 +9,10 @@ import {
   Trash2,
   Pencil,
   Tv,
-  Info,
   Zap,
   AlertTriangle,
   ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -41,6 +41,76 @@ interface TVEpisodeLinksManagerProps {
   onLinkAdded?: () => void;
 }
 
+interface EnrichedLink extends CustomLink {
+  seasonNumber: number;
+  episodeNumber?: number;
+  linkType: 'zip_pack' | 'single_episode';
+  quality: string;
+  audioLanguage: string;
+  size?: string;
+  resolution: string;
+  source: string;
+}
+
+interface ReleaseOption {
+  id: string;
+  title: string;
+  seasonNumber: number;
+  episodeCountLabel: string;
+  audioLanguages: string;
+  packs: EnrichedLink[];
+  episodes: EnrichedLink[];
+}
+
+interface FormatGroup {
+  id: string;
+  resolution: string;
+  source: string;
+  options: ReleaseOption[];
+}
+
+// Helpers for resolution & source detection
+function extractResolution(title: string, quality?: string): string {
+  const combined = `${quality || ''} ${title || ''}`.toLowerCase();
+  if (combined.includes('2160p') || combined.includes('4k') || combined.includes('uhd')) return '2160p';
+  if (combined.includes('1080p') || combined.includes('fhd')) return '1080p';
+  if (combined.includes('720p') || combined.includes('hd')) return '720p';
+  if (combined.includes('480p') || combined.includes('sd')) return '480p';
+  return '1080p';
+}
+
+function extractSource(title: string, quality?: string): string {
+  const combined = `${quality || ''} ${title || ''}`.toLowerCase();
+  if (combined.includes('remux')) return 'REMUX';
+  if (combined.includes('bluray') || combined.includes('blu-ray') || combined.includes('bdrip')) return 'BluRay';
+  if (combined.includes('web-dl') || combined.includes('webdl') || combined.includes('webrip') || combined.includes('web') || combined.includes('nf') || combined.includes('dsnp') || combined.includes('amzn')) return 'WEB-DL';
+  if (combined.includes('hdtv')) return 'HDTV';
+  if (combined.includes('hdrip')) return 'HDRip';
+  return 'WEB-DL';
+}
+
+function formatAudioLanguages(audio?: string, title?: string): string {
+  const combined = `${audio || ''} ${title || ''}`.toLowerCase();
+  const list: string[] = [];
+  if (combined.includes('hindi') || combined.includes('hin')) list.push('Hindi');
+  if (combined.includes('english') || combined.includes('eng')) list.push('English');
+  if (combined.includes('spanish') || combined.includes('spa')) list.push('Spanish');
+  if (combined.includes('tamil') || combined.includes('tam')) list.push('Tamil');
+  if (combined.includes('telugu') || combined.includes('tel')) list.push('Telugu');
+  if (combined.includes('korean') || combined.includes('kor')) list.push('Korean');
+  if (combined.includes('japanese') || combined.includes('jap')) list.push('Japanese');
+
+  if (list.length > 0) {
+    return list.join(', ');
+  }
+
+  if (audio && audio !== 'Original' && audio !== 'English') {
+    return audio.replace(/\s*•\s*/g, ', ').replace(/\s*\+\s*/g, ', ');
+  }
+
+  return 'Hindi, English, Spanish';
+}
+
 export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   titleDetails,
   customLinks,
@@ -60,8 +130,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   const isEffectiveAdmin = isAdmin && sessionAdmin;
 
-  // Open state for individual accordions: e.g. "s1_packs": true, "s1_episodes": true
-  const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({});
+  // Open state for individual seasons: e.g. 1: true
+  const [openSeasons, setOpenSeasons] = useState<Record<number, boolean>>({});
+  // Open state for individual release options: e.g. "s1_opt_0": true
+  const [openReleaseOptions, setOpenReleaseOptions] = useState<Record<string, boolean>>({});
+
   const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
   const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
 
@@ -93,7 +166,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   }, [titleDetails.number_of_seasons, customLinks]);
 
   // Enrich each custom link with smart auto-detected season, episode, quality, audio, and type
-  const enrichedLinks = useMemo(() => {
+  const enrichedLinks: EnrichedLink[] = useMemo(() => {
     return customLinks.map((l) => {
       const detectedSeason = detectSeasonNumber(l);
       const detectedEp = detectEpisodeNumber(l);
@@ -101,6 +174,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const detectedQ = l.quality && l.quality !== 'HD' ? l.quality : detectQuality(l.title, l.quality);
       const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
       const detectedSz = l.size || detectSize(l.title);
+      const res = extractResolution(l.title, detectedQ);
+      const src = extractSource(l.title, detectedQ);
 
       return {
         ...l,
@@ -110,35 +185,140 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         quality: detectedQ,
         audioLanguage: detectedAud,
         size: detectedSz,
+        resolution: res,
+        source: src,
       };
     });
   }, [customLinks]);
 
-  // Auto-expand the first season's packs or episodes that have links by default
+  // Group enriched links by Season -> Format Groups -> Release Options
+  const seasonGroupsMap = useMemo(() => {
+    const map = new Map<number, FormatGroup[]>();
+
+    seasonsList.forEach((s) => {
+      const currentSeasonLinks = enrichedLinks.filter((l) => l.seasonNumber === s);
+      if (currentSeasonLinks.length === 0) {
+        map.set(s, []);
+        return;
+      }
+
+      // Group by format key: resolution + source (e.g. 1080p_WEB-DL)
+      const formatMap = new Map<string, { resolution: string; source: string; links: EnrichedLink[] }>();
+
+      currentSeasonLinks.forEach((link) => {
+        const key = `${link.resolution}_${link.source}`;
+        if (!formatMap.has(key)) {
+          formatMap.set(key, {
+            resolution: link.resolution,
+            source: link.source,
+            links: [],
+          });
+        }
+        formatMap.get(key)!.links.push(link);
+      });
+
+      const formats: FormatGroup[] = [];
+
+      formatMap.forEach((fVal, fKey) => {
+        // Build release options within this format
+        const packs = fVal.links.filter((l) => l.linkType === 'zip_pack');
+        const episodes = fVal.links.filter((l) => l.linkType === 'single_episode');
+
+        const options: ReleaseOption[] = [];
+
+        if (packs.length > 0) {
+          packs.forEach((pack, idx) => {
+            const aud = formatAudioLanguages(pack.audioLanguage, pack.title);
+            // Detect episode count from title or TMDB
+            const epMatch = pack.title.match(/(?:episodes?\s*|e\d{1,2}\s*-\s*e?|total\s*)(\d{1,3})/i);
+            const epCount = epMatch ? epMatch[1] : (titleDetails.number_of_episodes ? `${titleDetails.number_of_episodes}` : '13');
+
+            options.push({
+              id: `s${s}_${fKey}_pack_${pack.id || idx}`,
+              title: pack.title,
+              seasonNumber: s,
+              episodeCountLabel: `Episodes ${epCount}`,
+              audioLanguages: aud,
+              packs: [pack],
+              episodes: [],
+            });
+          });
+        }
+
+        if (episodes.length > 0) {
+          const firstEp = episodes[0];
+          const aud = formatAudioLanguages(firstEp.audioLanguage, firstEp.title);
+          const baseTitle = `${titleDetails.name || titleDetails.title || 'Series'} S${String(s).padStart(2, '0')} (${fVal.resolution} ${fVal.source})`;
+
+          options.push({
+            id: `s${s}_${fKey}_episodes`,
+            title: baseTitle,
+            seasonNumber: s,
+            episodeCountLabel: `Episodes ${episodes.length}`,
+            audioLanguages: aud,
+            packs: [],
+            episodes: episodes.sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0)),
+          });
+        }
+
+        // If no packs and no episodes matched explicitly, add all as a release option
+        if (options.length === 0 && fVal.links.length > 0) {
+          const first = fVal.links[0];
+          options.push({
+            id: `s${s}_${fKey}_gen`,
+            title: first.title,
+            seasonNumber: s,
+            episodeCountLabel: `Episodes ${fVal.links.length}`,
+            audioLanguages: formatAudioLanguages(first.audioLanguage, first.title),
+            packs: fVal.links,
+            episodes: [],
+          });
+        }
+
+        formats.push({
+          id: `s${s}_${fKey}`,
+          resolution: fVal.resolution,
+          source: fVal.source,
+          options,
+        });
+      });
+
+      // Sort formats by resolution quality
+      formats.sort((a, b) => getQualityWeight(b.resolution) - getQualityWeight(a.resolution));
+      map.set(s, formats);
+    });
+
+    return map;
+  }, [seasonsList, enrichedLinks, titleDetails]);
+
+  // Auto-expand Season 1 and the first release option on initial load
   useEffect(() => {
-    if (enrichedLinks.length > 0 && Object.keys(openAccordions).length === 0) {
-      const firstSeasonWithLinks = seasonsList.find((s) =>
-        enrichedLinks.some((l) => l.seasonNumber === s)
-      ) || seasonsList[0] || 1;
+    if (Object.keys(openSeasons).length === 0 && seasonsList.length > 0) {
+      const firstSeasonWithLinks = seasonsList.find((s) => {
+        const fmts = seasonGroupsMap.get(s);
+        return fmts && fmts.length > 0;
+      }) || seasonsList[0];
 
-      const hasPacks = enrichedLinks.some((l) => l.seasonNumber === firstSeasonWithLinks && l.linkType === 'zip_pack');
-      const hasEpisodes = enrichedLinks.some((l) => l.seasonNumber === firstSeasonWithLinks && l.linkType === 'single_episode');
+      setOpenSeasons({ [firstSeasonWithLinks]: true });
 
-      const initialOpen: Record<string, boolean> = {};
-      if (hasPacks) {
-        initialOpen[`s${firstSeasonWithLinks}_packs`] = true;
+      const fmts = seasonGroupsMap.get(firstSeasonWithLinks);
+      if (fmts && fmts.length > 0 && fmts[0].options.length > 0) {
+        setOpenReleaseOptions({ [fmts[0].options[0].id]: true });
       }
-      if (hasEpisodes && !hasPacks) {
-        initialOpen[`s${firstSeasonWithLinks}_episodes`] = true;
-      }
-      setOpenAccordions(initialOpen);
     }
-  }, [enrichedLinks, seasonsList, openAccordions]);
+  }, [seasonsList, seasonGroupsMap, openSeasons]);
 
-  const toggleAccordion = (key: string) => {
-    setOpenAccordions((prev) => ({
+  const toggleSeason = (seasonNum: number) => {
+    setOpenSeasons((prev) => ({
       ...prev,
-      [key]: !prev[key],
+      [seasonNum]: !prev[seasonNum],
+    }));
+  };
+
+  const toggleOption = (optionId: string) => {
+    setOpenReleaseOptions((prev) => ({
+      ...prev,
+      [optionId]: !prev[optionId],
     }));
   };
 
@@ -198,10 +378,10 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Tv className="w-5 h-5 text-amber-400" />
-            <h3 className="text-lg sm:text-xl font-bold text-white">Season & Episode Management</h3>
+            <h3 className="text-lg sm:text-xl font-bold text-white">Season & Episode Vault</h3>
           </div>
           <p className="text-xs text-zinc-400">
-            Expand any season to view full batch zip packs and weekly single episode releases.
+            Select format and release packages to access full batch zip archives and single episodes.
           </p>
         </div>
 
@@ -218,334 +398,322 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         )}
       </div>
 
-      {/* Season Accordion Groups (Matches Screenshot 1 Layout) */}
+      {/* Season Container Accordions (Matching Screenshot Exactly) */}
       <div className="space-y-4">
         {seasonsList.map((s) => {
-          const currentSeasonLinks = enrichedLinks.filter((l) => l.seasonNumber === s);
-          const packs = currentSeasonLinks
-            .filter((l) => l.linkType === 'zip_pack')
-            .sort((a, b) => {
-              const weightB = getQualityWeight(b.quality);
-              const weightA = getQualityWeight(a.quality);
-              if (weightB !== weightA) return weightB - weightA;
-              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-            });
-
-          const episodes = currentSeasonLinks
-            .filter((l) => l.linkType === 'single_episode')
-            .sort((a, b) => {
-              const epA = a.episodeNumber || 0;
-              const epB = b.episodeNumber || 0;
-              if (epA !== epB) return epA - epB;
-              return getQualityWeight(b.quality) - getQualityWeight(a.quality);
-            });
-
-          const isPacksOpen = !!openAccordions[`s${s}_packs`];
-          const isEpisodesOpen = !!openAccordions[`s${s}_episodes`];
+          const formatGroups = seasonGroupsMap.get(s) || [];
+          const isSeasonOpen = !!openSeasons[s];
 
           return (
-            <div key={s} className="space-y-2.5">
-              {/* 1. Season X Packs/Zips Accordion Bar */}
-              <div className="rounded-2xl overflow-hidden border border-zinc-800/80 bg-[#12151f] shadow-md transition-all">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion(`s${s}_packs`)}
-                  className="w-full flex items-center justify-between py-3.5 px-4 sm:px-5 bg-[#171a24] hover:bg-[#1e2230] text-zinc-200 transition-colors text-left group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <ChevronDown
-                      className={`w-4 h-4 text-zinc-400 group-hover:text-amber-400 transition-transform duration-200 ${
-                        isPacksOpen ? 'rotate-180 text-amber-400' : ''
-                      }`}
-                    />
-                    {packs.length > 0 && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 font-bold border border-amber-500/30">
-                        {packs.length} {packs.length === 1 ? 'Pack' : 'Packs'}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-sm font-bold text-zinc-100 group-hover:text-amber-300 transition-colors">
-                    Season {s} Packs/Zips
+            <div
+              key={s}
+              className="rounded-2xl bg-[#0f0d16] border border-[#211f2c] overflow-hidden p-4 sm:p-5 transition-all shadow-lg"
+            >
+              {/* Season Header Bar */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-white font-bold text-base sm:text-lg tracking-tight">
+                  Season {s}
+                </h3>
+                <div className="flex items-center gap-2.5">
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d]">
+                    {formatGroups.length} {formatGroups.length === 1 ? 'format' : 'formats'}
                   </span>
-                </button>
-
-                {isPacksOpen && (
-                  <div className="p-4 sm:p-5 border-t border-zinc-800/80 bg-[#0e1017] space-y-3 animate-fadeIn">
-                    {packs.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-3">
-                        {packs.map((pack) => (
-                          <div
-                            key={pack.id}
-                            className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-[#141824] border border-amber-500/20 hover:border-amber-400/50 hover:bg-[#1a1f30] transition-all gap-4 group shadow-md"
-                          >
-                            <div className="flex items-start sm:items-center gap-3.5 overflow-hidden">
-                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
-                                <FolderArchive className="w-5 h-5" />
-                              </div>
-                              <div className="overflow-hidden space-y-1">
-                                <h5 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors leading-snug break-words">
-                                  {pack.title}
-                                </h5>
-                                <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                                  <span className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1 ${detectServer(pack.url).badgeClass}`}>
-                                    {detectServer(pack.url).badge}
-                                  </span>
-                                  {pack.quality && (
-                                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20">
-                                      {pack.quality}
-                                    </span>
-                                  )}
-                                  {pack.audioLanguage && (
-                                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700">
-                                      {pack.audioLanguage}
-                                    </span>
-                                  )}
-                                  {pack.size && (
-                                    <span className="text-zinc-400 font-mono">Size: {pack.size}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                              <a
-                                href={pack.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs flex items-center gap-1.5 shadow-md hover:scale-105 transition-all"
-                              >
-                                <span>Download Full Zip</span>
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setReportingLink({
-                                    linkId: pack.id,
-                                    movieId: titleDetails.id,
-                                    mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
-                                    mediaType: 'tv',
-                                    posterPath: titleDetails.poster_path,
-                                    linkTitle: pack.title,
-                                    reportedUrl: pack.url,
-                                    quality: pack.quality,
-                                    server: detectServer(pack.url).name,
-                                  })
-                                }
-                                className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
-                                title="Report broken or defective zip link"
-                              >
-                                <AlertTriangle className="w-3.5 h-3.5" />
-                              </button>
-
-                              {isEffectiveAdmin && (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleStartEdit(pack)}
-                                    className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700 transition-colors"
-                                    title="Admin: Edit TV Link"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDelete(pack.id)}
-                                    className="p-2 rounded-xl bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                                    title="Admin: Delete TV Link"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleSeason(s)}
+                    className="w-7 h-7 rounded-full bg-[#1c1a27] border border-[#2d2a3d] flex items-center justify-center text-zinc-300 hover:text-white hover:bg-[#252333] transition-colors cursor-pointer"
+                    title={isSeasonOpen ? 'Collapse Season' : 'Expand Season'}
+                  >
+                    {isSeasonOpen ? (
+                      <ChevronUp className="w-4 h-4" />
                     ) : (
-                      <div className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800/60 text-center space-y-2">
-                        <p className="text-xs text-zinc-400">
-                          No full season zip packs uploaded yet for Season {s}.
-                        </p>
-                        {isEffectiveAdmin && (
-                          <a
-                            href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-xs font-bold transition-colors"
-                          >
-                            <Plus className="w-3 h-3" /> Upload Season {s} Zip Packs in Admin Panel ↗
-                          </a>
-                        )}
-                      </div>
+                      <ChevronDown className="w-4 h-4" />
                     )}
-                  </div>
-                )}
+                  </button>
+                </div>
               </div>
 
-              {/* 2. Season X Episodes Accordion Bar */}
-              <div className="rounded-2xl overflow-hidden border border-zinc-800/80 bg-[#12151f] shadow-md transition-all">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion(`s${s}_episodes`)}
-                  className="w-full flex items-center justify-between py-3.5 px-4 sm:px-5 bg-[#171a24] hover:bg-[#1e2230] text-zinc-200 transition-colors text-left group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <ChevronDown
-                      className={`w-4 h-4 text-zinc-400 group-hover:text-sky-400 transition-transform duration-200 ${
-                        isEpisodesOpen ? 'rotate-180 text-sky-400' : ''
-                      }`}
-                    />
-                    {episodes.length > 0 && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-300 font-bold border border-sky-500/30">
-                        {episodes.length} {episodes.length === 1 ? 'Episode' : 'Episodes'}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-sm font-bold text-zinc-100 group-hover:text-sky-300 transition-colors">
-                    Season {s} Episodes
-                  </span>
-                </button>
-
-                {isEpisodesOpen && (
-                  <div className="p-4 sm:p-5 border-t border-zinc-800/80 bg-[#0e1017] space-y-3 animate-fadeIn">
-                    {episodes.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {episodes.map((ep) => (
-                          <div
-                            key={ep.id}
-                            className="flex items-center justify-between p-3.5 rounded-2xl bg-[#141824] border border-zinc-800 hover:border-sky-500/50 hover:bg-[#1a1f30] transition-all gap-3 group shadow-sm"
-                          >
-                            <div className="flex items-center gap-3 overflow-hidden">
-                              <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center shrink-0 font-bold text-xs">
-                                {ep.episodeNumber ? `E${ep.episodeNumber < 10 ? '0' + ep.episodeNumber : ep.episodeNumber}` : 'EP'}
-                              </div>
-                              <div className="overflow-hidden">
-                                <h5 className="text-xs font-bold text-white group-hover:text-sky-300 transition-colors truncate">
-                                  {ep.title}
-                                </h5>
-                                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-400">
-                                  <span className={`px-1.5 py-0.5 rounded font-bold border flex items-center gap-1 ${detectServer(ep.url).badgeClass}`}>
-                                    {detectServer(ep.url).badge}
-                                  </span>
-                                  {ep.quality && (
-                                    <span className="text-sky-400 font-semibold">{ep.quality}</span>
-                                  )}
-                                  {ep.audioLanguage && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="text-zinc-300">{ep.audioLanguage}</span>
-                                    </>
-                                  )}
-                                  {ep.size && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="text-zinc-500 font-mono">{ep.size}</span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <a
-                                href={ep.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500 text-sky-300 hover:text-black font-bold text-xs border border-sky-500/30 flex items-center gap-1 transition-all hover:scale-105"
-                              >
-                                <span>Get Link</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setReportingLink({
-                                    linkId: ep.id,
-                                    movieId: titleDetails.id,
-                                    mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
-                                    mediaType: 'tv',
-                                    posterPath: titleDetails.poster_path,
-                                    linkTitle: ep.title,
-                                    reportedUrl: ep.url,
-                                    quality: ep.quality,
-                                    server: detectServer(ep.url).name,
-                                  })
-                                }
-                                className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
-                                title="Report broken or defective episode link"
-                              >
-                                <AlertTriangle className="w-3.5 h-3.5" />
-                              </button>
-
-                              {isEffectiveAdmin && (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleStartEdit(ep)}
-                                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700 transition-colors"
-                                    title="Admin: Edit Episode Link"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDelete(ep.id)}
-                                    className="p-1.5 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                                    title="Admin: Delete Episode Link"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+              {/* Inside Season (When Expanded) */}
+              {isSeasonOpen && (
+                <div className="mt-4 space-y-4 animate-fadeIn">
+                  {formatGroups.length > 0 ? (
+                    formatGroups.map((group) => (
+                      <div
+                        key={group.id}
+                        className="rounded-xl bg-[#14121e] border border-[#222030] p-3 sm:p-4 space-y-3 relative shadow-inner"
+                      >
+                        {/* Format Bar with Left Orange Accent */}
+                        <div className="flex items-center justify-between pl-3 relative before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3.5px] before:bg-amber-500 before:rounded-full">
+                          <div className="flex items-center gap-2">
+                            <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#14223d] text-blue-400 border border-[#1e3a6a] shadow-sm">
+                              {group.resolution}
+                            </span>
+                            <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                              {group.source}
+                            </span>
                           </div>
-                        ))}
+                          <span className="px-3 py-1 rounded-full text-xs font-medium text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d]">
+                            {group.options.length} {group.options.length === 1 ? 'option' : 'options'}
+                          </span>
+                        </div>
+
+                        {/* Release Options List */}
+                        <div className="space-y-2.5">
+                          {group.options.map((option) => {
+                            const isOptionOpen = !!openReleaseOptions[option.id];
+
+                            return (
+                              <div
+                                key={option.id}
+                                className="rounded-xl bg-[#0c0a13] border border-[#211f30] hover:border-[#35324b] transition-all overflow-hidden shadow-sm"
+                              >
+                                {/* Release Option Header Row */}
+                                <div
+                                  onClick={() => toggleOption(option.id)}
+                                  className="p-3.5 sm:p-4 flex items-center justify-between cursor-pointer group hover:bg-[#12101c] transition-colors"
+                                >
+                                  <div className="flex items-center gap-3.5 overflow-hidden">
+                                    {/* S01 Orange Tag */}
+                                    <div className="text-amber-500 font-bold text-sm sm:text-base tracking-wider pr-3.5 border-r border-[#211f30] shrink-0">
+                                      S{String(s).padStart(2, '0')}
+                                    </div>
+
+                                    {/* Title & Badges */}
+                                    <div className="overflow-hidden space-y-1.5">
+                                      <h4 className="text-xs sm:text-sm font-bold text-zinc-100 group-hover:text-amber-300 transition-colors truncate">
+                                        {option.title}
+                                      </h4>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#1c1a27] text-zinc-300 border border-[#2d2a3d]">
+                                          {option.episodeCountLabel}
+                                        </span>
+                                        {option.audioLanguages && (
+                                          <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#032626] text-teal-300 border border-[#084d4d]">
+                                            {option.audioLanguages}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Chevron Down/Up */}
+                                  <div className="shrink-0 pl-2">
+                                    <ChevronDown
+                                      className={`w-4 h-4 text-zinc-400 group-hover:text-amber-400 transition-transform duration-200 ${
+                                        isOptionOpen ? 'rotate-180 text-amber-400' : ''
+                                      }`}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Expanded Download Items Area */}
+                                {isOptionOpen && (
+                                  <div className="p-4 border-t border-[#211f30] bg-[#09080e] space-y-3 animate-fadeIn">
+                                    {/* 1. Complete Zip Packs */}
+                                    {option.packs.map((pack) => (
+                                      <div
+                                        key={pack.id}
+                                        className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-[#13111d] border border-amber-500/20 hover:border-amber-400/50 hover:bg-[#181524] transition-all gap-3 group/item"
+                                      >
+                                        <div className="flex items-start sm:items-center gap-3 overflow-hidden">
+                                          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0">
+                                            <FolderArchive className="w-4 h-4" />
+                                          </div>
+                                          <div className="overflow-hidden space-y-1">
+                                            <h5 className="text-xs sm:text-sm font-bold text-white group-hover/item:text-amber-300 transition-colors truncate">
+                                              {pack.title}
+                                            </h5>
+                                            <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                                              <span className={`px-2 py-0.5 rounded font-bold border flex items-center gap-1 ${detectServer(pack.url).badgeClass}`}>
+                                                {detectServer(pack.url).badge}
+                                              </span>
+                                              {pack.quality && (
+                                                <span className="px-2 py-0.5 rounded bg-blue-950/60 text-blue-300 font-bold border border-blue-500/30">
+                                                  {pack.quality}
+                                                </span>
+                                              )}
+                                              {pack.size && (
+                                                <span className="text-zinc-400 font-mono">Size: {pack.size}</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                                          <a
+                                            href={pack.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs flex items-center gap-1.5 shadow-md hover:scale-105 transition-all"
+                                          >
+                                            <span>Download Full Zip</span>
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                          </a>
+
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setReportingLink({
+                                                linkId: pack.id,
+                                                movieId: titleDetails.id,
+                                                mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                                                mediaType: 'tv',
+                                                posterPath: titleDetails.poster_path,
+                                                linkTitle: pack.title,
+                                                reportedUrl: pack.url,
+                                                quality: pack.quality,
+                                                server: detectServer(pack.url).name,
+                                              })
+                                            }
+                                            className="p-2 rounded-xl bg-zinc-800/80 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 transition-colors"
+                                            title="Report broken or defective zip link"
+                                          >
+                                            <AlertTriangle className="w-3.5 h-3.5" />
+                                          </button>
+
+                                          {isEffectiveAdmin && (
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                onClick={() => handleStartEdit(pack)}
+                                                className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700 transition-colors"
+                                                title="Admin: Edit TV Link"
+                                              >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                onClick={() => handleDelete(pack.id)}
+                                                className="p-2 rounded-xl bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
+                                                title="Admin: Delete TV Link"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {/* 2. Single Episodes Grid */}
+                                    {option.episodes.length > 0 && (
+                                      <div className="space-y-2.5 pt-1">
+                                        <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                          <Tv className="w-3.5 h-3.5 text-amber-400" />
+                                          <span>Episode Downloads ({option.episodes.length})</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                          {option.episodes.map((ep) => (
+                                            <div
+                                              key={ep.id}
+                                              className="flex items-center justify-between p-3 rounded-xl bg-[#13111d] border border-zinc-800/80 hover:border-zinc-700 hover:bg-[#181524] transition-all gap-2"
+                                            >
+                                              <div className="overflow-hidden space-y-0.5">
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-xs font-bold text-amber-400 shrink-0">
+                                                    EP {ep.episodeNumber || '1'}
+                                                  </span>
+                                                  <h6 className="text-xs font-semibold text-zinc-200 truncate">
+                                                    {ep.title}
+                                                  </h6>
+                                                </div>
+                                                <div className="flex items-center gap-2 text-[10px] text-zinc-400">
+                                                  <span className={detectServer(ep.url).badgeClass}>
+                                                    {detectServer(ep.url).badge}
+                                                  </span>
+                                                  {ep.size && <span>• {ep.size}</span>}
+                                                </div>
+                                              </div>
+
+                                              <div className="flex items-center gap-1.5 shrink-0">
+                                                <a
+                                                  href={ep.url}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1 transition-all"
+                                                >
+                                                  <span>Get Link</span>
+                                                  <Download className="w-3 h-3" />
+                                                </a>
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    setReportingLink({
+                                                      linkId: ep.id,
+                                                      movieId: titleDetails.id,
+                                                      mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                                                      mediaType: 'tv',
+                                                      posterPath: titleDetails.poster_path,
+                                                      linkTitle: ep.title,
+                                                      reportedUrl: ep.url,
+                                                      quality: ep.quality,
+                                                      server: detectServer(ep.url).name,
+                                                    })
+                                                  }
+                                                  className="p-1.5 rounded-lg bg-zinc-800/80 text-zinc-400 hover:text-amber-400 border border-zinc-700/60"
+                                                  title="Report link"
+                                                >
+                                                  <AlertTriangle className="w-3 h-3" />
+                                                </button>
+                                                {isEffectiveAdmin && (
+                                                  <div className="flex items-center gap-1">
+                                                    <button
+                                                      onClick={() => handleStartEdit(ep)}
+                                                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700"
+                                                      title="Edit Link"
+                                                    >
+                                                      <Pencil className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      onClick={() => handleDelete(ep.id)}
+                                                      className="p-1.5 rounded-lg bg-rose-900/30 text-rose-400 border border-rose-800/40"
+                                                      title="Delete Link"
+                                                    >
+                                                      <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    ) : (
-                      <div className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800/60 text-center space-y-2">
-                        <p className="text-xs text-zinc-400">
-                          No single episodes uploaded yet for Season {s}.
-                        </p>
-                        {isEffectiveAdmin && (
-                          <a
-                            href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-xs font-bold transition-colors"
-                          >
-                            <Plus className="w-3 h-3" /> Upload Season {s} Episodes in Admin Panel ↗
-                          </a>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                    ))
+                  ) : (
+                    <div className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800/60 text-center space-y-2">
+                      <p className="text-xs text-zinc-400">
+                        No formats or download links uploaded yet for Season {s}.
+                      </p>
+                      {isEffectiveAdmin && (
+                        <a
+                          href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-xs font-bold transition-colors"
+                        >
+                          <Plus className="w-3 h-3" /> Upload Season {s} Links in Admin Panel ↗
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Can't find the link you want? Request custom quality card */}
-      <div className="mt-5 p-5 sm:p-6 rounded-2xl bg-[#0b0e17] border border-blue-500/25 shadow-xl text-center space-y-3.5 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="w-10 h-10 rounded-full bg-blue-500/15 border border-blue-500/40 flex items-center justify-center mx-auto text-blue-400 shadow-md shadow-blue-500/10">
-          <Info className="w-5 h-5" />
-        </div>
-        <p className="text-xs sm:text-sm text-zinc-200 font-medium max-w-md mx-auto leading-relaxed">
-          Can&apos;t find the link you want? Request custom quality and we&apos;ll add it for you.
-        </p>
-        <button
-          type="button"
-          onClick={() => setIsRequestModalOpen(true)}
-          className="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-        >
-          REQUEST LINK
-        </button>
-      </div>
-
-      {/* Admin Edit TV Link Modal */}
-      {isAdmin && editingLink && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#11141d] border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
+      {/* Admin Quick Edit Modal */}
+      {editingLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-amber-400" />
+              <div className="flex items-center gap-2 text-amber-400 font-bold">
+                <Pencil className="w-4 h-4" />
                 <h4 className="text-sm font-bold text-white uppercase tracking-wider">
                   Edit TV Link
                 </h4>
