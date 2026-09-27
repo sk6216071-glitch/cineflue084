@@ -1,28 +1,13 @@
 import React from 'react';
 import Link from 'next/link';
-import { Calendar, Compass, ArrowRight, Clock, Tv, Sparkles } from 'lucide-react';
-import { getUpcoming, getUpcomingTV } from '@/lib/tmdb';
-import { getRecentlyAddedTitles } from '@/lib/redisDb';
+import { Compass, ArrowRight, Film, Tv, Search } from 'lucide-react';
 import { POPULAR_GENRES } from '@/lib/mockData';
-import SectionCarousel from '@/components/SectionCarousel';
 
 export const revalidate = 60; // ISR cache 60s for immediate link updates
 
-export default async function HomePage() {
-  const [
-    recentMovies,
-    upcomingMovies,
-    recentSeries,
-    upcomingSeries,
-  ] = await Promise.all([
-    getRecentlyAddedTitles(18, 'movie'),
-    getUpcoming(1),
-    getRecentlyAddedTitles(18, 'tv'),
-    getUpcomingTV(1),
-  ]);
-
+export default function HomePage() {
   return (
-    <div className="min-h-screen pb-12 space-y-4">
+    <div className="min-h-screen pb-12 space-y-6">
       {/* Genre Fast Explorer Bar */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="bg-[#0f121a]/80 backdrop-blur-md border border-zinc-800/80 rounded-2xl p-4 sm:p-5">
@@ -53,53 +38,64 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 1. Recent Movies */}
-      {recentMovies && recentMovies.length > 0 && (
-        <SectionCarousel
-          title="Recent Movies"
-          subtitle="Recently added movies with download & streaming links"
-          items={recentMovies}
-          viewAllLink="/movies"
-          icon={
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
-              <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400" strokeWidth={2.4} />
+      {/* Quick Category Hub Cards */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Link
+            href="/movies"
+            className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#121622] to-[#0c0e17] border border-zinc-800/80 p-6 hover:border-amber-400/60 transition-all hover:scale-[1.02] shadow-xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform">
+                <Film className="w-5 h-5" />
+              </div>
+              <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-amber-400 group-hover:translate-x-1 transition-all" />
             </div>
-          }
-        />
-      )}
+            <h3 className="text-lg font-bold text-white group-hover:text-amber-300 transition-colors">
+              Explore Movies
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Browse feature films, 4K HDR releases, BluRay REMUX, and Hindi dual audio downloads.
+            </p>
+          </Link>
 
-      {/* 2. Upcoming & Anticipated Movies */}
-      <SectionCarousel
-        title="Upcoming & Anticipated"
-        subtitle="Coming soon to OTT and theaters"
-        items={upcomingMovies}
-        viewAllLink="/search?type=movie&sort=upcoming"
-        icon={<Calendar className="w-5 h-5 text-emerald-400" />}
-      />
-
-      {/* 3. Recent Web Series */}
-      {recentSeries && recentSeries.length > 0 && (
-        <SectionCarousel
-          title="Recent Web Series"
-          subtitle="Recently uploaded television seasons & episodes"
-          items={recentSeries}
-          viewAllLink="/tv"
-          icon={
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
-              <Tv className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" strokeWidth={2.4} />
+          <Link
+            href="/tv"
+            className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#121622] to-[#0c0e17] border border-zinc-800/80 p-6 hover:border-sky-400/60 transition-all hover:scale-[1.02] shadow-xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 group-hover:scale-110 transition-transform">
+                <Tv className="w-5 h-5" />
+              </div>
+              <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
             </div>
-          }
-        />
-      )}
+            <h3 className="text-lg font-bold text-white group-hover:text-sky-300 transition-colors">
+              Explore Web Series
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Discover complete season zip packs, single episodes, and high-speed streaming links.
+            </p>
+          </Link>
 
-      {/* 4. Upcoming & On-Air Web Series */}
-      <SectionCarousel
-        title="Upcoming & Anticipated Series"
-        subtitle="Coming soon & on-air television series"
-        items={upcomingSeries}
-        viewAllLink="/search?type=tv&sort=upcoming"
-        icon={<Sparkles className="w-5 h-5 text-sky-400" />}
-      />
+          <Link
+            href="/search"
+            className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#121622] to-[#0c0e17] border border-zinc-800/80 p-6 hover:border-emerald-400/60 transition-all hover:scale-[1.02] shadow-xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
+                <Search className="w-5 h-5" />
+              </div>
+              <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
+            </div>
+            <h3 className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors">
+              Advanced Search
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Search by quality (4K, REMUX, 1080p), genres, audio tracks, and custom uploaded tags.
+            </p>
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }
