@@ -15,6 +15,7 @@ import {
   Clock,
   Info,
   AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 import { TitleDetails, CustomLink } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -278,7 +279,20 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           : 'Verified streaming & download sources, 4K releases, and direct playback links.'
       }
       badge={`${totalLinkCount} files`}
-      action={null}
+      action={
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsRequestModalOpen(true);
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 hover:border-amber-400 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all shadow-sm cursor-pointer group"
+          title="Request Download / Streaming Links"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+          <span>Request Link</span>
+        </button>
+      }
       defaultOpen={false}
     >
       {/* TV Series Season & Episode Vault */}

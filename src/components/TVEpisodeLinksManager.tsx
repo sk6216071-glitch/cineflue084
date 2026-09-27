@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -491,8 +493,17 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           </p>
         </div>
 
-        {isEffectiveAdmin && (
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setIsRequestModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-200 font-bold text-xs transition-all shadow-sm cursor-pointer group"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+            <span>Request Link</span>
+          </button>
+
+          {isEffectiveAdmin && (
             <a
               href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all hover:bg-zinc-800 shadow-sm"
@@ -500,8 +511,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               <Zap className="w-3.5 h-3.5 fill-amber-400" />
               <span>Admin File Uploader ↗</span>
             </a>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Season Container Accordions (Descending Season 5, Season 4, etc.) */}
@@ -823,18 +834,31 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       </div>
                     ))
                   ) : (
-                    <div className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800/60 text-center space-y-2">
-                      <p className="text-xs text-zinc-400">
+                    <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-3">
+                      <p className="text-xs sm:text-sm text-zinc-300 font-medium">
                         No formats or download links uploaded yet for Season {s}.
                       </p>
-                      {isEffectiveAdmin && (
-                        <a
-                          href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-xs font-bold transition-colors"
+                      <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                        Need 4K HDR, 1080p, or batch zip downloads for Season {s}? Request it below!
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsRequestModalOpen(true)}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 hover:scale-105 transition-all cursor-pointer"
                         >
-                          <Plus className="w-3 h-3" /> Upload Season {s} Links in Admin Panel ↗
-                        </a>
-                      )}
+                          <Sparkles className="w-3.5 h-3.5 fill-black" />
+                          <span>Request Season {s} Links</span>
+                        </button>
+                        {isEffectiveAdmin && (
+                          <a
+                            href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-bold transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Upload in Admin ↗
+                          </a>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -842,6 +866,24 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             </div>
           );
         })}
+      </div>
+
+      {/* Bottom Request Custom Quality Card */}
+      <div className="p-5 sm:p-6 rounded-2xl bg-[#0b0e17] border border-blue-500/25 shadow-xl text-center space-y-3.5 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="w-10 h-10 rounded-full bg-blue-500/15 border border-blue-500/40 flex items-center justify-center mx-auto text-blue-400 shadow-md shadow-blue-500/10">
+          <Info className="w-5 h-5" />
+        </div>
+        <p className="text-xs sm:text-sm text-zinc-200 font-medium max-w-md mx-auto leading-relaxed">
+          Can&apos;t find the episode or quality you want? Request custom format (4K DV HDR, 1080p, Dual Audio) and our team will add it!
+        </p>
+        <button
+          type="button"
+          onClick={() => setIsRequestModalOpen(true)}
+          className="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+        >
+          REQUEST LINK
+        </button>
       </div>
 
       {/* Admin Quick Edit Modal */}
