@@ -646,7 +646,7 @@ export async function getRecentlyAddedTitles(
       // 3A. If stored doc in MongoDB/local link already has movieTitle and posterPath, use it instantly!
       if (doc?.movieTitle && doc?.posterPath && !isDummyTitle(doc.movieTitle)) {
         return {
-          id: Number(movieId),
+          id: Number(movieId) || (movieId as any),
           title: doc.movieTitle,
           name: doc.movieTitle,
           overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
