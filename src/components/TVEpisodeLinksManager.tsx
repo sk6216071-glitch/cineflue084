@@ -74,24 +74,96 @@ interface GroupedEpisode {
   links: EnrichedLink[];
 }
 
-// Helpers for resolution & source detection
-function extractResolution(title: string, quality?: string): string {
+// Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p
+function extractReleaseProfile(title: string, quality?: string) {
   const combined = `${quality || ''} ${title || ''}`.toLowerCase();
-  if (combined.includes('2160p') || combined.includes('4k') || combined.includes('uhd')) return '2160p';
-  if (combined.includes('1080p') || combined.includes('fhd')) return '1080p';
-  if (combined.includes('720p') || combined.includes('hd')) return '720p';
-  if (combined.includes('480p') || combined.includes('sd')) return '480p';
-  return '1080p';
+
+  // Resolution
+  let resolution = '1080p';
+  let resTag = '1080p';
+  if (combined.includes('2160p') || combined.includes('4k') || combined.includes('uhd')) {
+    resolution = '2160p / 4K';
+    resTag = '2160p';
+  } else if (combined.includes('1080p') || combined.includes('fhd')) {
+    resolution = '1080p';
+    resTag = '1080p';
+  } else if (combined.includes('720p') || combined.includes('hd')) {
+    resolution = '720p';
+    resTag = '720p';
+  } else if (combined.includes('480p') || combined.includes('sd')) {
+    resolution = '480p';
+    resTag = '480p';
+  }
+
+  // Source
+  let source = 'WEB-DL';
+  if (combined.includes('remux')) source = 'REMUX';
+  else if (combined.includes('bluray') || combined.includes('blu-ray') || combined.includes('bdrip')) source = 'BluRay';
+  else if (combined.includes('web-dl') || combined.includes('webdl') || combined.includes('webrip') || combined.includes('web') || combined.includes('nf') || combined.includes('dsnp') || combined.includes('amzn')) source = 'WEB-DL';
+  else if (combined.includes('hdtv')) source = 'HDTV';
+  else if (combined.includes('hdrip')) source = 'HDRip';
+
+  // Dynamic Range (Separate 4K DV HDR vs 4K SDR)
+  let dynamicRange = '';
+  if (
+    combined.includes('dv hdr') ||
+    combined.includes('dv-hdr') ||
+    combined.includes('dv.hdr') ||
+    (combined.includes('dv') && combined.includes('hdr')) ||
+    combined.includes('dolby vision')
+  ) {
+    dynamicRange = 'DV HDR';
+  } else if (combined.includes('hdr10+') || combined.includes('hdr10') || combined.includes('hdr')) {
+    dynamicRange = 'HDR';
+  } else if (combined.includes('sdr')) {
+    dynamicRange = 'SDR';
+  }
+
+  // Codec
+  let codec = '';
+  if (combined.includes('h.265') || combined.includes('h265') || combined.includes('x265') || combined.includes('hevc')) {
+    codec = 'H.265';
+  } else if (combined.includes('h.264') || combined.includes('h264') || combined.includes('x264') || combined.includes('avc')) {
+    codec = 'H.264';
+  }
+
+  // Platform
+  let platform = 'NF';
+  if (combined.includes('dsnp') || combined.includes('disney') || combined.includes('hotstar')) platform = 'DSNP';
+  else if (combined.includes('amzn') || combined.includes('prime')) platform = 'AMZN';
+  else if (combined.includes('hbo') || combined.includes('max')) platform = 'MAX';
+  else if (combined.includes('nf') || combined.includes('netflix')) platform = 'NF';
+
+  return {
+    resolution,
+    source,
+    dynamicRange,
+    codec: codec || (resTag === '2160p' ? 'H.265' : 'H.264'),
+    platform,
+    cleanDisplayTitle: (showName: string, seasonNum: number) => {
+      const sTag = `S${String(seasonNum).padStart(2, '0')}`;
+      const parts = [
+        platform,
+        resTag,
+        dynamicRange,
+        codec || (resTag === '2160p' ? 'H.265' : 'H.264'),
+      ].filter(Boolean);
+      return `${showName} ${sTag} (${parts.join(' ')})`;
+    },
+  };
 }
 
-function extractSource(title: string, quality?: string): string {
-  const combined = `${quality || ''} ${title || ''}`.toLowerCase();
-  if (combined.includes('remux')) return 'REMUX';
-  if (combined.includes('bluray') || combined.includes('blu-ray') || combined.includes('bdrip')) return 'BluRay';
-  if (combined.includes('web-dl') || combined.includes('webdl') || combined.includes('webrip') || combined.includes('web') || combined.includes('nf') || combined.includes('dsnp') || combined.includes('amzn')) return 'WEB-DL';
-  if (combined.includes('hdtv')) return 'HDTV';
-  if (combined.includes('hdrip')) return 'HDRip';
-  return 'WEB-DL';
+function getResolutionBadgeStyle(resolution: string): string {
+  if (resolution.includes('2160p') || resolution.includes('4K') || resolution.includes('4k')) {
+    return 'bg-[#f59e0b] text-black font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+  }
+  if (resolution.includes('1080p')) {
+    return 'bg-[#14223d] text-blue-400 border border-[#1e3a6a] font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+  }
+  if (resolution.includes('720p')) {
+    return 'bg-[#221838] text-purple-400 border border-[#3b2960] font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+  }
+  return 'bg-zinc-800 text-zinc-300 border border-zinc-700 font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
 }
 
 function formatAudioLanguages(audio?: string, title?: string): string {
@@ -135,9 +207,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   const isEffectiveAdmin = isAdmin && sessionAdmin;
 
-  // Open state for individual seasons: e.g. 1: true
+  // Open state for individual seasons: e.g. 5: true
   const [openSeasons, setOpenSeasons] = useState<Record<number, boolean>>({});
-  // Open state for individual release options: e.g. "s1_opt_0": true
+  // Open state for individual release options: e.g. "s5_opt_0": true
   const [openReleaseOptions, setOpenReleaseOptions] = useState<Record<string, boolean>>({});
 
   const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
@@ -154,7 +226,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [editAudio, setEditAudio] = useState<string>('');
   const [editSize, setEditSize] = useState<string>('');
 
-  // Dynamically calculate all seasons present in TMDB metadata AND uploaded custom links (Auto S01, S02, S03...)
+  // Dynamically calculate all seasons in descending order (e.g. Season 5, Season 4, Season 3...)
   const seasonsList = useMemo(() => {
     const detectedSeasons = new Set<number>();
     const tmdbSeasons = titleDetails.number_of_seasons || 1;
@@ -167,10 +239,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       if (s > 0) detectedSeasons.add(s);
     });
 
-    return Array.from(detectedSeasons).sort((a, b) => a - b);
+    // Sort descending (Season 5, Season 4, Season 3...) matching screenshot
+    return Array.from(detectedSeasons).sort((a, b) => b - a);
   }, [titleDetails.number_of_seasons, customLinks]);
 
-  // Enrich each custom link with smart auto-detected season, episode, quality, audio, and type
+  // Enrich each custom link with smart auto-detected metadata
   const enrichedLinks: EnrichedLink[] = useMemo(() => {
     return customLinks.map((l) => {
       const detectedSeason = detectSeasonNumber(l);
@@ -179,8 +252,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const detectedQ = l.quality && l.quality !== 'HD' ? l.quality : detectQuality(l.title, l.quality);
       const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
       const detectedSz = l.size || detectSize(l.title);
-      const res = extractResolution(l.title, detectedQ);
-      const src = extractSource(l.title, detectedQ);
+      const prof = extractReleaseProfile(l.title, detectedQ);
 
       return {
         ...l,
@@ -190,15 +262,16 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         quality: detectedQ,
         audioLanguage: detectedAud,
         size: detectedSz,
-        resolution: res,
-        source: src,
+        resolution: prof.resolution,
+        source: prof.source,
       };
     });
   }, [customLinks]);
 
-  // Group enriched links by Season -> Format Groups -> Release Options
+  // Group enriched links by Season -> Format Groups (2160p / 4K, 1080p...) -> Release Options (DV HDR, SDR...)
   const seasonGroupsMap = useMemo(() => {
     const map = new Map<number, FormatGroup[]>();
+    const showName = titleDetails.name || titleDetails.title || 'Series';
 
     seasonsList.forEach((s) => {
       const currentSeasonLinks = enrichedLinks.filter((l) => l.seasonNumber === s);
@@ -207,7 +280,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         return;
       }
 
-      // Group by format key: resolution + source (e.g. 1080p_WEB-DL)
+      // Group by format key: resolution + source (e.g. "2160p / 4K_WEB-DL", "1080p_WEB-DL")
       const formatMap = new Map<string, { resolution: string; source: string; links: EnrichedLink[] }>();
 
       currentSeasonLinks.forEach((link) => {
@@ -225,59 +298,80 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const formats: FormatGroup[] = [];
 
       formatMap.forEach((fVal, fKey) => {
-        // Build release options within this format
-        const packs = fVal.links.filter((l) => l.linkType === 'zip_pack');
-        const episodes = fVal.links.filter((l) => l.linkType === 'single_episode');
+        // Group links inside this format by release profile (Separate 4K DV HDR vs 4K SDR)
+        const optionsMap = new Map<
+          string,
+          {
+            id: string;
+            title: string;
+            seasonNumber: number;
+            audioLanguages: string;
+            packs: EnrichedLink[];
+            episodes: EnrichedLink[];
+          }
+        >();
+
+        fVal.links.forEach((link) => {
+          const prof = extractReleaseProfile(link.title, link.quality);
+          const optKey = `s${s}_${fKey}_${prof.dynamicRange || 'std'}_${prof.codec || 'codec'}`;
+
+          if (!optionsMap.has(optKey)) {
+            let optTitle = link.title;
+            if (optTitle.includes('.mkv') || optTitle.includes('.zip') || !optTitle.includes('(')) {
+              optTitle = prof.cleanDisplayTitle(showName, s);
+            }
+
+            optionsMap.set(optKey, {
+              id: optKey,
+              title: optTitle,
+              seasonNumber: s,
+              audioLanguages: formatAudioLanguages(link.audioLanguage, link.title),
+              packs: [],
+              episodes: [],
+            });
+          }
+
+          const opt = optionsMap.get(optKey)!;
+          if (link.linkType === 'zip_pack') {
+            opt.packs.push(link);
+          } else {
+            opt.episodes.push(link);
+          }
+        });
 
         const options: ReleaseOption[] = [];
 
-        if (packs.length > 0) {
-          packs.forEach((pack, idx) => {
-            const aud = formatAudioLanguages(pack.audioLanguage, pack.title);
-            const epMatch = pack.title.match(/(?:episodes?\s*|e\d{1,2}\s*-\s*e?|total\s*)(\d{1,3})/i);
-            const epCount = epMatch ? epMatch[1] : (titleDetails.number_of_episodes ? `${titleDetails.number_of_episodes}` : '13');
-
-            options.push({
-              id: `s${s}_${fKey}_pack_${pack.id || idx}`,
-              title: pack.title,
-              seasonNumber: s,
-              episodeCountLabel: `Episodes ${epCount}`,
-              audioLanguages: aud,
-              packs: [pack],
-              episodes: [],
-            });
-          });
-        }
-
-        if (episodes.length > 0) {
-          const firstEp = episodes[0];
-          const aud = formatAudioLanguages(firstEp.audioLanguage, firstEp.title);
-          const baseTitle = `${titleDetails.name || titleDetails.title || 'Series'} S${String(s).padStart(2, '0')} (${fVal.resolution} ${fVal.source})`;
+        optionsMap.forEach((optVal) => {
+          let epCount = '10';
+          if (optVal.episodes.length > 0) {
+            epCount = `${optVal.episodes.length}`;
+          } else if (optVal.packs.length > 0) {
+            const firstPack = optVal.packs[0];
+            const epMatch = firstPack.title.match(/(?:episodes?\s*|e\d{1,2}\s*-\s*e?|total\s*)(\d{1,3})/i);
+            epCount = epMatch
+              ? epMatch[1]
+              : titleDetails.number_of_episodes
+              ? `${titleDetails.number_of_episodes}`
+              : '10';
+          }
 
           options.push({
-            id: `s${s}_${fKey}_episodes`,
-            title: baseTitle,
+            id: optVal.id,
+            title: optVal.title,
             seasonNumber: s,
-            episodeCountLabel: `Episodes ${episodes.length}`,
-            audioLanguages: aud,
-            packs: [],
-            episodes: episodes.sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0)),
+            episodeCountLabel: `Episodes ${epCount}`,
+            audioLanguages: optVal.audioLanguages,
+            packs: optVal.packs,
+            episodes: optVal.episodes.sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0)),
           });
-        }
+        });
 
-        // If no packs and no episodes matched explicitly, add all as a release option
-        if (options.length === 0 && fVal.links.length > 0) {
-          const first = fVal.links[0];
-          options.push({
-            id: `s${s}_${fKey}_gen`,
-            title: first.title,
-            seasonNumber: s,
-            episodeCountLabel: `Episodes ${fVal.links.length}`,
-            audioLanguages: formatAudioLanguages(first.audioLanguage, first.title),
-            packs: fVal.links,
-            episodes: [],
-          });
-        }
+        // Sort options: DV HDR first, then SDR, then others
+        options.sort((a, b) => {
+          const orderA = a.title.includes('DV') || a.title.includes('HDR') ? 2 : a.title.includes('SDR') ? 1 : 0;
+          const orderB = b.title.includes('DV') || b.title.includes('HDR') ? 2 : b.title.includes('SDR') ? 1 : 0;
+          return orderB - orderA;
+        });
 
         formats.push({
           id: `s${s}_${fKey}`,
@@ -287,7 +381,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         });
       });
 
-      // Sort formats by resolution quality
+      // Sort formats: 2160p / 4K > 1080p > 720p > 480p
       formats.sort((a, b) => getQualityWeight(b.resolution) - getQualityWeight(a.resolution));
       map.set(s, formats);
     });
@@ -295,13 +389,14 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     return map;
   }, [seasonsList, enrichedLinks, titleDetails]);
 
-  // Auto-expand Season 1 and the first release option on initial load
+  // Auto-expand the newest season with links on initial load
   useEffect(() => {
     if (Object.keys(openSeasons).length === 0 && seasonsList.length > 0) {
-      const firstSeasonWithLinks = seasonsList.find((s) => {
-        const fmts = seasonGroupsMap.get(s);
-        return fmts && fmts.length > 0;
-      }) || seasonsList[0];
+      const firstSeasonWithLinks =
+        seasonsList.find((s) => {
+          const fmts = seasonGroupsMap.get(s);
+          return fmts && fmts.length > 0;
+        }) || seasonsList[0];
 
       setOpenSeasons({ [firstSeasonWithLinks]: true });
 
@@ -385,7 +480,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             <h3 className="text-lg sm:text-xl font-bold text-white">Season & Episode Vault</h3>
           </div>
           <p className="text-xs text-zinc-400">
-            Select format and release packages to access full batch zip archives and single episodes.
+            Select format (4K DV HDR, 4K SDR, 1080p, 720p) and release packages to access direct episode & zip downloads.
           </p>
         </div>
 
@@ -402,8 +497,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         )}
       </div>
 
-      {/* Season Container Accordions (Matching Screenshot 1 & 2 Exactly) */}
-      <div className="space-y-4">
+      {/* Season Container Accordions (Descending Season 5, Season 4, etc.) */}
+      <div className="space-y-5">
         {seasonsList.map((s) => {
           const formatGroups = seasonGroupsMap.get(s) || [];
           const isSeasonOpen = !!openSeasons[s];
@@ -449,7 +544,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         {/* Format Bar with Left Orange Accent */}
                         <div className="flex items-center justify-between pl-3 relative before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3.5px] before:bg-amber-500 before:rounded-full">
                           <div className="flex items-center gap-2">
-                            <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#14223d] text-blue-400 border border-[#1e3a6a] shadow-sm">
+                            {/* Resolution Badge (Solid amber for 4K, blue for 1080p, purple for 720p) */}
+                            <span className={getResolutionBadgeStyle(group.resolution)}>
                               {group.resolution}
                             </span>
                             <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
@@ -461,7 +557,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                           </span>
                         </div>
 
-                        {/* Release Options List */}
+                        {/* Release Options List (e.g. 4K DV HDR vs 4K SDR vs 1080p H.264) */}
                         <div className="space-y-2.5">
                           {group.options.map((option) => {
                             const isOptionOpen = !!openReleaseOptions[option.id];
@@ -474,7 +570,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                 const epNumStr = String(num).padStart(2, '0');
                                 let displayTitle = ep.title;
                                 if (!displayTitle.includes('.')) {
-                                  displayTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}E${epNumStr}.${group.resolution}.${group.source}.Multi.mkv`;
+                                  displayTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}E${epNumStr}.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.mkv`;
                                 }
                                 groupedEpisodesMap.set(num, {
                                   episodeNumber: num,
@@ -503,7 +599,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                   className="p-3.5 sm:p-4 flex items-center justify-between cursor-pointer group hover:bg-[#12101c] transition-colors"
                                 >
                                   <div className="flex items-center gap-3.5 overflow-hidden">
-                                    {/* S01 Orange Tag */}
+                                    {/* S05 / S04 Orange Tag */}
                                     <div className="text-amber-500 font-bold text-sm sm:text-base tracking-wider pr-3.5 border-r border-[#211f30] shrink-0">
                                       S{String(s).padStart(2, '0')}
                                     </div>
@@ -536,7 +632,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Expanded Episodes & Zip Download List (Matching Screenshot 2) */}
+                                {/* Expanded Episodes & Zip Download List */}
                                 {isOptionOpen && (
                                   <div className="border-t border-[#1a1728] bg-[#0c0a13] divide-y divide-[#1b1928] overflow-hidden p-4 sm:p-5 animate-fadeIn">
                                     {/* 1. Complete Zip Packs */}
@@ -545,7 +641,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                       const serverName = server.name || 'HubCloud';
                                       let packTitle = pack.title;
                                       if (!packTitle.includes('.')) {
-                                        packTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}.Complete.${group.resolution}.${group.source}.Multi.zip`;
+                                        packTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}.Complete.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.zip`;
                                       }
                                       const packSize = pack.size || '16.8 GB';
 
