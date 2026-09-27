@@ -276,8 +276,9 @@ export default function AdminPage() {
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
-  // Fulfill Modal State
+  // Fulfill Modal State (Single, Bulk, & Grid Modes)
   const [fulfillingRequest, setFulfillingRequest] = useState<UserRequest | null>(null);
+  const [fulfillMode, setFulfillMode] = useState<'single' | 'bulk' | 'grid'>('single');
   const [fulfillUrl, setFulfillUrl] = useState('');
   const [fulfillTitle, setFulfillTitle] = useState('');
   const [fulfillQuality, setFulfillQuality] = useState('');
@@ -286,6 +287,31 @@ export default function AdminPage() {
   const [fulfillCategory, setFulfillCategory] = useState<CustomLink['category']>('Download');
   const [isFulfillingSubmit, setIsFulfillingSubmit] = useState(false);
   const [fulfillSuccessMsg, setFulfillSuccessMsg] = useState('');
+
+  // Fulfill Bulk Auto-Detector States
+  const [fulfillBulkRawText, setFulfillBulkRawText] = useState('');
+  const [fulfillBulkParsedItems, setFulfillBulkParsedItems] = useState<ParsedBulkItem[]>([]);
+  const [fulfillBulkMediaType, setFulfillBulkMediaType] = useState<'movie' | 'tv'>('movie');
+  const [fulfillBulkMovieCategory, setFulfillBulkMovieCategory] = useState<CustomLink['category']>('Download');
+
+  // Fulfill Episode Grid States
+  const [fulfillGridSeason, setFulfillGridSeason] = useState(1);
+  const [fulfillGridEpisodeCount, setFulfillGridEpisodeCount] = useState(8);
+  const [fulfillGridBasePattern, setFulfillGridBasePattern] = useState('');
+  const [fulfillGridQuality, setFulfillGridQuality] = useState('1080p WEB-DL');
+  const [fulfillGridAudio, setFulfillGridAudio] = useState('Hindi + English');
+  const [fulfillGridSize, setFulfillGridSize] = useState('');
+  const [fulfillGridBulkLinksText, setFulfillGridBulkLinksText] = useState('');
+  const [fulfillGridEpisodes, setFulfillGridEpisodes] = useState<
+    Array<{
+      episodeNumber: number;
+      title: string;
+      url: string;
+      quality: string;
+      audio: string;
+      size: string;
+    }>
+  >([]);
 
   // Defective Links Management States
   const [reportsList, setReportsList] = useState<DefectiveLinkReport[]>([]);
@@ -637,6 +663,18 @@ export default function AdminPage() {
     setAdminBulkParsedItems(parsed);
   }, [adminBulkRawText, adminBulkMediaType, adminBulkMovieCategory, selectedTargetTitle?.media_type]);
 
+  // Real-time bulk parsing for fulfill modal
+  useEffect(() => {
+    if (!fulfillBulkRawText.trim() || !fulfillingRequest) {
+      setFulfillBulkParsedItems([]);
+      return;
+    }
+    const currentType = fulfillBulkMediaType || (fulfillingRequest.mediaType === 'tv' ? 'tv' : 'movie');
+    const defaultSeason = fulfillingRequest.seasonNumber || 1;
+    const parsed = parseBulkLinksInput(fulfillBulkRawText, defaultSeason, currentType, fulfillBulkMovieCategory);
+    setFulfillBulkParsedItems(parsed);
+  }, [fulfillBulkRawText, fulfillBulkMediaType, fulfillBulkMovieCategory, fulfillingRequest]);
+
   // Handle Target Title Selection
   const handleSelectTargetTitle = (item: {
     id: number;
@@ -841,16 +879,107 @@ export default function AdminPage() {
     }
   };
 
+  // Helper to format episode title with pattern tokens
+  const formatAdminGridEpTitle = (
+    epNum: number,
+    pattern: string,
+    season: number,
+    targetTitle: string,
+    quality: string,
+    audio: string
+  ) => {
+    const epStr = epNum < 10 ? `0${epNum}` : `${epNum}`;
+    const sStr = season < 10 ? `0${season}` : `${season}`;
+    if (pattern && pattern.trim()) {
+      return pattern
+        .replace(/{title}/gi, targetTitle || 'Series')
+        .replace(/{season}/gi, sStr)
+        .replace(/{s}/gi, sStr)
+        .replace(/{episode}/gi, epStr)
+        .replace(/{ep}/gi, epStr)
+        .replace(/{quality}/gi, quality || '')
+        .replace(/{audio}/gi, audio || '')
+        .trim();
+    }
+    return `${targetTitle || 'Series'} S${sStr}E${epStr} ${quality || '1080p WEB-DL'} [${audio || 'Hindi + English'}]`;
+  };
+
+  // Sync episode slots for Fulfill Modal grid
+  const syncFulfillGridSlots = (
+    count: number,
+    season: number,
+    pattern: string,
+    quality: string,
+    audio: string,
+    size: string,
+    titleName?: string
+  ) => {
+    const seriesTitle = titleName || fulfillingRequest?.title || 'Series';
+    setFulfillGridEpisodes((prev) => {
+      const newSlots = [];
+      for (let i = 1; i <= count; i++) {
+        const existing = prev.find((p) => p.episodeNumber === i);
+        newSlots.push({
+          episodeNumber: i,
+          title:
+            existing?.title && existing.title.trim().length > 3
+              ? existing.title
+              : formatAdminGridEpTitle(i, pattern, season, seriesTitle, quality, audio),
+          url: existing?.url || '',
+          quality: existing?.quality || quality || '1080p WEB-DL',
+          audio: existing?.audio || audio || 'Hindi + English',
+          size: existing?.size || size || '',
+        });
+      }
+      return newSlots;
+    });
+  };
+
   const handleOpenFulfill = (req: UserRequest) => {
     setFulfillingRequest(req);
     const yr = req.releaseYear ? ` (${req.releaseYear})` : '';
-    setFulfillTitle(`${req.title}${yr} ${req.quality || '1080p'} [${req.audioLanguage || 'Dual Audio'}]`);
+    const initialQuality = req.quality || '1080p';
+    const initialAudio = req.audioLanguage || 'Hindi + English';
+
+    setFulfillTitle(`${req.title}${yr} ${initialQuality} [${initialAudio}]`);
     setFulfillUrl('');
-    setFulfillQuality(req.quality || '1080p');
-    setFulfillAudio(req.audioLanguage || 'Hindi + English');
+    setFulfillQuality(initialQuality);
+    setFulfillAudio(initialAudio);
     setFulfillSize('');
     setFulfillCategory(req.mediaType === 'tv' ? (req.seasonNumber ? 'SingleEpisode' : 'ZipPack') : 'Download');
     setFulfillSuccessMsg('');
+
+    // Default mode: single, bulk, or grid
+    setFulfillMode(req.mediaType === 'tv' && !req.episodeNumber ? 'bulk' : 'single');
+    setFulfillBulkMediaType(req.mediaType === 'tv' ? 'tv' : 'movie');
+    setFulfillBulkMovieCategory(req.mediaType === 'tv' ? 'SingleEpisode' : 'Download');
+    setFulfillBulkRawText('');
+    setFulfillBulkParsedItems([]);
+
+    // Grid states
+    const defaultSeason = req.seasonNumber || 1;
+    const defaultCount = 8;
+    const pattern = `{title} S{season}E{ep} {quality} [{audio}]`;
+    setFulfillGridSeason(defaultSeason);
+    setFulfillGridEpisodeCount(defaultCount);
+    setFulfillGridBasePattern(pattern);
+    setFulfillGridQuality(initialQuality);
+    setFulfillGridAudio(initialAudio);
+    setFulfillGridSize('');
+    setFulfillGridBulkLinksText('');
+
+    const newSlots = [];
+    for (let i = 1; i <= defaultCount; i++) {
+      newSlots.push({
+        episodeNumber: i,
+        title: formatAdminGridEpTitle(i, pattern, defaultSeason, req.title, initialQuality, initialAudio),
+        url: '',
+        quality: initialQuality,
+        audio: initialAudio,
+        size: '',
+      });
+    }
+    setFulfillGridEpisodes(newSlots);
   };
 
   const handleFulfillSubmit = async (e: React.FormEvent) => {
@@ -895,7 +1024,20 @@ export default function AdminPage() {
       // 1. Save link to title database
       await saveGlobalCustomLink(targetTmdbId, newCustomLink);
 
-      // 2. Mark request as fulfilled
+      // 2. Update local customLinksMap
+      setCustomLinksMap((prev) => {
+        const existing = prev[String(targetTmdbId)] || [];
+        const updated = {
+          ...prev,
+          [String(targetTmdbId)]: [newCustomLink, ...existing],
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
+        }
+        return updated;
+      });
+
+      // 3. Mark request as fulfilled
       const res = await fetch('/api/requests', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -933,6 +1075,309 @@ export default function AdminPage() {
     } catch (err: any) {
       console.error('Error fulfilling request:', err);
       addLog(`Failed to fulfill request: ${err.message}`, 'warn');
+    } finally {
+      setIsFulfillingSubmit(false);
+    }
+  };
+
+  // Toggle type of individual item in fulfill bulk preview
+  const handleFulfillToggleBulkItemType = (id: string) => {
+    setFulfillBulkParsedItems((prev) =>
+      prev.map((item) => {
+        if (item.id === id) {
+          const isSingle = item.linkType === 'single_episode';
+          return {
+            ...item,
+            linkType: isSingle ? 'zip_pack' : 'single_episode',
+            category: isSingle ? 'ZipPack' : 'SingleEpisode',
+            episodeNumber: isSingle ? undefined : item.episodeNumber || 1,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // Set category for all items in fulfill movie bulk mode
+  const handleFulfillSetAllBulkCategory = (cat: CustomLink['category']) => {
+    setFulfillBulkMovieCategory(cat);
+    setFulfillBulkParsedItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        category: cat,
+      }))
+    );
+  };
+
+  // Convert all items in fulfill bulk preview to single episodes or zip packs
+  const handleFulfillSetAllBulkType = (type: 'single_episode' | 'zip_pack') => {
+    setFulfillBulkParsedItems((prev) =>
+      prev.map((item, index) => ({
+        ...item,
+        linkType: type,
+        category: type === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
+        episodeNumber: type === 'single_episode' ? (item.episodeNumber || index + 1) : undefined,
+      }))
+    );
+  };
+
+  // Handle Bulk Links Fulfill Submission
+  const handleFulfillBulkSubmit = async () => {
+    if (!fulfillingRequest || fulfillBulkParsedItems.length === 0) return;
+
+    setIsFulfillingSubmit(true);
+    let targetTmdbId = fulfillingRequest.tmdbId;
+
+    if (!targetTmdbId) {
+      const found = Object.entries(knownTitlesCache).find(([_, info]) =>
+        info.title.toLowerCase() === fulfillingRequest.title.toLowerCase()
+      );
+      if (found) targetTmdbId = Number(found[0]);
+    }
+
+    if (!targetTmdbId) {
+      targetTmdbId = Math.floor(Math.random() * 800000) + 100000;
+    }
+
+    const isMovie = fulfillBulkMediaType === 'movie';
+    const createdObjs: CustomLink[] = [];
+
+    fulfillBulkParsedItems.forEach((item, index) => {
+      let finalUrl = item.url.trim();
+      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        finalUrl = `https://${finalUrl}`;
+      }
+
+      const newObj: CustomLink = {
+        id: `bulk-fulfill-${Date.now()}-${index}`,
+        title: item.title,
+        url: finalUrl,
+        category: isMovie ? (item.category || fulfillBulkMovieCategory || 'Download') : item.category,
+        createdAt: new Date(Date.now() - index * 1000).toISOString(),
+        seasonNumber: isMovie ? undefined : item.seasonNumber,
+        episodeNumber: isMovie ? undefined : item.episodeNumber,
+        quality: item.quality,
+        audioLanguage: item.audioLanguage,
+        size: item.size,
+        linkType: isMovie ? 'general' : item.linkType,
+      };
+      createdObjs.push(newObj);
+    });
+
+    try {
+      // 1. Save all links to database
+      await saveMultipleGlobalCustomLinks(targetTmdbId, createdObjs);
+
+      // 2. Update local customLinksMap
+      setCustomLinksMap((prev) => {
+        const existing = prev[String(targetTmdbId)] || [];
+        const updated = {
+          ...prev,
+          [String(targetTmdbId)]: [...createdObjs, ...existing],
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
+        }
+        return updated;
+      });
+
+      // 3. Mark user request fulfilled
+      const primeUrl = createdObjs[0]?.url || '';
+      const primeId = createdObjs[0]?.id || `link-${Date.now()}`;
+
+      const res = await fetch('/api/requests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: fulfillingRequest.id,
+          status: 'fulfilled',
+          fulfilledLinkId: primeId,
+          fulfilledLinkUrl: primeUrl,
+        }),
+      });
+
+      if (res.ok) {
+        setFulfillSuccessMsg(`🎉 Successfully imported ${createdObjs.length} link${createdObjs.length > 1 ? 's' : ''} & fulfilled request for "${fulfillingRequest.title}"!`);
+        addLog(`Fulfilled request for "${fulfillingRequest.title}" with ${createdObjs.length} bulk links`, 'success');
+
+        setRequestsList((prev) =>
+          prev.map((r) =>
+            r.id === fulfillingRequest.id
+              ? {
+                  ...r,
+                  status: 'fulfilled',
+                  fulfilledAt: new Date().toISOString(),
+                  fulfilledLinkUrl: primeUrl,
+                }
+              : r
+          )
+        );
+        setPendingRequestsCount((prev) => Math.max(0, prev - 1));
+
+        setTimeout(() => {
+          setFulfillingRequest(null);
+          setFulfillSuccessMsg('');
+          setFulfillBulkRawText('');
+          setFulfillBulkParsedItems([]);
+        }, 2200);
+      }
+    } catch (err: any) {
+      console.error('Error fulfilling bulk request:', err);
+      addLog(`Failed to fulfill request with bulk links: ${err.message}`, 'warn');
+    } finally {
+      setIsFulfillingSubmit(false);
+    }
+  };
+
+  // Distribute links pasted into fulfill grid
+  const handleFulfillDistributeGridUrls = (text: string) => {
+    setFulfillGridBulkLinksText(text);
+    const urls = text.match(/(https?:\/\/[^\s<>"']+)/gi) || [];
+    if (urls.length > 0) {
+      setFulfillGridEpisodes((prev) =>
+        prev.map((slot, index) => {
+          if (urls[index]) {
+            return { ...slot, url: urls[index] };
+          }
+          return slot;
+        })
+      );
+    }
+  };
+
+  // Update a single episode slot in fulfill grid
+  const handleFulfillUpdateGridSlot = (
+    epNum: number,
+    field: 'title' | 'url' | 'quality' | 'audio' | 'size',
+    value: string
+  ) => {
+    setFulfillGridEpisodes((prev) =>
+      prev.map((slot) => (slot.episodeNumber === epNum ? { ...slot, [field]: value } : slot))
+    );
+  };
+
+  // Apply pattern to all titles in fulfill grid
+  const handleFulfillApplyPatternToAll = () => {
+    const seriesTitle = fulfillingRequest?.title || 'Series';
+    setFulfillGridEpisodes((prev) =>
+      prev.map((slot) => ({
+        ...slot,
+        title: formatAdminGridEpTitle(
+          slot.episodeNumber,
+          fulfillGridBasePattern,
+          fulfillGridSeason,
+          seriesTitle,
+          fulfillGridQuality,
+          fulfillGridAudio
+        ),
+      }))
+    );
+  };
+
+  // Save all fulfill grid episode containers and fulfill request
+  const handleFulfillGridSubmit = async () => {
+    if (!fulfillingRequest) return;
+    const valid = fulfillGridEpisodes.filter((e) => e.url.trim() && e.title.trim());
+    if (valid.length === 0) {
+      alert('Please fill in at least one episode container link before fulfilling.');
+      return;
+    }
+
+    setIsFulfillingSubmit(true);
+    let targetTmdbId = fulfillingRequest.tmdbId;
+
+    if (!targetTmdbId) {
+      const found = Object.entries(knownTitlesCache).find(([_, info]) =>
+        info.title.toLowerCase() === fulfillingRequest.title.toLowerCase()
+      );
+      if (found) targetTmdbId = Number(found[0]);
+    }
+
+    if (!targetTmdbId) {
+      targetTmdbId = Math.floor(Math.random() * 800000) + 100000;
+    }
+
+    const createdObjs: CustomLink[] = [];
+    valid.forEach((ep, index) => {
+      let finalUrl = ep.url.trim();
+      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        finalUrl = `https://${finalUrl}`;
+      }
+
+      const newLink: CustomLink = {
+        id: `fulfill-grid-${Date.now()}-${ep.episodeNumber}-${index}`,
+        title: ep.title.trim(),
+        url: finalUrl,
+        category: 'SingleEpisode',
+        createdAt: new Date(Date.now() - index * 1000).toISOString(),
+        seasonNumber: fulfillGridSeason,
+        episodeNumber: ep.episodeNumber,
+        quality: ep.quality.trim() || fulfillGridQuality || '1080p WEB-DL',
+        audioLanguage: ep.audio.trim() || fulfillGridAudio || 'Hindi + English',
+        size: ep.size.trim() || fulfillGridSize || undefined,
+        linkType: 'single_episode',
+      };
+      createdObjs.push(newLink);
+    });
+
+    try {
+      // 1. Save links to title database
+      await saveMultipleGlobalCustomLinks(targetTmdbId, createdObjs);
+
+      // 2. Update local customLinksMap
+      setCustomLinksMap((prev) => {
+        const existing = prev[String(targetTmdbId)] || [];
+        const updated = {
+          ...prev,
+          [String(targetTmdbId)]: [...createdObjs, ...existing],
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
+        }
+        return updated;
+      });
+
+      // 3. Mark request as fulfilled
+      const primeUrl = createdObjs[0]?.url || '';
+      const primeId = createdObjs[0]?.id || `link-${Date.now()}`;
+
+      const res = await fetch('/api/requests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: fulfillingRequest.id,
+          status: 'fulfilled',
+          fulfilledLinkId: primeId,
+          fulfilledLinkUrl: primeUrl,
+        }),
+      });
+
+      if (res.ok) {
+        setFulfillSuccessMsg(`🎉 Successfully saved ${createdObjs.length} episode containers & fulfilled request for "${fulfillingRequest.title}"!`);
+        addLog(`Fulfilled request for "${fulfillingRequest.title}" with ${createdObjs.length} episode grid links`, 'success');
+
+        setRequestsList((prev) =>
+          prev.map((r) =>
+            r.id === fulfillingRequest.id
+              ? {
+                  ...r,
+                  status: 'fulfilled',
+                  fulfilledAt: new Date().toISOString(),
+                  fulfilledLinkUrl: primeUrl,
+                }
+              : r
+          )
+        );
+        setPendingRequestsCount((prev) => Math.max(0, prev - 1));
+
+        setTimeout(() => {
+          setFulfillingRequest(null);
+          setFulfillSuccessMsg('');
+        }, 2200);
+      }
+    } catch (err: any) {
+      console.error('Error fulfilling grid request:', err);
+      addLog(`Failed to fulfill request with episode grid: ${err.message}`, 'warn');
     } finally {
       setIsFulfillingSubmit(false);
     }
@@ -1396,30 +1841,6 @@ export default function AdminPage() {
     setTimeout(() => setAdminBulkSuccessMsg(''), 3500);
   };
 
-  // Helper to format admin episode title
-  const formatAdminGridEpTitle = (
-    epNum: number,
-    pattern: string,
-    season: number,
-    targetTitle: string,
-    quality: string,
-    audio: string
-  ) => {
-    const epStr = epNum < 10 ? `0${epNum}` : `${epNum}`;
-    const sStr = season < 10 ? `0${season}` : `${season}`;
-    if (pattern && pattern.trim()) {
-      return pattern
-        .replace(/{title}/gi, targetTitle || 'Series')
-        .replace(/{season}/gi, sStr)
-        .replace(/{s}/gi, sStr)
-        .replace(/{episode}/gi, epStr)
-        .replace(/{ep}/gi, epStr)
-        .replace(/{quality}/gi, quality || '')
-        .replace(/{audio}/gi, audio || '')
-        .trim();
-    }
-    return `${targetTitle || 'Series'} S${sStr}E${epStr} ${quality || '2160p WEB-DL'} [${audio || 'Hindi + English'}]`;
-  };
 
   // Sync grid episode slots whenever count, season, or title changes
   const syncAdminGridSlots = (
@@ -3881,10 +4302,38 @@ export default function AdminPage() {
                         <button
                           onClick={() => handleOpenFulfill(req)}
                           className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:scale-105 active:scale-95"
-                          title="Open fulfillment dialog to attach link and fulfill request"
+                          title="Open fulfillment dialog (Single Link, Bulk Auto-Detector, or Episode Grid)"
                         >
                           <Zap className="w-3.5 h-3.5" />
                           <span>{req.status === 'fulfilled' ? 'Add Another Link' : 'Fulfill & Add Link'}</span>
+                        </button>
+
+                        {/* Direct Jump to Manage Links Tab */}
+                        <button
+                          onClick={() => {
+                            const targetObj = {
+                              id: req.tmdbId || Math.floor(Math.random() * 800000) + 100000,
+                              title: req.title,
+                              media_type: (req.mediaType === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv',
+                              poster_path: req.posterPath || null,
+                              year: req.releaseYear || '',
+                            };
+                            setSelectedTargetTitle(targetObj);
+                            cacheTitle(targetObj.id, targetObj);
+                            setActiveTab('links');
+                            if (req.mediaType === 'tv') {
+                              setAddLinkMode('bulk');
+                              setAdminBulkMediaType('tv');
+                            } else {
+                              setAddLinkMode('single');
+                              setAdminBulkMediaType('movie');
+                            }
+                          }}
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/60 text-zinc-300 hover:text-amber-400 text-xs font-bold transition-all"
+                          title="Open in Full Manage Links Tab (Bulk & Grid Available)"
+                        >
+                          <Link2 className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="hidden lg:inline">Manage Links</span>
                         </button>
 
                         {/* Status Toggle Quick Buttons */}
@@ -4672,128 +5121,694 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Admin Fulfill Link Request Modal */}
+      {/* Admin Fulfill Link Request Modal (Single, Bulk Auto-Detector, & Episode Grid) */}
       {fulfillingRequest && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#11141d] border border-blue-500/40 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-4 shadow-2xl animate-scaleIn">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-blue-400" />
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Fulfill Request: {fulfillingRequest.title}
-                </h4>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-[#0f131d] border border-blue-500/40 rounded-3xl p-5 sm:p-7 max-w-4xl w-full space-y-4 shadow-2xl animate-scaleIn my-6 max-h-[92vh] overflow-y-auto">
+            {/* Header with Title & 3 Mode Switcher Pills */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-800 pb-3.5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20 font-black">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${fulfillingRequest.mediaType === 'tv' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                      {fulfillingRequest.mediaType === 'tv' ? 'TV SERIES' : 'MOVIE'}
+                    </span>
+                    {fulfillingRequest.releaseYear && (
+                      <span className="text-xs text-zinc-400 font-mono">({fulfillingRequest.releaseYear})</span>
+                    )}
+                  </div>
+                  <h4 className="text-base sm:text-lg font-black text-white leading-tight">
+                    Fulfill Request: <span className="text-blue-400">{fulfillingRequest.title}</span>
+                  </h4>
+                </div>
               </div>
-              <button
-                onClick={() => setFulfillingRequest(null)}
-                className="text-zinc-400 hover:text-white text-xs font-bold"
-              >
-                ✕ Close
-              </button>
+
+              {/* 3 Link Mode Tabs (Single, Bulk, Grid) */}
+              <div className="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-2xl border border-zinc-800 self-start md:self-auto shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setFulfillMode('single')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${
+                    fulfillMode === 'single'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Single Link
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFulfillMode('bulk')}
+                  className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all ${
+                    fulfillMode === 'bulk'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-md shadow-amber-500/20'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" /> Bulk Auto-Detector
+                </button>
+                {fulfillingRequest.mediaType === 'tv' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFulfillMode('grid');
+                      if (fulfillGridEpisodes.length === 0) {
+                        syncFulfillGridSlots(
+                          fulfillGridEpisodeCount,
+                          fulfillGridSeason,
+                          fulfillGridBasePattern,
+                          fulfillGridQuality,
+                          fulfillGridAudio,
+                          fulfillGridSize,
+                          fulfillingRequest.title
+                        );
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 transition-all ${
+                      fulfillMode === 'grid'
+                        ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" /> Episode Grid ({fulfillGridEpisodeCount} EPs)
+                  </button>
+                )}
+                <button
+                  onClick={() => setFulfillingRequest(null)}
+                  className="text-zinc-400 hover:text-white text-xs font-bold px-2 py-1.5 ml-1 rounded-lg hover:bg-zinc-800"
+                  title="Close modal"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Request Summary Card */}
             <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-xs space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-400">Requested Quality:</span>
-                <span className="text-blue-400 font-bold">{fulfillingRequest.quality || 'Any Quality'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-400">Requested Audio:</span>
-                <span className="text-purple-400 font-bold">{fulfillingRequest.audioLanguage || 'Any Audio'}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-3.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-400">Requested Quality:</span>
+                    <span className="text-blue-400 font-bold px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
+                      {fulfillingRequest.quality || 'Any Quality'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-400">Requested Audio:</span>
+                    <span className="text-purple-400 font-bold px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">
+                      {fulfillingRequest.audioLanguage || 'Any Audio'}
+                    </span>
+                  </div>
+                  {fulfillingRequest.mediaType === 'tv' && (fulfillingRequest.seasonNumber || fulfillingRequest.episodeNumber) && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-zinc-400">Target Season/EP:</span>
+                      <span className="text-amber-400 font-mono font-bold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                        {fulfillingRequest.seasonNumber ? `S${fulfillingRequest.seasonNumber}` : ''}
+                        {fulfillingRequest.episodeNumber ? `E${fulfillingRequest.episodeNumber}` : ' (Full Pack)'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {fulfillingRequest.userContact && (
+                  <span className="text-[11px] text-zinc-400 font-mono">
+                    User Contact: <strong className="text-blue-400">{fulfillingRequest.userContact}</strong>
+                  </span>
+                )}
               </div>
               {fulfillingRequest.notes && (
-                <div className="pt-1 border-t border-zinc-800/60 text-zinc-300 italic">
+                <div className="pt-1.5 border-t border-zinc-800/60 text-zinc-300 italic">
                   &ldquo;{fulfillingRequest.notes}&rdquo;
                 </div>
               )}
             </div>
 
             {fulfillSuccessMsg ? (
-              <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold">
-                {fulfillSuccessMsg}
+              <div className="p-6 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold space-y-2 animate-fadeIn">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                <p className="text-sm font-bold text-white">{fulfillSuccessMsg}</p>
               </div>
             ) : (
-              <form onSubmit={handleFulfillSubmit} className="space-y-3.5">
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-                    Link Title / Release Label *
-                  </label>
-                  <input
-                    type="text"
-                    value={fulfillTitle}
-                    onChange={(e) => setFulfillTitle(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                    required
-                  />
-                </div>
+              <>
+                {/* ----------------- MODE 1: SINGLE LINK ----------------- */}
+                {fulfillMode === 'single' && (
+                  <form onSubmit={handleFulfillSubmit} className="space-y-4 pt-1 animate-fadeIn">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="lg:col-span-2">
+                        <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                          Link Title / Release Label *
+                        </label>
+                        <input
+                          type="text"
+                          value={fulfillTitle}
+                          onChange={(e) => setFulfillTitle(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 font-medium"
+                          required
+                        />
+                      </div>
 
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
-                    Download / Streaming Destination URL *
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="https://hubcloud.club/... or GDFlix / Google Drive URL"
-                    value={fulfillUrl}
-                    onChange={(e) => setFulfillUrl(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
-                    required
-                    autoFocus
-                  />
-                </div>
+                      <div className="lg:col-span-2">
+                        <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                          Download / Streaming Destination URL *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="https://hubcloud.club/... or GDFlix / Google Drive URL"
+                          value={fulfillUrl}
+                          onChange={(e) => setFulfillUrl(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
+                          required
+                          autoFocus
+                        />
+                      </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Quality</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 1080p, 4K"
-                      value={fulfillQuality}
-                      onChange={(e) => setFulfillQuality(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Audio</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Hindi + Eng"
-                      value={fulfillAudio}
-                      onChange={(e) => setFulfillAudio(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Size</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 2.4 GB"
-                      value={fulfillSize}
-                      onChange={(e) => setFulfillSize(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Category / Type</label>
+                        <select
+                          value={fulfillCategory}
+                          onChange={(e) => setFulfillCategory(e.target.value as CustomLink['category'])}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                        >
+                          <option value="Download">📥 Direct Download</option>
+                          <option value="Streaming">🎬 Streaming & OTT</option>
+                          <option value="SingleEpisode">📺 Single Episode</option>
+                          <option value="ZipPack">🗜️ Season Zip / Batch Pack</option>
+                          <option value="Subtitles">🌐 Subtitles</option>
+                        </select>
+                      </div>
 
-                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
-                  <button
-                    type="button"
-                    onClick={() => setFulfillingRequest(null)}
-                    disabled={isFulfillingSubmit}
-                    className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isFulfillingSubmit}
-                    className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs shadow-lg shadow-blue-500/25 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>{isFulfillingSubmit ? 'Publishing Link...' : 'Publish Link & Fulfill'}</span>
-                  </button>
-                </div>
-              </form>
+                      <div>
+                        <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Quality</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 1080p, 4K"
+                          value={fulfillQuality}
+                          onChange={(e) => setFulfillQuality(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-zinc-400 block mb-1">Audio / Dub</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Hindi + English"
+                          value={fulfillAudio}
+                          onChange={(e) => setFulfillAudio(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-zinc-400 block mb-1">File Size</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 2.4 GB"
+                          value={fulfillSize}
+                          onChange={(e) => setFulfillSize(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => setFulfillingRequest(null)}
+                        disabled={isFulfillingSubmit}
+                        className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isFulfillingSubmit}
+                        className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs shadow-lg shadow-blue-500/25 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>{isFulfillingSubmit ? 'Publishing Link...' : 'Publish Link & Fulfill'}</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* ----------------- MODE 2: BULK AUTO-DETECTOR ----------------- */}
+                {fulfillMode === 'bulk' && (
+                  <div className="space-y-4 pt-1 animate-fadeIn">
+                    {/* Bulk Target Format Switcher */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-zinc-950 border border-zinc-800/80">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-zinc-300">Bulk Target Format:</span>
+                        <div className="inline-flex rounded-xl p-1 bg-zinc-900 border border-zinc-700/80 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFulfillBulkMediaType('movie');
+                              if (fulfillBulkRawText.trim()) {
+                                const parsed = parseBulkLinksInput(fulfillBulkRawText, 1, 'movie', fulfillBulkMovieCategory);
+                                setFulfillBulkParsedItems(parsed);
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                              fulfillBulkMediaType === 'movie'
+                                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            <Film className="w-3.5 h-3.5" /> Movie Releases Mode
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFulfillBulkMediaType('tv');
+                              if (fulfillBulkRawText.trim()) {
+                                const parsed = parseBulkLinksInput(fulfillBulkRawText, fulfillingRequest.seasonNumber || 1, 'tv', 'SingleEpisode');
+                                setFulfillBulkParsedItems(parsed);
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                              fulfillBulkMediaType === 'tv'
+                                ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            <Tv className="w-3.5 h-3.5" /> TV Episodes & Packs
+                          </button>
+                        </div>
+                      </div>
+
+                      {fulfillBulkMediaType === 'movie' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-zinc-400">Default Category:</span>
+                          <select
+                            value={fulfillBulkMovieCategory}
+                            onChange={(e) => {
+                              const cat = e.target.value as CustomLink['category'];
+                              setFulfillBulkMovieCategory(cat);
+                              handleFulfillSetAllBulkCategory(cat);
+                            }}
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1 text-xs text-amber-300 font-bold focus:outline-none focus:border-amber-500"
+                          >
+                            <option value="Download">📥 Direct Download</option>
+                            <option value="Streaming">🎬 Streaming & OTT</option>
+                            <option value="Subtitles">🌐 Subtitles</option>
+                            <option value="Recent">⚡ Recent Release</option>
+                            <option value="Official">🏛️ Official Website</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Textarea */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-300 block flex items-center justify-between">
+                        <span>
+                          {fulfillBulkMediaType === 'movie'
+                            ? `Paste Multiple Movie Release Lines / URLs for "${fulfillingRequest.title}":`
+                            : `Paste Multiple Episode & Zip Pack Lines for "${fulfillingRequest.title}":`}
+                        </span>
+                        <span className="text-[10px] text-amber-400 font-mono">
+                          {fulfillBulkMediaType === 'movie'
+                            ? 'Auto-detects 4K UHD, 1080p, 720p, HDR, Dubs, and Sizes'
+                            : 'Auto-detects S01/S02, Zip Packs vs Single EPs, Qualities, and Dubs'}
+                        </span>
+                      </label>
+                      <textarea
+                        rows={5}
+                        placeholder={
+                          fulfillBulkMediaType === 'movie'
+                            ? `Paste multiple movie release lines or download URLs at once! Examples:\n${fulfillingRequest.title} 2160p UHD BluRay HEVC TrueHD Atmos 7.1 [Hindi DDP 5.1 + English] [24.5 GB] - https://hubcloud.cx/drive/movie4k\n${fulfillingRequest.title} 1080p FHD BluRay x264 [Hindi + English 5.1] [10.2 GB] - https://gdflix.dev/file/movie1080\n${fulfillingRequest.title} 720p HD WEB-DL [Hindi Dubbed] [2.1 GB] - https://mnmcloud.fun/files/movie720`
+                            : `Paste multiple release lines or download URLs at once! Examples:\n${fulfillingRequest.title} S01E01 2160p WEB-DL Hindi DDP 5.1 [6.36 GB] - https://hubcloud.foo/video/1...\n${fulfillingRequest.title} S01E02 2160p WEB-DL Hindi DDP 5.1 [6.28 GB] - https://hubcloud.foo/video/2...\n${fulfillingRequest.title} S01 Complete 2160p UHD BluRay DV HDR [Hindi DDP 5.1 + English Atmos].zip https://mega.nz/file/3...`
+                        }
+                        value={fulfillBulkRawText}
+                        onChange={(e) => setFulfillBulkRawText(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-700 rounded-2xl p-3.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500 leading-relaxed shadow-inner"
+                        autoFocus
+                      />
+                    </div>
+
+                    {/* Real-time Parsed Results Preview */}
+                    {fulfillBulkParsedItems.length > 0 && (
+                      <div className="space-y-3 bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-amber-400" />
+                            <span className="text-xs font-black text-white">
+                              {fulfillBulkParsedItems.length} {fulfillBulkMediaType === 'movie' ? 'Movie Releases' : 'Links'} Auto-Detected:
+                            </span>
+                            {fulfillBulkMediaType === 'movie' ? (
+                              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold text-[10px]">
+                                🎬 {fulfillBulkParsedItems.length} Movie Releases
+                              </span>
+                            ) : (
+                              <>
+                                <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-bold text-[10px]">
+                                  📥 {fulfillBulkParsedItems.filter((i) => i.linkType === 'single_episode').length} Episodes
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-bold text-[10px]">
+                                  🗜️ {fulfillBulkParsedItems.filter((i) => i.linkType === 'zip_pack').length} Zip Packs
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Quick Bulk Convert Controls */}
+                          <div className="flex items-center gap-2">
+                            {fulfillBulkMediaType === 'movie' ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFulfillSetAllBulkCategory('Download')}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-[10px] font-bold transition-colors"
+                                  title="Set all movie items to Download"
+                                >
+                                  📥 Set All Download
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFulfillSetAllBulkCategory('Streaming')}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold transition-colors"
+                                  title="Set all movie items to Streaming"
+                                >
+                                  🎬 Set All Streaming
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFulfillSetAllBulkType('single_episode')}
+                                  className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 text-[10px] font-bold transition-colors"
+                                  title="Convert all items to Single Episodes"
+                                >
+                                  📥 Set All as Episodes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFulfillSetAllBulkType('zip_pack')}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold transition-colors"
+                                  title="Convert all items to Zip Packs"
+                                >
+                                  🗜️ Set All as Zip Packs
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
+                          {fulfillBulkParsedItems.map((item) => (
+                            <div
+                              key={item.id}
+                              className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-2 text-xs"
+                            >
+                              <div className="overflow-hidden space-y-1 flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  {fulfillBulkMediaType === 'movie' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const nextCat: CustomLink['category'] =
+                                          item.category === 'Download' ? 'Streaming' : item.category === 'Streaming' ? 'Subtitles' : 'Download';
+                                        setFulfillBulkParsedItems((prev) =>
+                                          prev.map((i) => (i.id === item.id ? { ...i, category: nextCat } : i))
+                                        );
+                                      }}
+                                      className="px-2 py-0.5 rounded font-black text-[9px] font-mono transition-all hover:scale-105 bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                      title="Click to toggle category (Download / Streaming / Subtitles)"
+                                    >
+                                      {item.category === 'Download' ? '📥 DOWNLOAD' : item.category === 'Subtitles' ? '🌐 SUBTITLES' : '🎬 STREAMING'}
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-black text-[9px] font-mono">
+                                        S0{item.seasonNumber}
+                                      </span>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFulfillToggleBulkItemType(item.id)}
+                                        className={`px-2 py-0.5 rounded font-black text-[9px] font-mono transition-all hover:scale-105 ${
+                                          item.linkType === 'zip_pack'
+                                            ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40'
+                                            : 'bg-sky-500/30 text-sky-200 border border-sky-500/40'
+                                        }`}
+                                        title="Click to toggle between Episode and Zip Pack"
+                                      >
+                                        {item.linkType === 'zip_pack'
+                                          ? '🗜️ ZIP PACK (Click to switch)'
+                                          : `📥 EP ${item.episodeNumber ? (item.episodeNumber < 10 ? '0' + item.episodeNumber : item.episodeNumber) : '?'} (Click to switch)`}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                                <p className="font-bold text-white truncate text-[11px]">{item.title}</p>
+                                <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                                  <span className="font-semibold text-amber-400/90">{item.quality}</span>
+                                  {item.audioLanguage && <span>• {item.audioLanguage}</span>}
+                                  {item.size && <span className="text-zinc-500 font-mono">• {item.size}</span>}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setFulfillBulkParsedItems((prev) => prev.filter((i) => i.id !== item.id))}
+                                className="p-1.5 rounded-lg bg-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+                                title="Remove"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => setFulfillingRequest(null)}
+                        disabled={isFulfillingSubmit}
+                        className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleFulfillBulkSubmit}
+                        disabled={isFulfillingSubmit || fulfillBulkParsedItems.length === 0}
+                        className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs shadow-lg shadow-amber-500/25 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                      >
+                        <ListPlus className="w-4 h-4" />
+                        <span>{isFulfillingSubmit ? 'Importing Links...' : `🚀 Fulfill & Import All (${fulfillBulkParsedItems.length}) Links`}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ----------------- MODE 3: EPISODE GRID ----------------- */}
+                {fulfillMode === 'grid' && (
+                  <div className="space-y-4 pt-1 animate-fadeIn">
+                    {/* Season & Episode Count Selector */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-zinc-900/90 p-4 rounded-2xl border border-zinc-800/80">
+                      <div>
+                        <label className="text-[11px] font-bold text-zinc-300 block mb-1">Target Season:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={fulfillGridSeason}
+                          onChange={(e) => {
+                            const s = Math.max(1, parseInt(e.target.value) || 1);
+                            setFulfillGridSeason(s);
+                            syncFulfillGridSlots(fulfillGridEpisodeCount, s, fulfillGridBasePattern, fulfillGridQuality, fulfillGridAudio, fulfillGridSize);
+                          }}
+                          className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-zinc-300 block mb-1">
+                          Episode Count <span className="text-sky-400">({fulfillGridEpisodeCount} Containers)</span>:
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={fulfillGridEpisodeCount}
+                            onChange={(e) => {
+                              const c = Math.max(1, parseInt(e.target.value) || 1);
+                              setFulfillGridEpisodeCount(c);
+                              syncFulfillGridSlots(c, fulfillGridSeason, fulfillGridBasePattern, fulfillGridQuality, fulfillGridAudio, fulfillGridSize);
+                            }}
+                            className="w-20 bg-zinc-950 border border-zinc-700 rounded-xl px-2.5 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500"
+                          />
+                          <div className="flex flex-wrap items-center gap-1">
+                            {[6, 8, 10, 12, 16, 24].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => {
+                                  setFulfillGridEpisodeCount(n);
+                                  syncFulfillGridSlots(n, fulfillGridSeason, fulfillGridBasePattern, fulfillGridQuality, fulfillGridAudio, fulfillGridSize);
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                                  fulfillGridEpisodeCount === n
+                                    ? 'bg-sky-500 text-black shadow-md'
+                                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                                }`}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-zinc-300 block mb-1">Default Quality:</label>
+                        <input
+                          type="text"
+                          value={fulfillGridQuality}
+                          onChange={(e) => setFulfillGridQuality(e.target.value)}
+                          placeholder="e.g. 2160p 4K, 1080p WEB-DL"
+                          className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-zinc-300 block mb-1">Default Audio:</label>
+                        <input
+                          type="text"
+                          value={fulfillGridAudio}
+                          onChange={(e) => setFulfillGridAudio(e.target.value)}
+                          placeholder="e.g. Hindi + English 5.1"
+                          className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Base Pattern Template & URL Distributor */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-zinc-300 block">
+                            Title Pattern Template <span className="text-zinc-500 font-normal">(Tokens: {'{title}'}, {'{season}'}, {'{ep}'}, {'{quality}'}, {'{audio}'})</span>:
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleFulfillApplyPatternToAll}
+                            className="text-[10px] text-sky-400 hover:text-sky-300 font-bold bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/30 transition-colors"
+                          >
+                            ⚡ Apply Pattern to All Titles
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={fulfillGridBasePattern}
+                          onChange={(e) => setFulfillGridBasePattern(e.target.value)}
+                          placeholder="{title} S{season}E{ep} {quality} [{audio}]"
+                          className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-zinc-300 block">
+                            Paste Multiple URLs to Auto-Distribute into Containers:
+                          </label>
+                          <span className="text-[10px] text-zinc-500">1 URL per line</span>
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={fulfillGridBulkLinksText}
+                          onChange={(e) => handleFulfillDistributeGridUrls(e.target.value)}
+                          placeholder="Paste up to 8+ links here (one per line) — auto-fills into Link containers below!"
+                          className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-sky-500 font-mono resize-none shadow-inner"
+                        />
+                      </div>
+                    </div>
+
+                    {/* The N Title and N Link Containers Grid */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                          Episode Containers ({fulfillGridEpisodes.length} Episodes):
+                        </span>
+                        <span className="text-[11px] text-zinc-400 font-mono">
+                          Filled: <strong className="text-sky-400">{fulfillGridEpisodes.filter((e) => e.url.trim()).length}</strong> / {fulfillGridEpisodes.length} Links
+                        </span>
+                      </div>
+
+                      <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+                        {fulfillGridEpisodes.map((ep) => (
+                          <div
+                            key={ep.episodeNumber}
+                            className={`p-3.5 rounded-2xl border transition-all ${
+                              ep.url.trim()
+                                ? 'bg-zinc-900/90 border-sky-500/40 shadow-sm'
+                                : 'bg-zinc-950/70 border-zinc-800 hover:border-zinc-700'
+                            }`}
+                          >
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                              {/* Badge */}
+                              <div className="md:col-span-2 flex items-center gap-2">
+                                <span className="px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 font-black text-xs font-mono border border-sky-500/30 whitespace-nowrap">
+                                  EP {ep.episodeNumber < 10 ? `0${ep.episodeNumber}` : ep.episodeNumber}
+                                </span>
+                              </div>
+
+                              {/* Title Input */}
+                              <div className="md:col-span-5">
+                                <input
+                                  type="text"
+                                  value={ep.title}
+                                  onChange={(e) => handleFulfillUpdateGridSlot(ep.episodeNumber, 'title', e.target.value)}
+                                  placeholder="Episode Title..."
+                                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-sky-500 font-medium"
+                                />
+                              </div>
+
+                              {/* URL Input */}
+                              <div className="md:col-span-5">
+                                <input
+                                  type="text"
+                                  value={ep.url}
+                                  onChange={(e) => handleFulfillUpdateGridSlot(ep.episodeNumber, 'url', e.target.value)}
+                                  placeholder="https://hubcloud.foo/video/... or GDFlix URL"
+                                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-sky-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => setFulfillingRequest(null)}
+                        disabled={isFulfillingSubmit}
+                        className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleFulfillGridSubmit}
+                        disabled={isFulfillingSubmit || fulfillGridEpisodes.filter((e) => e.url.trim()).length === 0}
+                        className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-xs shadow-lg shadow-sky-500/25 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                      >
+                        <Zap className="w-4 h-4" />
+                        <span>{isFulfillingSubmit ? 'Saving Episodes...' : `🚀 Fulfill & Save All (${fulfillGridEpisodes.filter((e) => e.url.trim()).length}) Episode Containers`}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
