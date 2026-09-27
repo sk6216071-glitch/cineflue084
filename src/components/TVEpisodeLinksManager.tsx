@@ -76,21 +76,28 @@ interface GroupedEpisode {
 
 // Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p
 function extractReleaseProfile(title: string, quality?: string) {
-  const combined = `${quality || ''} ${title || ''}`.toLowerCase();
+  const combinedRaw = `${quality || ''} ${title || ''}`;
+  // Strip website domain watermarks (e.g. 4kHdHub.Com, Vegamovies.NL, etc.) before checking resolution
+  const combined = combinedRaw
+    .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
+    .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ')
+    .toLowerCase();
 
-  // Resolution
+  // Resolution detection
   let resolution = '1080p';
   let resTag = '1080p';
-  if (combined.includes('2160p') || combined.includes('4k') || combined.includes('uhd')) {
-    resolution = '2160p / 4K';
-    resTag = '2160p';
-  } else if (combined.includes('1080p') || combined.includes('fhd')) {
+
+  // Explicit 1080p / FHD check first if present in title
+  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
     resolution = '1080p';
     resTag = '1080p';
-  } else if (combined.includes('720p') || combined.includes('hd')) {
+  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k(?:\s*uhd|\s*hdr|\s*sdr|\s*hevc|\s*remux|\s*web|\s*bluray)?\b)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+    resolution = '2160p / 4K';
+    resTag = '2160p';
+  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
     resolution = '720p';
     resTag = '720p';
-  } else if (combined.includes('480p') || combined.includes('sd')) {
+  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
     resolution = '480p';
     resTag = '480p';
   }

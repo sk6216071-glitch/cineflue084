@@ -12,6 +12,19 @@
       "size": "8.5 GB",
       "mediaType": "tv",
       "createdAt": "2026-09-27T12:00:00.000Z"
+    },
+    {
+      "id": "tg-71446-s2-pack",
+      "title": "Season 2 Complete (1080p FHD • NF WEB-DL • Dual Audio Hindi-Spanish DDP 5.1) [7.2 GB]",
+      "url": "https://hubcloud.cx/drive/money-heist-s2",
+      "category": "ZipPack",
+      "seasonNumber": 2,
+      "linkType": "zip_pack",
+      "quality": "1080p FHD • WEB-DL",
+      "audioLanguage": "Hindi + Spanish + English",
+      "size": "7.2 GB",
+      "mediaType": "tv",
+      "createdAt": "2026-09-27T12:01:00.000Z"
     }
   ],
   "63351": [
@@ -27,6 +40,19 @@
       "size": "9.2 GB",
       "mediaType": "tv",
       "createdAt": "2026-09-27T12:05:00.000Z"
+    },
+    {
+      "id": "tg-63351-s2-pack",
+      "title": "Season 2 Complete (1080p FHD • NF WEB-DL • Dual Audio Hindi-English DDP 5.1) [8.8 GB]",
+      "url": "https://hubcloud.cx/drive/narcos-s2",
+      "category": "ZipPack",
+      "seasonNumber": 2,
+      "linkType": "zip_pack",
+      "quality": "1080p FHD • WEB-DL",
+      "audioLanguage": "Hindi + English",
+      "size": "8.8 GB",
+      "mediaType": "tv",
+      "createdAt": "2026-09-27T12:06:00.000Z"
     }
   ],
   "137": [],

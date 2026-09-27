@@ -138,11 +138,20 @@ export function detectQuality(title: string, defaultQuality?: string): string {
 
   const tags: string[] = [];
 
+  const cleanForQuality = title
+    .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
+    .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ');
+
   // Resolution
-  if (/2160p|4k|uhd/i.test(title)) tags.push('2160p 4K');
-  else if (/1080p|fhd/i.test(title)) tags.push('1080p FHD');
-  else if (/720p|hd/i.test(title)) tags.push('720p HD');
-  else if (/480p|sd/i.test(title)) tags.push('480p SD');
+  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
+    tags.push('1080p FHD');
+  } else if (/(?:^|[\s._\-[\]()])(?:2160p|uhd|\b4k\b)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
+    tags.push('2160p 4K');
+  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
+    tags.push('720p HD');
+  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
+    tags.push('480p SD');
+  }
 
   // Source / Codec
   if (/remux/i.test(title)) tags.push('REMUX');
