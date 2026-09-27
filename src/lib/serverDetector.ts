@@ -32,6 +32,18 @@ export function detectServer(url: string, serverIndex?: number, totalForGroup?: 
     name = 'HubCloud';
     icon = '⚡';
     badgeClass = 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+  } else if (host.includes('hubdrive') || host.includes('hub-drive')) {
+    name = 'HubDrive';
+    icon = '⚡';
+    badgeClass = 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+  } else if (host.includes('drivehub')) {
+    name = 'DriveHub';
+    icon = '⚡';
+    badgeClass = 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+  } else if (host.includes('katdrive')) {
+    name = 'KatDrive';
+    icon = '⚡';
+    badgeClass = 'text-amber-300 bg-amber-500/10 border-amber-500/20';
   } else if (host.includes('gdflix')) {
     name = 'GDFlix';
     icon = '🚀';
@@ -42,6 +54,10 @@ export function detectServer(url: string, serverIndex?: number, totalForGroup?: 
     badgeClass = 'text-blue-300 bg-blue-500/10 border-blue-500/20';
   } else if (host.includes('gofile')) {
     name = 'GoFile';
+    icon = '⚡';
+    badgeClass = 'text-purple-300 bg-purple-500/10 border-purple-500/20';
+  } else if (host.includes('pixeldrain')) {
+    name = 'PixelDrain';
     icon = '⚡';
     badgeClass = 'text-purple-300 bg-purple-500/10 border-purple-500/20';
   } else if (host.includes('mega.nz') || host.includes('mega.io')) {
