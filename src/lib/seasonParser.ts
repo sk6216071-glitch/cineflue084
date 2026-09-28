@@ -142,31 +142,44 @@ export function detectQuality(title: string, defaultQuality?: string): string {
     .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
     .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ');
 
-  // Resolution
+  // 1. Resolution
+  let is4k = false;
   if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('1080p FHD');
   } else if (/(?:^|[\s._\-[\]()])(?:2160p|uhd|\b4k\b)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('2160p 4K');
+    is4k = true;
   } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('720p HD');
   } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('480p SD');
   }
 
-  // Source / Codec
-  if (/remux/i.test(title)) tags.push('REMUX');
-  else if (/bluray|blu-ray|bdrip/i.test(title)) tags.push('BluRay');
-  else if (/dsnp/i.test(title)) tags.push('DSNP');
-  else if (/web-dl|webrip|web/i.test(title)) tags.push('WEB-DL');
-  else if (/hdtv/i.test(title)) tags.push('HDTV');
+  // 2. Source
+  if (/(?:^|[\s._\-[\]()])remux(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('REMUX');
+  else if (/(?:^|[\s._\-[\]()])(?:bluray|blu-ray|bdrip)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('BluRay');
+  else if (/(?:^|[\s._\-[\]()])(?:web-dl|webdl|webrip|web)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('WEB-DL');
+  else if (/(?:^|[\s._\-[\]()])hdtv(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('HDTV');
 
-  // HDR / Color
-  if (/hybrid\s*dv\s*hdr|dv\s*hdr|dolby\s*vision/i.test(title)) tags.push('DV HDR');
-  else if (/hdr10\+|hdr10|hdr/i.test(title)) tags.push('HDR');
+  // 3. Dynamic Range (Sense DV HDR vs HDR vs SDR / simple H.265)
+  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
+  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
+  const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
 
-  if (/10bit/i.test(title)) tags.push('10bit');
-  if (/hevc|x265/i.test(title)) tags.push('HEVC');
-  else if (/x264|h264|avc/i.test(title)) tags.push('x264');
+  if (hasDV && hasHDR) tags.push('DV HDR');
+  else if (hasDV) tags.push('DV HDR');
+  else if (hasHDR) tags.push('HDR');
+  else if (hasSDR) tags.push('SDR');
+  else if (is4k) tags.push('SDR'); // 4K without DV or HDR is SDR (simple H.265)
+
+  if (/10bit/i.test(cleanForQuality)) tags.push('10bit');
+
+  // 4. Codec (Supports H.265 / HEVC, H.264 / AVC)
+  if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) {
+    tags.push('HEVC');
+  } else if (/(?:^|[\s._\-[\]()])(?:h\.?264|x264|avc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) {
+    tags.push('x264');
+  }
 
   if (tags.length > 0) {
     return tags.join(' • ');

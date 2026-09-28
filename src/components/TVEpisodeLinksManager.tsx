@@ -79,76 +79,107 @@ interface GroupedEpisode {
 
 // Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p
 function extractReleaseProfile(title: string, quality?: string) {
-  const combinedRaw = `${quality || ''} ${title || ''}`;
   // Strip website domain watermarks (e.g. 4kHdHub.Com, Vegamovies.NL, etc.) before checking resolution
-  const combined = combinedRaw
+  const cleanTitle = (title || '')
     .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
     .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ')
-    .toLowerCase();
+    .trim();
 
-  // Resolution detection
+  const titleLower = cleanTitle.toLowerCase();
+  const qHintLower = (quality || '').toLowerCase();
+
+  // 1. Resolution sensing (First analyze title directly, fallback to quality hint)
   let resolution = '1080p';
   let resTag = '1080p';
 
-  // Explicit 1080p / FHD check first if present in title
-  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '1080p';
     resTag = '1080p';
-  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k(?:\s*uhd|\s*hdr|\s*sdr|\s*hevc|\s*remux|\s*web|\s*bluray)?\b)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '2160p / 4K';
     resTag = '2160p';
-  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '720p';
     resTag = '720p';
-  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
+    resolution = '480p';
+    resTag = '480p';
+  } else if (qHintLower.includes('2160') || qHintLower.includes('4k')) {
+    resolution = '2160p / 4K';
+    resTag = '2160p';
+  } else if (qHintLower.includes('720')) {
+    resolution = '720p';
+    resTag = '720p';
+  } else if (qHintLower.includes('480')) {
     resolution = '480p';
     resTag = '480p';
   }
 
-  // Source
+  // 2. Source sensing
   let source = 'WEB-DL';
-  if (combined.includes('remux')) source = 'REMUX';
-  else if (combined.includes('bluray') || combined.includes('blu-ray') || combined.includes('bdrip')) source = 'BluRay';
-  else if (combined.includes('web-dl') || combined.includes('webdl') || combined.includes('webrip') || combined.includes('web') || combined.includes('nf') || combined.includes('dsnp') || combined.includes('amzn')) source = 'WEB-DL';
-  else if (combined.includes('hdtv')) source = 'HDTV';
-  else if (combined.includes('hdrip')) source = 'HDRip';
+  if (/(?:^|[\s._\-[\]()])remux(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'REMUX';
+  else if (/(?:^|[\s._\-[\]()])(?:bluray|blu-ray|bdrip)(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'BluRay';
+  else if (/(?:^|[\s._\-[\]()])(?:web-dl|webdl|webrip|web)(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'WEB-DL';
+  else if (/(?:^|[\s._\-[\]()])hdtv(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'HDTV';
+  else if (qHintLower.includes('remux')) source = 'REMUX';
+  else if (qHintLower.includes('bluray')) source = 'BluRay';
 
-  // Dynamic Range (Separate 4K DV HDR vs 4K SDR)
+  // 3. Dynamic Range sensing (Sense DV HDR vs HDR vs SDR / simple H.265)
+  // First analyze the filename/title directly:
+  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(titleLower);
+  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
+  const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(titleLower);
+
   let dynamicRange = '';
-  if (
-    combined.includes('dv hdr') ||
-    combined.includes('dv-hdr') ||
-    combined.includes('dv.hdr') ||
-    (combined.includes('dv') && combined.includes('hdr')) ||
-    combined.includes('dolby vision')
-  ) {
+  if (hasDV && hasHDR) {
     dynamicRange = 'DV HDR';
-  } else if (combined.includes('hdr10+') || combined.includes('hdr10') || combined.includes('hdr')) {
+  } else if (hasDV) {
+    dynamicRange = 'DV HDR';
+  } else if (hasHDR) {
     dynamicRange = 'HDR';
-  } else if (combined.includes('sdr')) {
+  } else if (hasSDR) {
+    dynamicRange = 'SDR';
+  } else if (resTag === '2160p') {
+    // In 4K / 2160p: if it has NO DV and NO HDR, it is simple H.265 SDR!
+    dynamicRange = 'SDR';
+  } else if (qHintLower.includes('dv hdr') || qHintLower.includes('dolby vision')) {
+    dynamicRange = 'DV HDR';
+  } else if (qHintLower.includes('hdr')) {
+    dynamicRange = 'HDR';
+  } else if (qHintLower.includes('sdr')) {
     dynamicRange = 'SDR';
   }
 
-  // Codec
+  // 4. Codec sensing (Supports H.265, H265, HEVC, x265, H.264, x264, etc.)
   let codec = '';
-  if (combined.includes('h.265') || combined.includes('h265') || combined.includes('x265') || combined.includes('hevc')) {
+  if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     codec = 'H.265';
-  } else if (combined.includes('h.264') || combined.includes('h264') || combined.includes('x264') || combined.includes('avc')) {
+  } else if (/(?:^|[\s._\-[\]()])(?:h\.?264|x264|avc)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     codec = 'H.264';
+  } else if (qHintLower.includes('h.265') || qHintLower.includes('265') || qHintLower.includes('hevc')) {
+    codec = 'H.265';
+  } else if (qHintLower.includes('h.264') || qHintLower.includes('264') || qHintLower.includes('avc')) {
+    codec = 'H.264';
+  } else {
+    codec = resTag === '2160p' ? 'H.265' : 'H.264';
   }
 
-  // Platform
+  // 5. Platform sensing (Strict boundaries so titles like "Primeval" do not falsely match Amazon Prime)
   let platform = 'NF';
-  if (combined.includes('dsnp') || combined.includes('disney') || combined.includes('hotstar')) platform = 'DSNP';
-  else if (combined.includes('amzn') || combined.includes('prime')) platform = 'AMZN';
-  else if (combined.includes('hbo') || combined.includes('max')) platform = 'MAX';
-  else if (combined.includes('nf') || combined.includes('netflix')) platform = 'NF';
+  if (/(?:^|[\s._\-[\]()])(?:dsnp|disney(?:\s*\+)?|hotstar)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'DSNP';
+  else if (/(?:^|[\s._\-[\]()])(?:amzn|prime\s*video)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'AMZN';
+  else if (/(?:^|[\s._\-[\]()])(?:hbo|max)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'MAX';
+  else if (/(?:^|[\s._\-[\]()])(?:atvp|apple\s*tv)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'ATVP';
+  else if (/(?:^|[\s._\-[\]()])(?:nf|netflix)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'NF';
+  else if (/(?:^|[\s._\-[\]()])(?:zee5)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'ZEE5';
+  else if (/(?:^|[\s._\-[\]()])(?:sonyliv|sliv)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'SONYLIV';
+  else if (/(?:^|[\s._\-[\]()])(?:jiocinema|jio)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'JIO';
 
   return {
     resolution,
     source,
     dynamicRange,
-    codec: codec || (resTag === '2160p' ? 'H.265' : 'H.264'),
+    codec,
     platform,
     cleanDisplayTitle: (showName: string, seasonNum: number) => {
       const sTag = `S${String(seasonNum).padStart(2, '0')}`;
@@ -186,6 +217,12 @@ function formatAudioLanguages(audio?: string, title?: string): string {
   if (combined.includes('telugu') || combined.includes('tel')) list.push('Telugu');
   if (combined.includes('korean') || combined.includes('kor')) list.push('Korean');
   if (combined.includes('japanese') || combined.includes('jap')) list.push('Japanese');
+
+  // DUAL audio on Indian streaming scene indicates Hindi + English
+  if (combined.includes('dual')) {
+    if (!list.includes('Hindi')) list.unshift('Hindi');
+    if (!list.includes('English')) list.push('English');
+  }
 
   if (list.length > 0) {
     return list.join(', ');
