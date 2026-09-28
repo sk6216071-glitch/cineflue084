@@ -13,6 +13,7 @@ import {
   ChevronUp,
   Sparkles,
   Info,
+  FileArchive,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -220,6 +221,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [openSeasons, setOpenSeasons] = useState<Record<number, boolean>>({});
   // Open state for individual release options: e.g. "s5_opt_0": true
   const [openReleaseOptions, setOpenReleaseOptions] = useState<Record<string, boolean>>({});
+  // Active sub-tab per release option: 'zip' | 'episodes'
+  const [optionActiveTab, setOptionActiveTab] = useState<Record<string, 'zip' | 'episodes'>>({});
 
   const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
   const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
@@ -579,6 +582,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         <div className="space-y-2.5">
                           {group.options.map((option) => {
                             const isOptionOpen = !!openReleaseOptions[option.id];
+                            const defaultTab = option.packs.length > 0 ? 'zip' : 'episodes';
+                            const currentTab = optionActiveTab[option.id] || defaultTab;
 
                             // Group individual episodes by episodeNumber so mirrors appear as side-by-side buttons
                             const groupedEpisodesMap = new Map<number, GroupedEpisode>();
@@ -652,178 +657,249 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
                                 {/* Expanded Episodes & Zip Download List */}
                                 {isOptionOpen && (
-                                  <div className="border-t border-[#1a1728] bg-[#0c0a13] divide-y divide-[#1b1928] overflow-hidden p-4 sm:p-5 animate-fadeIn">
-                                    {/* 1. Complete Zip Packs */}
-                                    {option.packs.map((pack) => {
-                                      const server = detectServer(pack.url);
-                                      const serverName = server.name || 'HubCloud';
-                                      let packTitle = pack.title;
-                                      if (!packTitle.includes('.')) {
-                                        packTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}.Complete.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.zip`;
-                                      }
-                                      const packSize = pack.size || '';
-
-                                      return (
-                                        <div key={pack.id} className="py-4 space-y-3 first:pt-0 last:pb-0">
-                                          {/* Cyan / Light blue release filename */}
-                                          <div className="text-sky-400 font-mono text-xs sm:text-[13px] font-medium tracking-tight break-all">
-                                            {packTitle}
-                                          </div>
-
-                                          {/* Badges: Season Zip Pack */}
-                                          <div className="flex items-center gap-2">
-                                            <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#1c202a] text-zinc-300 border border-zinc-700/60">
-                                              Season-{String(s).padStart(2, '0')} Zip Pack
-                                            </span>
-                                            {packSize && (
-                                              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
-                                                {packSize}
-                                              </span>
-                                            )}
-                                          </div>
-
-                                          {/* Download Buttons Row */}
-                                          <div className="flex flex-wrap items-center gap-3 pt-1">
-                                            <a
-                                              href={pack.url}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="px-4 py-2 rounded-lg bg-[#ea580c] hover:bg-[#c2410c] text-black font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all hover:scale-[1.02] active:scale-95"
-                                            >
-                                              <span>Download {serverName}</span>
-                                              <Download className="w-4 h-4" />
-                                            </a>
-
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setReportingLink({
-                                                  linkId: pack.id,
-                                                  movieId: titleDetails.id,
-                                                  mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
-                                                  mediaType: 'tv',
-                                                  posterPath: titleDetails.poster_path,
-                                                  linkTitle: packTitle,
-                                                  reportedUrl: pack.url,
-                                                  quality: group.resolution,
-                                                  server: server.name,
-                                                })
-                                              }
-                                              className="p-2 rounded-lg bg-zinc-800/80 text-zinc-400 hover:text-amber-400 border border-zinc-700/60 transition-colors"
-                                              title="Report broken or defective zip link"
-                                            >
-                                              <AlertTriangle className="w-3.5 h-3.5" />
-                                            </button>
-
-                                            {isEffectiveAdmin && (
-                                              <div className="flex items-center gap-1">
-                                                <button
-                                                  onClick={() => handleStartEdit(pack)}
-                                                  className="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
-                                                  title="Admin: Edit TV Link"
-                                                >
-                                                  <Pencil className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                  onClick={() => handleDelete(pack.id)}
-                                                  className="p-2 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                                                  title="Admin: Delete TV Link"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-
-                                    {/* 2. Single Episodes Grouped with Multi-Server Buttons */}
-                                    {groupedEpisodes.map((epGroup) => {
-                                      const epNumStr = String(epGroup.episodeNumber).padStart(2, '0');
-
-                                      return (
-                                        <div
-                                          key={`ep_${epGroup.episodeNumber}`}
-                                          className="py-4 space-y-3 first:pt-0 last:pb-0"
+                                  <div className="border-t border-[#1a1728] bg-[#0c0a13] p-4 sm:p-5 animate-fadeIn space-y-4">
+                                    {/* Dual Segmented Toggle Bar: [ Zip/Pack 🗜️ ][ Single EP's 📥 ] */}
+                                    <div className="w-full">
+                                      <div className="grid grid-cols-2 rounded-lg overflow-hidden w-full text-xs sm:text-sm font-bold shadow-md select-none">
+                                        <button
+                                          type="button"
+                                          onClick={() => setOptionActiveTab((prev) => ({ ...prev, [option.id]: 'zip' }))}
+                                          className={`py-2.5 sm:py-3 px-3 flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                            currentTab === 'zip'
+                                              ? 'bg-[#ff9900] text-black font-extrabold shadow-inner'
+                                              : 'bg-[#555555] hover:bg-[#606060] text-white font-bold'
+                                          }`}
                                         >
-                                          {/* Cyan / Light blue release filename */}
-                                          <div className="text-sky-400 font-mono text-xs sm:text-[13px] font-medium tracking-tight break-all">
-                                            {epGroup.title}
-                                          </div>
+                                          <span>Zip/Pack</span>
+                                          <FileArchive className="w-4 h-4 shrink-0" />
+                                        </button>
 
-                                          {/* Badges: Episode-01 */}
-                                          <div className="flex items-center gap-2">
-                                            <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#1c202a] text-zinc-300 border border-zinc-700/60">
-                                              Episode-{epNumStr}
-                                            </span>
-                                          </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setOptionActiveTab((prev) => ({ ...prev, [option.id]: 'episodes' }))}
+                                          className={`py-2.5 sm:py-3 px-3 flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                            currentTab === 'episodes'
+                                              ? 'bg-[#ff9900] text-black font-extrabold shadow-inner'
+                                              : 'bg-[#555555] hover:bg-[#606060] text-white font-bold'
+                                          }`}
+                                        >
+                                          <span>Single EP&apos;s</span>
+                                          <Download className="w-4 h-4 stroke-[2.5] shrink-0" />
+                                        </button>
+                                      </div>
+                                    </div>
 
-                                          {/* Download Buttons Row (Side-by-side Server Buttons) */}
-                                          <div className="flex flex-wrap items-center gap-3 pt-1">
-                                            {epGroup.links.map((link) => {
-                                              const server = detectServer(link.url);
-                                              const serverName = server.name || 'HubCloud';
+                                    {/* Tab 1: Complete Zip Packs */}
+                                    {currentTab === 'zip' && (
+                                      <div className="divide-y divide-[#1b1928]">
+                                        {option.packs.length > 0 ? (
+                                          option.packs.map((pack) => {
+                                            const server = detectServer(pack.url);
+                                            const serverName = server.name || 'HubCloud';
+                                            let packTitle = pack.title;
+                                            if (!packTitle.includes('.')) {
+                                              packTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}.Complete.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.zip`;
+                                            }
+                                            const packSize = pack.size || '';
 
-                                              return (
-                                                <a
-                                                  key={link.id}
-                                                  href={link.url}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="px-4 py-2 rounded-lg bg-[#ea580c] hover:bg-[#c2410c] text-black font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all hover:scale-[1.02] active:scale-95"
-                                                >
-                                                  <span>Download {serverName}</span>
-                                                  <Download className="w-4 h-4" />
-                                                </a>
-                                              );
-                                            })}
-
-                                            {/* Report broken link */}
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setReportingLink({
-                                                  linkId: epGroup.links[0]?.id,
-                                                  movieId: titleDetails.id,
-                                                  mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
-                                                  mediaType: 'tv',
-                                                  posterPath: titleDetails.poster_path,
-                                                  linkTitle: epGroup.title,
-                                                  reportedUrl: epGroup.links[0]?.url || '',
-                                                  quality: group.resolution,
-                                                  server: detectServer(epGroup.links[0]?.url || '').name,
-                                                })
-                                              }
-                                              className="p-2 rounded-lg bg-zinc-800/80 text-zinc-400 hover:text-amber-400 border border-zinc-700/60 transition-colors"
-                                              title="Report broken or defective episode link"
-                                            >
-                                              <AlertTriangle className="w-3.5 h-3.5" />
-                                            </button>
-
-                                            {isEffectiveAdmin &&
-                                              epGroup.links.map((link) => (
-                                                <div key={`admin_${link.id}`} className="flex items-center gap-1">
-                                                  <button
-                                                    onClick={() => handleStartEdit(link)}
-                                                    className="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
-                                                    title={`Admin: Edit ${detectServer(link.url).name} Link`}
-                                                  >
-                                                    <Pencil className="w-3.5 h-3.5" />
-                                                  </button>
-                                                  <button
-                                                    onClick={() => handleDelete(link.id)}
-                                                    className="p-2 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                                                    title={`Admin: Delete ${detectServer(link.url).name} Link`}
-                                                  >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                  </button>
+                                            return (
+                                              <div key={pack.id} className="py-4 space-y-3 first:pt-0 last:pb-0">
+                                                {/* Cyan / Light blue release filename */}
+                                                <div className="text-sky-400 font-mono text-xs sm:text-[13px] font-medium tracking-tight break-all">
+                                                  {packTitle}
                                                 </div>
-                                              ))}
+
+                                                {/* Badges: Season Zip Pack */}
+                                                <div className="flex items-center gap-2">
+                                                  <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#1c202a] text-zinc-300 border border-zinc-700/60">
+                                                    Season-{String(s).padStart(2, '0')} Zip Pack
+                                                  </span>
+                                                  {packSize && (
+                                                    <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
+                                                      {packSize}
+                                                    </span>
+                                                  )}
+                                                </div>
+
+                                                {/* Download Buttons Row */}
+                                                <div className="flex flex-wrap items-center gap-3 pt-1">
+                                                  <a
+                                                    href={pack.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="px-4 py-2 rounded-lg bg-[#ea580c] hover:bg-[#c2410c] text-black font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all hover:scale-[1.02] active:scale-95"
+                                                  >
+                                                    <span>Download {serverName}</span>
+                                                    <Download className="w-4 h-4" />
+                                                  </a>
+
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setReportingLink({
+                                                        linkId: pack.id,
+                                                        movieId: titleDetails.id,
+                                                        mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                                                        mediaType: 'tv',
+                                                        posterPath: titleDetails.poster_path,
+                                                        linkTitle: packTitle,
+                                                        reportedUrl: pack.url,
+                                                        quality: group.resolution,
+                                                        server: server.name,
+                                                      })
+                                                    }
+                                                    className="p-2 rounded-lg bg-zinc-800/80 text-zinc-400 hover:text-amber-400 border border-zinc-700/60 transition-colors"
+                                                    title="Report broken or defective zip link"
+                                                  >
+                                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                                  </button>
+
+                                                  {isEffectiveAdmin && (
+                                                    <div className="flex items-center gap-1">
+                                                      <button
+                                                        onClick={() => handleStartEdit(pack)}
+                                                        className="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
+                                                        title="Admin: Edit TV Link"
+                                                      >
+                                                        <Pencil className="w-3.5 h-3.5" />
+                                                      </button>
+                                                      <button
+                                                        onClick={() => handleDelete(pack.id)}
+                                                        className="p-2 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
+                                                        title="Admin: Delete TV Link"
+                                                      >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })
+                                        ) : (
+                                          <div className="py-8 text-center text-zinc-400 text-xs sm:text-sm space-y-2">
+                                            <p className="font-medium text-zinc-300">No complete Zip/Pack available for this quality option.</p>
+                                            {groupedEpisodes.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setOptionActiveTab((prev) => ({ ...prev, [option.id]: 'episodes' }))}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#555555] hover:bg-[#606060] text-white text-xs font-semibold transition-colors cursor-pointer"
+                                              >
+                                                <span>Switch to Single EP&apos;s</span>
+                                                <Download className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
                                           </div>
-                                        </div>
-                                      );
-                                    })}
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Tab 2: Single Episodes Grouped with Multi-Server Buttons */}
+                                    {currentTab === 'episodes' && (
+                                      <div className="divide-y divide-[#1b1928]">
+                                        {groupedEpisodes.length > 0 ? (
+                                          groupedEpisodes.map((epGroup) => {
+                                            const epNumStr = String(epGroup.episodeNumber).padStart(2, '0');
+
+                                            return (
+                                              <div
+                                                key={`ep_${epGroup.episodeNumber}`}
+                                                className="py-4 space-y-3 first:pt-0 last:pb-0"
+                                              >
+                                                {/* Cyan / Light blue release filename */}
+                                                <div className="text-sky-400 font-mono text-xs sm:text-[13px] font-medium tracking-tight break-all">
+                                                  {epGroup.title}
+                                                </div>
+
+                                                {/* Badges: Episode-01 */}
+                                                <div className="flex items-center gap-2">
+                                                  <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#1c202a] text-zinc-300 border border-zinc-700/60">
+                                                    Episode-{epNumStr}
+                                                  </span>
+                                                </div>
+
+                                                {/* Download Buttons Row (Side-by-side Server Buttons) */}
+                                                <div className="flex flex-wrap items-center gap-3 pt-1">
+                                                  {epGroup.links.map((link) => {
+                                                    const server = detectServer(link.url);
+                                                    const serverName = server.name || 'HubCloud';
+
+                                                    return (
+                                                      <a
+                                                        key={link.id}
+                                                        href={link.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="px-4 py-2 rounded-lg bg-[#ea580c] hover:bg-[#c2410c] text-black font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all hover:scale-[1.02] active:scale-95"
+                                                      >
+                                                        <span>Download {serverName}</span>
+                                                        <Download className="w-4 h-4" />
+                                                      </a>
+                                                    );
+                                                  })}
+
+                                                  {/* Report broken link */}
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setReportingLink({
+                                                        linkId: epGroup.links[0]?.id,
+                                                        movieId: titleDetails.id,
+                                                        mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                                                        mediaType: 'tv',
+                                                        posterPath: titleDetails.poster_path,
+                                                        linkTitle: epGroup.title,
+                                                        reportedUrl: epGroup.links[0]?.url || '',
+                                                        quality: group.resolution,
+                                                        server: detectServer(epGroup.links[0]?.url || '').name,
+                                                      })
+                                                    }
+                                                    className="p-2 rounded-lg bg-zinc-800/80 text-zinc-400 hover:text-amber-400 border border-zinc-700/60 transition-colors"
+                                                    title="Report broken or defective episode link"
+                                                  >
+                                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                                  </button>
+
+                                                  {isEffectiveAdmin &&
+                                                    epGroup.links.map((link) => (
+                                                      <div key={`admin_${link.id}`} className="flex items-center gap-1">
+                                                        <button
+                                                          onClick={() => handleStartEdit(link)}
+                                                          className="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
+                                                          title={`Admin: Edit ${detectServer(link.url).name} Link`}
+                                                        >
+                                                          <Pencil className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                          onClick={() => handleDelete(link.id)}
+                                                          className="p-2 rounded-lg bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
+                                                          title={`Admin: Delete ${detectServer(link.url).name} Link`}
+                                                        >
+                                                          <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                      </div>
+                                                    ))}
+                                                </div>
+                                              </div>
+                                            );
+                                          })
+                                        ) : (
+                                          <div className="py-8 text-center text-zinc-400 text-xs sm:text-sm space-y-2">
+                                            <p className="font-medium text-zinc-300">No single episode links available for this quality option.</p>
+                                            {option.packs.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setOptionActiveTab((prev) => ({ ...prev, [option.id]: 'zip' }))}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#555555] hover:bg-[#606060] text-white text-xs font-semibold transition-colors cursor-pointer"
+                                              >
+                                                <span>Switch to Zip/Pack</span>
+                                                <FileArchive className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
