@@ -593,7 +593,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                 groupedEpisodesMap.set(num, {
                                   episodeNumber: num,
                                   title: displayTitle,
-                                  size: ep.size || '2.3 GB',
+                                  size: ep.size || '',
                                   links: [],
                                 });
                               }
@@ -661,7 +661,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                       if (!packTitle.includes('.')) {
                                         packTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}.Complete.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.zip`;
                                       }
-                                      const packSize = pack.size || '16.8 GB';
+                                      const packSize = pack.size || '';
 
                                       return (
                                         <div key={pack.id} className="py-4 space-y-3 first:pt-0 last:pb-0">
@@ -670,14 +670,16 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                             {packTitle}
                                           </div>
 
-                                          {/* Badges: Season Zip Pack & Size */}
+                                          {/* Badges: Season Zip Pack */}
                                           <div className="flex items-center gap-2">
                                             <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#1c202a] text-zinc-300 border border-zinc-700/60">
                                               Season-{String(s).padStart(2, '0')} Zip Pack
                                             </span>
-                                            <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
-                                              {packSize}
-                                            </span>
+                                            {packSize && (
+                                              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
+                                                {packSize}
+                                              </span>
+                                            )}
                                           </div>
 
                                           {/* Download Buttons Row */}
@@ -750,13 +752,10 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                             {epGroup.title}
                                           </div>
 
-                                          {/* Badges: Episode-01 & Size */}
+                                          {/* Badges: Episode-01 */}
                                           <div className="flex items-center gap-2">
                                             <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#1c202a] text-zinc-300 border border-zinc-700/60">
                                               Episode-{epNumStr}
-                                            </span>
-                                            <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
-                                              {epGroup.size}
                                             </span>
                                           </div>
 
