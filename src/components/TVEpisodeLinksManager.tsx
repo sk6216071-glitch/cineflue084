@@ -14,7 +14,6 @@ import {
   Sparkles,
   Info,
   FileArchive,
-  X,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -243,14 +242,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   onLinkAdded,
 }) => {
   const { removeCustomLink } = useWatchlist();
-  const [sessionAdmin] = useState<boolean>(() => {
+  const [sessionAdmin, setSessionAdmin] = useState<boolean>(false);
+
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       const auth = sessionStorage.getItem('cinefuel_admin_auth');
       const user = sessionStorage.getItem('cinefuel_admin_user');
-      return auth === 'true' && user === 'shyam';
+      setSessionAdmin(auth === 'true' && user === 'shyam');
     }
-    return false;
-  });
+  }, []);
 
   const isEffectiveAdmin = isAdmin && sessionAdmin;
 
@@ -260,10 +260,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [openReleaseOptions, setOpenReleaseOptions] = useState<Record<string, boolean>>({});
   // Active sub-tab per release option: 'zip' | 'episodes'
   const [optionActiveTab, setOptionActiveTab] = useState<Record<string, 'zip' | 'episodes'>>({});
+  // Open mirror dropdown menu per episode: e.g. "optionId_epNum"
+  const [openMirrorMenu, setOpenMirrorMenu] = useState<string | null>(null);
 
   const [isRequestModalOpen, setIsRequestModalOpen] = useState<boolean>(false);
   const [reportingLink, setReportingLink] = useState<ReportModalData | null>(null);
-  const [selectedEpisodeGroup, setSelectedEpisodeGroup] = useState<GroupedEpisode | null>(null);
 
   // Form states for Admin editing an existing link
   const [editingLink, setEditingLink] = useState<CustomLink | null>(null);
@@ -448,15 +449,12 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           return fmts && fmts.length > 0;
         }) || seasonsList[0];
 
-      const timer = setTimeout(() => {
-        setOpenSeasons({ [firstSeasonWithLinks]: true });
+      setOpenSeasons({ [firstSeasonWithLinks]: true });
 
-        const fmts = seasonGroupsMap.get(firstSeasonWithLinks);
-        if (fmts && fmts.length > 0 && fmts[0].options.length > 0) {
-          setOpenReleaseOptions({ [fmts[0].options[0].id]: true });
-        }
-      }, 0);
-      return () => clearTimeout(timer);
+      const fmts = seasonGroupsMap.get(firstSeasonWithLinks);
+      if (fmts && fmts.length > 0 && fmts[0].options.length > 0) {
+        setOpenReleaseOptions({ [fmts[0].options[0].id]: true });
+      }
     }
   }, [seasonsList, seasonGroupsMap, openSeasons]);
 
@@ -636,18 +634,18 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                 if (!displayTitle.includes('.')) {
                                   displayTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}E${epNumStr}.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.mkv`;
                                 }
-                                const detectedSize = ep.size || detectSize(ep.title) || '';
+                                const detectedSz = ep.size || detectSize(ep.title) || '';
                                 groupedEpisodesMap.set(num, {
                                   episodeNumber: num,
                                   title: displayTitle,
-                                  size: detectedSize,
+                                  size: detectedSz,
                                   links: [],
                                 });
                               }
                               const g = groupedEpisodesMap.get(num)!;
                               g.links.push(ep);
-                              const detectedSize = ep.size || detectSize(ep.title) || '';
-                              if (detectedSize && !g.size) g.size = detectedSize;
+                              if (ep.size) g.size = ep.size;
+                              else if (!g.size && detectSize(ep.title)) g.size = detectSize(ep.title)!;
                             });
 
                             const groupedEpisodes = Array.from(groupedEpisodesMap.values()).sort(
@@ -837,109 +835,209 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                       </div>
                                     )}
 
-                                    {/* Tab 2: Single Episodes Grid (E01, E02...) matching screenshot */}
+                                    {/* Tab 2: Single Episodes Grid Matching Reference Screenshot */}
                                     {currentTab === 'episodes' && (
                                       <div>
                                         {groupedEpisodes.length > 0 ? (
-                                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3 p-1">
+                                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3 py-1">
                                             {groupedEpisodes.map((epGroup) => {
                                               const epNumStr = String(epGroup.episodeNumber).padStart(2, '0');
-                                              const epLabel = `E${epNumStr}`;
-                                              const epSize = epGroup.size || detectSize(epGroup.title) || '';
-                                              const hasMultipleMirrors = epGroup.links.length > 1;
-                                              const firstLink = epGroup.links[0];
+                                              const primaryLink = epGroup.links[0];
+                                              const hasMultipleServers = epGroup.links.length > 1;
+                                              const primaryServer = primaryLink ? detectServer(primaryLink.url) : null;
+                                              const displaySize = epGroup.size || (primaryLink ? detectSize(primaryLink.title) : '') || '';
+                                              const menuKey = `${option.id}_${epGroup.episodeNumber}`;
+                                              const isMenuOpen = openMirrorMenu === menuKey;
 
                                               return (
-                                                <div
-                                                  key={`ep_${epGroup.episodeNumber}`}
-                                                  className="group relative rounded-xl bg-[#1e192f] hover:bg-[#28213f] border border-[#2d2545]/80 hover:border-[#63558b]/80 p-3 sm:p-3.5 transition-all duration-150 shadow-sm hover:shadow-lg hover:shadow-purple-950/40 select-none flex flex-col justify-between min-h-[66px] sm:min-h-[70px] cursor-pointer"
-                                                  onClick={() => {
-                                                    if (hasMultipleMirrors) {
-                                                      setSelectedEpisodeGroup(epGroup);
-                                                    } else if (firstLink?.url) {
-                                                      window.open(firstLink.url, '_blank', 'noopener,noreferrer');
-                                                    }
-                                                  }}
-                                                  title={
-                                                    hasMultipleMirrors
-                                                      ? `${epGroup.title} (${epGroup.links.length} download mirrors available)`
-                                                      : `${epGroup.title} - Download ${detectServer(firstLink?.url || '').name || 'HubCloud'}`
-                                                  }
-                                                >
-                                                  {/* Top Row: Episode Label (E01) & Download Tray Icon */}
-                                                  <div className="flex items-center justify-between">
-                                                    <span className="font-extrabold text-base sm:text-lg text-white tracking-wide font-sans">
-                                                      {epLabel}
-                                                    </span>
-                                                    <Download className="w-4 h-4 text-[#9d8ec2] group-hover:text-white transition-colors shrink-0" />
-                                                  </div>
+                                                <div key={`ep_${epGroup.episodeNumber}`} className="relative">
+                                                  {hasMultipleServers ? (
+                                                    <div
+                                                      onClick={() => setOpenMirrorMenu(isMenuOpen ? null : menuKey)}
+                                                      className="group relative p-3 sm:p-3.5 rounded-xl bg-[#231e33] hover:bg-[#2c253f] border border-[#352d4c]/60 hover:border-purple-500/50 transition-all flex flex-col justify-between shadow-sm hover:shadow-md hover:shadow-purple-950/30 cursor-pointer active:scale-[0.98] select-none"
+                                                      title={`${epGroup.title} (${epGroup.links.length} servers available)`}
+                                                    >
+                                                      {/* Top Row: E01 + Download Icon */}
+                                                      <div className="flex items-start justify-between gap-1">
+                                                        <span className="font-black text-white text-base sm:text-lg tracking-tight group-hover:text-purple-200 transition-colors">
+                                                          E{epNumStr}
+                                                        </span>
+                                                        <Download className="w-4 h-4 text-purple-400 group-hover:text-purple-300 group-hover:translate-y-0.5 transition-all shrink-0 mt-0.5" />
+                                                      </div>
 
-                                                  {/* Bottom Row: File Size */}
-                                                  <div className="flex items-center justify-between text-xs text-[#8e85a6] font-medium font-mono pt-1">
-                                                    <span>{epSize || 'HD'}</span>
-                                                    {hasMultipleMirrors && (
-                                                      <span className="text-[10px] text-amber-400 font-semibold px-1 rounded bg-amber-400/10">
-                                                        {epGroup.links.length} mirrors
-                                                      </span>
-                                                    )}
-                                                  </div>
+                                                      {/* Bottom Row: Size & Action buttons */}
+                                                      <div className="mt-1 flex items-center justify-between gap-1">
+                                                        <span className="text-[11px] sm:text-xs text-zinc-400 group-hover:text-zinc-300 font-medium tracking-tight truncate">
+                                                          {displaySize || `${epGroup.links.length} Servers`}
+                                                        </span>
 
-                                                  {/* Hover Quick Action Buttons: Report Broken Link & Admin Controls */}
-                                                  <div
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 flex items-center gap-1 bg-[#141022]/95 backdrop-blur-sm p-1 rounded-md transition-opacity z-10 shadow"
-                                                  >
-                                                    {firstLink && (
-                                                      <button
-                                                        type="button"
+                                                        {/* Report & Admin Buttons on Hover */}
+                                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                                                          <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                              e.preventDefault();
+                                                              e.stopPropagation();
+                                                              setReportingLink({
+                                                                linkId: primaryLink?.id,
+                                                                movieId: titleDetails.id,
+                                                                mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                                                                mediaType: 'tv',
+                                                                posterPath: titleDetails.poster_path,
+                                                                linkTitle: epGroup.title,
+                                                                reportedUrl: primaryLink?.url || '',
+                                                                quality: group.resolution,
+                                                                server: primaryServer?.name,
+                                                              });
+                                                            }}
+                                                            className="p-1 rounded bg-[#1c182a] hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition-colors"
+                                                            title="Report broken episode link"
+                                                          >
+                                                            <AlertTriangle className="w-3 h-3" />
+                                                          </button>
+
+                                                          {isEffectiveAdmin && (
+                                                            <>
+                                                              <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                  e.preventDefault();
+                                                                  e.stopPropagation();
+                                                                  handleStartEdit(primaryLink);
+                                                                }}
+                                                                className="p-1 rounded bg-[#1c182a] hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition-colors"
+                                                                title="Admin: Edit Episode Link"
+                                                              >
+                                                                <Pencil className="w-3 h-3" />
+                                                              </button>
+                                                              <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                  e.preventDefault();
+                                                                  e.stopPropagation();
+                                                                  handleDelete(primaryLink.id);
+                                                                }}
+                                                                className="p-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-400 transition-colors"
+                                                                title="Admin: Delete Episode Link"
+                                                              >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                              </button>
+                                                            </>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <a
+                                                      href={primaryLink?.url}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                      className="group relative p-3 sm:p-3.5 rounded-xl bg-[#231e33] hover:bg-[#2c253f] border border-[#352d4c]/60 hover:border-purple-500/50 transition-all flex flex-col justify-between shadow-sm hover:shadow-md hover:shadow-purple-950/30 cursor-pointer active:scale-[0.98] select-none block"
+                                                      title={epGroup.title}
+                                                    >
+                                                      {/* Top Row: E01 + Download Icon */}
+                                                      <div className="flex items-start justify-between gap-1">
+                                                        <span className="font-black text-white text-base sm:text-lg tracking-tight group-hover:text-purple-200 transition-colors">
+                                                          E{epNumStr}
+                                                        </span>
+                                                        <Download className="w-4 h-4 text-purple-400 group-hover:text-purple-300 group-hover:translate-y-0.5 transition-all shrink-0 mt-0.5" />
+                                                      </div>
+
+                                                      {/* Bottom Row: Size & Action buttons */}
+                                                      <div className="mt-1 flex items-center justify-between gap-1">
+                                                        <span className="text-[11px] sm:text-xs text-zinc-400 group-hover:text-zinc-300 font-medium tracking-tight truncate">
+                                                          {displaySize || primaryServer?.name || 'Download'}
+                                                        </span>
+
+                                                        {/* Report & Admin Buttons on Hover */}
+                                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                                                          <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                              e.preventDefault();
+                                                              e.stopPropagation();
+                                                              setReportingLink({
+                                                                linkId: primaryLink?.id,
+                                                                movieId: titleDetails.id,
+                                                                mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
+                                                                mediaType: 'tv',
+                                                                posterPath: titleDetails.poster_path,
+                                                                linkTitle: epGroup.title,
+                                                                reportedUrl: primaryLink?.url || '',
+                                                                quality: group.resolution,
+                                                                server: primaryServer?.name,
+                                                              });
+                                                            }}
+                                                            className="p-1 rounded bg-[#1c182a] hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition-colors"
+                                                            title="Report broken episode link"
+                                                          >
+                                                            <AlertTriangle className="w-3 h-3" />
+                                                          </button>
+
+                                                          {isEffectiveAdmin && (
+                                                            <>
+                                                              <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                  e.preventDefault();
+                                                                  e.stopPropagation();
+                                                                  handleStartEdit(primaryLink);
+                                                                }}
+                                                                className="p-1 rounded bg-[#1c182a] hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition-colors"
+                                                                title="Admin: Edit Episode Link"
+                                                              >
+                                                                <Pencil className="w-3 h-3" />
+                                                              </button>
+                                                              <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                  e.preventDefault();
+                                                                  e.stopPropagation();
+                                                                  handleDelete(primaryLink.id);
+                                                                }}
+                                                                className="p-1 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-400 transition-colors"
+                                                                title="Admin: Delete Episode Link"
+                                                              >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                              </button>
+                                                            </>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    </a>
+                                                  )}
+
+                                                  {/* Mirror Selection Dropdown Popover */}
+                                                  {isMenuOpen && hasMultipleServers && (
+                                                    <>
+                                                      <div
+                                                        className="fixed inset-0 z-20"
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          setReportingLink({
-                                                            linkId: firstLink.id,
-                                                            movieId: titleDetails.id,
-                                                            mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
-                                                            mediaType: 'tv',
-                                                            posterPath: titleDetails.poster_path,
-                                                            linkTitle: epGroup.title,
-                                                            reportedUrl: firstLink.url,
-                                                            quality: group.resolution,
-                                                            server: detectServer(firstLink.url).name,
-                                                          });
+                                                          setOpenMirrorMenu(null);
                                                         }}
-                                                        className="p-1 text-zinc-400 hover:text-amber-400 transition-colors"
-                                                        title="Report broken episode link"
-                                                      >
-                                                        <AlertTriangle className="w-3 h-3" />
-                                                      </button>
-                                                    )}
-
-                                                    {isEffectiveAdmin && firstLink && (
-                                                      <>
-                                                        <button
-                                                          type="button"
-                                                          onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleStartEdit(firstLink);
-                                                          }}
-                                                          className="p-1 text-zinc-400 hover:text-amber-400 transition-colors"
-                                                          title="Admin: Edit Episode Link"
-                                                        >
-                                                          <Pencil className="w-3 h-3" />
-                                                        </button>
-                                                        <button
-                                                          type="button"
-                                                          onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDelete(firstLink.id);
-                                                          }}
-                                                          className="p-1 text-zinc-400 hover:text-rose-400 transition-colors"
-                                                          title="Admin: Delete Episode Link"
-                                                        >
-                                                          <Trash2 className="w-3 h-3" />
-                                                        </button>
-                                                      </>
-                                                    )}
-                                                  </div>
+                                                      />
+                                                      <div className="absolute left-0 right-0 top-full mt-2 z-30 p-2 rounded-xl bg-[#1a1628] border border-[#3c3456] shadow-2xl space-y-1.5 animate-fadeIn min-w-[140px]">
+                                                        <div className="text-[10px] uppercase font-bold text-zinc-400 px-1">Choose Mirror</div>
+                                                        {epGroup.links.map((link) => {
+                                                          const srv = detectServer(link.url);
+                                                          return (
+                                                            <a
+                                                              key={link.id}
+                                                              href={link.url}
+                                                              target="_blank"
+                                                              rel="noopener noreferrer"
+                                                              onClick={() => setOpenMirrorMenu(null)}
+                                                              className="px-2.5 py-1.5 rounded-lg bg-[#27213b] hover:bg-purple-600 text-white font-bold text-xs flex items-center justify-between transition-colors shadow-sm"
+                                                            >
+                                                              <span>{srv.name || 'Server'}</span>
+                                                              <Download className="w-3.5 h-3.5" />
+                                                            </a>
+                                                          );
+                                                        })}
+                                                      </div>
+                                                    </>
+                                                  )}
                                                 </div>
                                               );
                                             })}
@@ -1063,7 +1161,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   </label>
                   <select
                     value={editType}
-                    onChange={(e) => setEditType(e.target.value as 'zip_pack' | 'single_episode')}
+                    onChange={(e) => setEditType(e.target.value as any)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
                     <option value="zip_pack">🗜️ Complete Season Zip/Pack</option>
@@ -1163,110 +1261,6 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Multiple Mirrors Episode Selector Modal */}
-      {selectedEpisodeGroup && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn"
-          onClick={() => setSelectedEpisodeGroup(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl bg-[#141124] border border-[#2d2547] p-5 shadow-2xl space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-[#241e3a]">
-              <div className="flex items-center gap-2.5">
-                <span className="font-extrabold text-lg text-white">
-                  Episode {String(selectedEpisodeGroup.episodeNumber).padStart(2, '0')}
-                </span>
-                {selectedEpisodeGroup.size && (
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
-                    {selectedEpisodeGroup.size}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => setSelectedEpisodeGroup(null)}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="text-xs text-sky-400 font-mono break-all line-clamp-2">
-              {selectedEpisodeGroup.title}
-            </div>
-
-            <div className="space-y-2.5 pt-1">
-              <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-                Select Download Server ({selectedEpisodeGroup.links.length} Available)
-              </div>
-              {selectedEpisodeGroup.links.map((link) => {
-                const srv = detectServer(link.url);
-                return (
-                  <div key={link.id} className="flex items-center gap-2">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 py-2.5 px-4 rounded-xl bg-[#ea580c] hover:bg-[#c2410c] text-black font-bold text-xs sm:text-sm flex items-center justify-between shadow-md transition-all hover:scale-[1.01] active:scale-95"
-                    >
-                      <span>Download {srv.name || 'HubCloud'}</span>
-                      <Download className="w-4 h-4" />
-                    </a>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReportingLink({
-                          linkId: link.id,
-                          movieId: titleDetails.id,
-                          mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Show',
-                          mediaType: 'tv',
-                          posterPath: titleDetails.poster_path,
-                          linkTitle: selectedEpisodeGroup.title,
-                          reportedUrl: link.url,
-                          quality: link.quality,
-                          server: srv.name,
-                        })
-                      }
-                      className="p-2.5 rounded-xl bg-zinc-800/80 text-zinc-400 hover:text-amber-400 border border-zinc-700/60 transition-colors"
-                      title="Report broken mirror"
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                    </button>
-
-                    {isEffectiveAdmin && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => {
-                            setSelectedEpisodeGroup(null);
-                            handleStartEdit(link);
-                          }}
-                          className="p-2.5 rounded-xl bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700 transition-colors"
-                          title="Admin: Edit Link"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedEpisodeGroup(null);
-                            handleDelete(link.id);
-                          }}
-                          className="p-2.5 rounded-xl bg-rose-900/30 hover:bg-rose-900/60 text-rose-400 border border-rose-800/40 transition-colors"
-                          title="Admin: Delete Link"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       )}
