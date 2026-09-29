@@ -535,57 +535,75 @@ export async function migrateDomainInDatabase(
  * and retrieves their TMDB metadata for display in the "Recently Added" carousel.
  */
 export async function getRecentlyAddedTitles(
-  limit = 18,
+  limit = 24,
   mediaTypeFilter: 'all' | 'movie' | 'tv' = 'all'
 ): Promise<TitleDetails[]> {
   const recentMovieEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc?: any }> = [];
   const seen = new Set<string>();
+  let mongoLoaded = false;
 
-  // 1. Try MongoDB Atlas first
+  // 1. Try MongoDB Atlas first with distinct movieId grouping
   try {
     const db = await getDatabase();
     if (db) {
       const collection = db.collection('links');
-      const docs = await collection
-        .find({})
-        .sort({ createdAt: -1, updatedAt: -1 })
-        .limit(200)
+      const aggResults = await collection
+        .aggregate([
+          { $sort: { createdAt: -1, updatedAt: -1 } },
+          {
+            $group: {
+              _id: '$movieId',
+              latestDoc: { $first: '$$ROOT' },
+              linksCount: { $sum: 1 },
+            },
+          },
+          { $sort: { 'latestDoc.createdAt': -1 } },
+          { $limit: 150 },
+        ])
         .toArray();
 
-      for (const doc of docs) {
-        const mId = String(doc.movieId || '');
-        if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
+      if (aggResults && aggResults.length > 0) {
+        mongoLoaded = true;
 
-        let mediaType: 'movie' | 'tv' = 'movie';
-        const isTv =
-          doc.mediaType === 'tv' ||
-          (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
-          doc.linkType === 'zip_pack' ||
-          doc.linkType === 'single_episode' ||
-          doc.category === 'ZipPack' ||
-          doc.category === 'SingleEpisode';
+        for (const item of aggResults) {
+          const mId = String(item._id || item.latestDoc?.movieId || '');
+          if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
+          if (!item.linksCount || item.linksCount <= 0) continue;
 
-        if (isTv) {
-          mediaType = 'tv';
-        } else if (doc.mediaType === 'movie') {
-          mediaType = 'movie';
+          const doc = item.latestDoc || {};
+
+          let mediaType: 'movie' | 'tv' = 'movie';
+          const isTv =
+            doc.mediaType === 'tv' ||
+            (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
+            doc.linkType === 'zip_pack' ||
+            doc.linkType === 'single_episode' ||
+            doc.category === 'ZipPack' ||
+            doc.category === 'SingleEpisode' ||
+            /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
+
+          if (isTv) {
+            mediaType = 'tv';
+          } else if (doc.mediaType === 'movie') {
+            mediaType = 'movie';
+          }
+
+          if (mediaTypeFilter !== 'all' && mediaType !== mediaTypeFilter) {
+            continue;
+          }
+
+          seen.add(mId);
+          recentMovieEntries.push({ movieId: mId, mediaType, doc });
+          if (recentMovieEntries.length >= limit) break;
         }
-
-        if (mediaTypeFilter !== 'all' && mediaType !== mediaTypeFilter) {
-          continue;
-        }
-
-        seen.add(mId);
-        recentMovieEntries.push({ movieId: mId, mediaType, doc });
-        if (recentMovieEntries.length >= limit) break;
       }
     }
   } catch (err: any) {
     console.warn('MongoDB Atlas getRecentlyAddedTitles warning:', err.message);
   }
 
-  // 2. If MongoDB returned fewer than limit, supplement from local fallback
-  if (recentMovieEntries.length < limit) {
+  // 2. Only if MongoDB was completely empty or offline, fallback to local serverLinks.json
+  if (!mongoLoaded && recentMovieEntries.length < limit) {
     try {
       const localData = getLocalFallbackLinks();
       const localList: Array<{ movieId: string; createdAt: string; link: any }> = [];
@@ -611,7 +629,8 @@ export async function getRecentlyAddedTitles(
           item.link?.linkType === 'zip_pack' ||
           item.link?.linkType === 'single_episode' ||
           item.link?.category === 'ZipPack' ||
-          item.link?.category === 'SingleEpisode';
+          item.link?.category === 'SingleEpisode' ||
+          /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(item.link?.title || '');
 
         if (isTv) {
           mediaType = 'tv';
@@ -679,6 +698,32 @@ export async function getRecentlyAddedTitles(
             ...details,
             media_type: mediaType,
           };
+        }
+
+        const cleanName = (doc?.title || '')
+          .replace(/^Name\s*:\s*/i, '')
+          .replace(/\.S\d{1,2}(?:E\d{1,2})?.*$/i, '')
+          .replace(/\s+S\d{1,2}(?:E\d{1,2})?.*$/i, '')
+          .replace(/Season\s*\d+.*$/i, '')
+          .replace(/\./g, ' ')
+          .replace(/HUBCLOUD.*$/i, '')
+          .trim();
+
+        if (cleanName && cleanName.length > 1) {
+          return {
+            id: Number(movieId) || (movieId as any),
+            title: cleanName,
+            name: cleanName,
+            overview: 'Available for streaming & download on CineFuel.',
+            poster_path: details?.poster_path || '/placeholder-poster.svg',
+            backdrop_path: details?.backdrop_path || details?.poster_path || '/placeholder-backdrop.svg',
+            release_date: details?.release_date || '',
+            first_air_date: details?.first_air_date || '',
+            vote_average: details?.vote_average || 8.0,
+            vote_count: 1000,
+            media_type: mediaType,
+            genres: [{ id: 18, name: 'Featured' }],
+          } as TitleDetails;
         }
       } catch (e) {
         // ignore error
