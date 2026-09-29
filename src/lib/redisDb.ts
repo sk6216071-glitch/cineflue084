@@ -531,19 +531,131 @@ export async function migrateDomainInDatabase(
   return { success: true, updatedCount: totalUpdated, oldDomain: cleanOld, newDomain: cleanNew };
 }
 
+// Helper to detect synthetic/dummy placeholders
+export const isDummyTitle = (t?: string) =>
+  !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');
+
+export const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv', details?: any) => {
+  const docTitle = String(docItem?.title || '');
+  const docQuality = String(docItem?.quality || '');
+  const docAudio = String(docItem?.audioLanguage || '');
+  const movieTitle = String(details?.title || details?.name || docItem?.movieTitle || '');
+  const origLang = String(
+    details?.original_language || docItem?.originalLanguage || docItem?.original_language || ''
+  ).toLowerCase().trim();
+  const origCountry: string[] = Array.isArray(details?.origin_country)
+    ? details.origin_country
+    : Array.isArray(docItem?.originCountry)
+    ? docItem.originCountry
+    : [];
+
+  const cleanDocTitle = stripWatermarks(docTitle);
+  const cleanDocQuality = stripWatermarks(docQuality);
+
+  const has1080p = /(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+                   /(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
+  const has720p = /(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+                  /(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
+  const has480p = /(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+                  /(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
+
+  // Only genuine 4K if NOT explicitly 1080p / 720p / 480p
+  const is4k = !has1080p && !has720p && !has480p && (
+    /(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+    /(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality)
+  );
+  const is1080p = has1080p || (!is4k && !has720p && !has480p);
+  const isDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
+  const isHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
+  const isBluRay = /(?:^|[\s._\-[\]()])(?:bluray|blu-ray|remux|bdrip)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
+
+  const platform = detectShowPlatform(docTitle, details);
+
+  // Comprehensive category classification (Matches OlAMovies standard)
+  let category = '';
+  const titleCombined = `${movieTitle} ${docTitle}`.toLowerCase();
+  const isHollywoodTitle = /(?:marvel|avenger|spider[- ]*man|spiderman|iron[- ]*man|thor|captain\s*america|captain\s*marvel|black\s*widow|ant[- ]*man|antman|doctor\s*strange|black\s*panther|guardians\s*of\s*the\s*galaxy|deadpool|wolverine|x[- ]*men|eternals|shang[- ]*chi|loki|hawkeye|daredevil|punisher|batman|superman|justice\s*league|wonder\s*woman|aquaman|flash|joker|harley\s*quinn|shazam|lanterns|star\s*wars|avatar|jurassic|fast\s*(?:and|&)\s*furious|mission:?\s*impossible|transformers?|harry\s*potter|fantastic\s*beasts|lord\s*of\s*the\s*rings|hobbit|game\s*of\s*thrones|house\s*of\s*the\s*dragon|stranger\s*things|godzilla|kong|john\s*wick|dune|oppenheimer|interstellar|inception|matrix|terminator|gladiator|alien|predator|blade\s*runner|mad\s*max|planet\s*of\s*the\s*apes|fallout|the\s*boys|reacher|jack\s*ryan|witcher|halo|peaky\s*blinders|walking\s*dead|american\s*primeval|squid\s*game|toy\s*story|pixar|disney)/i.test(titleCombined);
+  const hasEnglishOrDual = /(?:dual|multi|english|eng|\+\s*eng|eng\s*\+|org\s*eng|atmos|truehd)/i.test(`${docTitle} ${docAudio}`);
+  const isExplicitBollywood = /(?:bollywood|hindi\s*movie|desiremovies|bollyflix|vegamovies|katmoviehd)/i.test(`${titleCombined} ${docAudio}`);
+  const isIndianLang = origLang === 'hi' || (origCountry.includes('IN') && (origLang === 'hi' || !origLang));
+
+  if (isIndianLang && !isHollywoodTitle) {
+    category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
+  } else if (['te', 'ta', 'ml', 'kn'].includes(origLang) && !isHollywoodTitle) {
+    category = mType === 'tv' ? 'SOUTH TV SHOWS' : 'SOUTH INDIAN';
+  } else if (origLang === 'ja') {
+    category = 'ANIME';
+  } else if (origLang === 'ko') {
+    category = mType === 'tv' ? 'K-DRAMA' : 'KOREAN';
+  } else if (origLang === 'en' || origCountry.some((c: string) => ['US', 'GB', 'CA', 'AU', 'NZ'].includes(c))) {
+    category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+  } else if (isHollywoodTitle || hasEnglishOrDual) {
+    category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+  } else if (isExplicitBollywood) {
+    category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
+  } else {
+    category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+  }
+
+  const sizeMatch = docItem?.size || docTitle.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i)?.[1]?.toUpperCase();
+
+  return {
+    is4k,
+    is1080p,
+    isDV,
+    isHDR,
+    isBluRay,
+    platform: platform || (mType === 'tv' ? 'TV' : 'MOVIE'),
+    category,
+    size: sizeMatch || '',
+    createdAt: docItem?.createdAt || docItem?.updatedAt || '',
+    rawTitle: docTitle,
+  };
+};
+
+export interface PaginatedUploadedOptions {
+  page?: number;
+  limit?: number;
+  type?: 'all' | 'movie' | 'tv';
+  quality?: string;
+  category?: string;
+  audio?: string;
+  ott?: string;
+  query?: string;
+  genre?: string | number;
+}
+
+export interface PaginatedUploadedResult {
+  items: TitleDetails[];
+  total: number;
+  page: number;
+  totalPages: number;
+  limit: number;
+}
+
 /**
- * Fetches the most recently uploaded titles from MongoDB Atlas (or local fallback)
- * and retrieves their TMDB metadata for display in the "Recently Added" carousel.
+ * Fetches paginated titles that CONTAIN CUSTOM LINKS exclusively.
+ * Supports filtering by type (movie/tv/all), quality, audio, category, search query, and genre.
  */
-export async function getRecentlyAddedTitles(
-  limit = 24,
-  mediaTypeFilter: 'all' | 'movie' | 'tv' = 'all'
-): Promise<TitleDetails[]> {
-  const recentMovieEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc?: any }> = [];
+export async function getPaginatedUploadedTitles(
+  options: PaginatedUploadedOptions = {}
+): Promise<PaginatedUploadedResult> {
+  const {
+    page = 1,
+    limit = 24,
+    type = 'all',
+    quality,
+    category,
+    audio,
+    ott,
+    query,
+  } = options;
+
+  const allEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc: any; createdAt: string }> = [];
   const seen = new Set<string>();
   let mongoLoaded = false;
 
-  // 1. Try MongoDB Atlas first with distinct movieId grouping
+  // 1. Try MongoDB Atlas first
   try {
     const db = await getDatabase();
     if (db) {
@@ -559,21 +671,18 @@ export async function getRecentlyAddedTitles(
             },
           },
           { $sort: { 'latestDoc.createdAt': -1 } },
-          { $limit: 150 },
+          { $limit: 2000 },
         ])
         .toArray();
 
       if (aggResults && aggResults.length > 0) {
         mongoLoaded = true;
-
         for (const item of aggResults) {
           const mId = String(item._id || item.latestDoc?.movieId || '');
           if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
           if (!item.linksCount || item.linksCount <= 0) continue;
 
           const doc = item.latestDoc || {};
-
-          let mediaType: 'movie' | 'tv' = 'movie';
           const isTv =
             doc.mediaType === 'tv' ||
             (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
@@ -583,28 +692,23 @@ export async function getRecentlyAddedTitles(
             doc.category === 'SingleEpisode' ||
             /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
 
-          if (isTv) {
-            mediaType = 'tv';
-          } else if (doc.mediaType === 'movie') {
-            mediaType = 'movie';
-          }
-
-          if (mediaTypeFilter !== 'all' && mediaType !== mediaTypeFilter) {
-            continue;
-          }
-
+          const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
           seen.add(mId);
-          recentMovieEntries.push({ movieId: mId, mediaType, doc });
-          if (recentMovieEntries.length >= limit) break;
+          allEntries.push({
+            movieId: mId,
+            mediaType,
+            doc,
+            createdAt: doc.createdAt || doc.updatedAt || '',
+          });
         }
       }
     }
   } catch (err: any) {
-    console.warn('MongoDB Atlas getRecentlyAddedTitles warning:', err.message);
+    console.warn('MongoDB Atlas getPaginatedUploadedTitles error:', err.message);
   }
 
-  // 2. Only if MongoDB was completely empty or offline, fallback to local serverLinks.json
-  if (!mongoLoaded && recentMovieEntries.length < limit) {
+  // 2. Fallback to local serverLinks.json if MongoDB was empty or offline
+  if (!mongoLoaded || allEntries.length === 0) {
     try {
       const localData = getLocalFallbackLinks();
       const localList: Array<{ movieId: string; createdAt: string; link: any }> = [];
@@ -623,7 +727,7 @@ export async function getRecentlyAddedTitles(
       );
 
       for (const item of localList) {
-        let mediaType: 'movie' | 'tv' = 'movie';
+        if (seen.has(item.movieId)) continue;
         const isTv =
           item.link?.mediaType === 'tv' ||
           (typeof item.link?.seasonNumber === 'number' && item.link?.seasonNumber > 0) ||
@@ -633,115 +737,102 @@ export async function getRecentlyAddedTitles(
           item.link?.category === 'SingleEpisode' ||
           /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(item.link?.title || '');
 
-        if (isTv) {
-          mediaType = 'tv';
-        } else if (item.link?.mediaType === 'movie') {
-          mediaType = 'movie';
-        }
-
-        if (mediaTypeFilter !== 'all' && mediaType !== mediaTypeFilter) {
-          continue;
-        }
-
-        if (seen.has(item.movieId)) continue;
+        const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
         seen.add(item.movieId);
-
-        recentMovieEntries.push({ movieId: item.movieId, mediaType, doc: item.link });
-        if (recentMovieEntries.length >= limit) break;
+        allEntries.push({
+          movieId: item.movieId,
+          mediaType,
+          doc: item.link,
+          createdAt: item.createdAt,
+        });
       }
     } catch (err) {
-      console.warn('Local fallback getRecentlyAddedTitles error:', err);
+      console.warn('Local fallback error in getPaginatedUploadedTitles:', err);
     }
   }
 
-  if (recentMovieEntries.length === 0) return [];
+  // 3. Filter entries based on user request (type, quality, audio, category, search query)
+  const filtered = allEntries.filter(({ mediaType, doc }) => {
+    // Type filter
+    if (type === 'movie' && mediaType !== 'movie') return false;
+    if (type === 'tv' && mediaType !== 'tv') return false;
 
-  // Helper to detect synthetic/dummy placeholders
-  const isDummyTitle = (t?: string) =>
-    !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');
+    const fullText = `${doc?.title || ''} ${doc?.movieTitle || ''} ${doc?.quality || ''} ${doc?.audioLanguage || ''}`.toLowerCase();
 
-  const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv', details?: any) => {
-    const docTitle = String(docItem?.title || '');
-    const docQuality = String(docItem?.quality || '');
-    const docAudio = String(docItem?.audioLanguage || '');
-    const movieTitle = String(details?.title || details?.name || docItem?.movieTitle || '');
-    const origLang = String(
-      details?.original_language || docItem?.originalLanguage || docItem?.original_language || ''
-    ).toLowerCase().trim();
-    const origCountry: string[] = Array.isArray(details?.origin_country)
-      ? details.origin_country
-      : Array.isArray(docItem?.originCountry)
-      ? docItem.originCountry
-      : [];
-
-    const cleanDocTitle = stripWatermarks(docTitle);
-    const cleanDocQuality = stripWatermarks(docQuality);
-
-    const has1080p = /(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
-                     /(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
-    const has720p = /(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
-                    /(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
-    const has480p = /(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
-                    /(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
-
-    // Only genuine 4K if NOT explicitly 1080p / 720p / 480p
-    const is4k = !has1080p && !has720p && !has480p && (
-      /(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
-      /(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality)
-    );
-    const is1080p = has1080p || (!is4k && !has720p && !has480p);
-    const isDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
-    const isHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
-    const isBluRay = /(?:^|[\s._\-[\]()])(?:bluray|blu-ray|remux|bdrip)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
-
-    const platform = detectShowPlatform(docTitle, details);
-
-    // Comprehensive category classification (Matches OlAMovies standard)
-    let category = '';
-    const titleCombined = `${movieTitle} ${docTitle}`.toLowerCase();
-    const isHollywoodTitle = /(?:marvel|avenger|spider[- ]*man|spiderman|iron[- ]*man|thor|captain\s*america|captain\s*marvel|black\s*widow|ant[- ]*man|antman|doctor\s*strange|black\s*panther|guardians\s*of\s*the\s*galaxy|deadpool|wolverine|x[- ]*men|eternals|shang[- ]*chi|loki|hawkeye|daredevil|punisher|batman|superman|justice\s*league|wonder\s*woman|aquaman|flash|joker|harley\s*quinn|shazam|lanterns|star\s*wars|avatar|jurassic|fast\s*(?:and|&)\s*furious|mission:?\s*impossible|transformers?|harry\s*potter|fantastic\s*beasts|lord\s*of\s*the\s*rings|hobbit|game\s*of\s*thrones|house\s*of\s*the\s*dragon|stranger\s*things|godzilla|kong|john\s*wick|dune|oppenheimer|interstellar|inception|matrix|terminator|gladiator|alien|predator|blade\s*runner|mad\s*max|planet\s*of\s*the\s*apes|fallout|the\s*boys|reacher|jack\s*ryan|witcher|halo|peaky\s*blinders|walking\s*dead|american\s*primeval|squid\s*game|toy\s*story|pixar|disney)/i.test(titleCombined);
-    const hasEnglishOrDual = /(?:dual|multi|english|eng|\+\s*eng|eng\s*\+|org\s*eng|atmos|truehd)/i.test(`${docTitle} ${docAudio}`);
-    const isExplicitBollywood = /(?:bollywood|hindi\s*movie|desiremovies|bollyflix|vegamovies|katmoviehd)/i.test(`${titleCombined} ${docAudio}`);
-    const isIndianLang = origLang === 'hi' || (origCountry.includes('IN') && (origLang === 'hi' || !origLang));
-
-    if (isIndianLang && !isHollywoodTitle) {
-      category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
-    } else if (['te', 'ta', 'ml', 'kn'].includes(origLang) && !isHollywoodTitle) {
-      category = mType === 'tv' ? 'SOUTH TV SHOWS' : 'SOUTH INDIAN';
-    } else if (origLang === 'ja') {
-      category = 'ANIME';
-    } else if (origLang === 'ko') {
-      category = mType === 'tv' ? 'K-DRAMA' : 'KOREAN';
-    } else if (origLang === 'en' || origCountry.some((c: string) => ['US', 'GB', 'CA', 'AU', 'NZ'].includes(c))) {
-      category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
-    } else if (isHollywoodTitle || hasEnglishOrDual) {
-      category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
-    } else if (isExplicitBollywood) {
-      category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
-    } else {
-      category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    // Quality filter
+    if (quality) {
+      const qLower = quality.toLowerCase();
+      if (qLower === '4k' || qLower === '2160p') {
+        if (!/(?:4k|2160p|uhd)/i.test(fullText)) return false;
+      } else if (qLower === 'remux') {
+        if (!/remux/i.test(fullText)) return false;
+      } else if (qLower === 'hdr' || qLower === '4k_hdr') {
+        if (!/(?:hdr|dovi|dolby\s*vision)/i.test(fullText)) return false;
+      } else if (qLower === '1080p' || qLower === 'fhd') {
+        if (!/(?:1080p|fhd)/i.test(fullText)) return false;
+      } else if (qLower === '720p') {
+        if (!/720p/i.test(fullText)) return false;
+      }
     }
 
-    const sizeMatch = docItem?.size || docTitle.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i)?.[1]?.toUpperCase();
+    // Category filter (e.g. zippack)
+    if (category) {
+      const cLower = category.toLowerCase();
+      if (cLower === 'zippack' || cLower === 'zip') {
+        const isZip =
+          doc?.linkType === 'zip_pack' ||
+          doc?.category === 'ZipPack' ||
+          /season.*complete|zip.*pack/i.test(doc?.title || '');
+        if (!isZip) return false;
+      }
+    }
 
-    return {
-      is4k,
-      is1080p,
-      isDV,
-      isHDR,
-      isBluRay,
-      platform: platform || (mType === 'tv' ? 'TV' : 'MOVIE'),
-      category,
-      size: sizeMatch || '',
-      createdAt: docItem?.createdAt || docItem?.updatedAt || '',
-      rawTitle: docTitle,
-    };
-  };
+    // Audio filter
+    if (audio) {
+      const aLower = audio.toLowerCase();
+      if (aLower === 'hindi') {
+        if (!/hindi/i.test(fullText)) return false;
+      } else if (aLower === 'dual') {
+        if (!/(?:dual|\+|hindi.*eng)/i.test(fullText)) return false;
+      } else if (aLower === 'english') {
+        if (!/english|eng/i.test(fullText)) return false;
+      }
+    }
 
-  // 3. Resolve metadata: prioritize stored doc metadata first, then live TMDB
-  const results = await Promise.all(
-    recentMovieEntries.map(async ({ movieId, mediaType, doc }) => {
-      // 3A. If stored doc in MongoDB/local link already has movieTitle and posterPath, use it instantly!
+    // OTT filter
+    if (ott) {
+      const oLower = ott.toLowerCase();
+      if (oLower === 'netflix' && !/\b(nf|netflix)\b/i.test(fullText)) return false;
+      if ((oLower === 'prime' || oLower === 'amazon') && !/\b(amzn|amazon|prime)\b/i.test(fullText)) return false;
+      if (oLower === 'hotstar' && !/\b(hs|hotstar|disney|dsnp)\b/i.test(fullText)) return false;
+      if (oLower === 'jiocinema' && !/\b(jio|jiocinema)\b/i.test(fullText)) return false;
+      if (oLower === 'sonyliv' && !/\b(sony|sonyliv|liv)\b/i.test(fullText)) return false;
+      if (oLower === 'zee5' && !/\b(zee|zee5)\b/i.test(fullText)) return false;
+      if (oLower === 'appletv' && !/\b(atvp|apple)\b/i.test(fullText)) return false;
+    }
+
+    // Search query filter
+    if (query && query.trim()) {
+      const qWords = query.trim().toLowerCase().split(/\s+/);
+      const isMatch = qWords.every((word) => fullText.includes(word));
+      if (!isMatch) return false;
+    }
+
+    return true;
+  });
+
+  const total = filtered.length;
+  const safeLimit = Math.max(1, limit);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const safePage = Math.max(1, Math.min(page, totalPages));
+
+  // Slice the current page
+  const pageEntries = filtered.slice((safePage - 1) * safeLimit, safePage * safeLimit);
+
+  // Enrich metadata for current page entries
+  const enrichedResults = await Promise.all(
+    pageEntries.map(async ({ movieId, mediaType, doc }) => {
+      // 3A. Stored doc fast path
       if (doc?.movieTitle && doc?.posterPath && !isDummyTitle(doc.movieTitle)) {
         return {
           id: Number(movieId) || (movieId as any),
@@ -761,11 +852,10 @@ export async function getRecentlyAddedTitles(
         } as TitleDetails;
       }
 
-      // 3B. Otherwise, fetch live TMDB details
+      // 3B. Live TMDB fetch
       try {
         let details = await getTitleDetails(mediaType, movieId);
         if (isDummyTitle(details?.title || details?.name)) {
-          // Retry with alternate mediaType
           const altType = mediaType === 'movie' ? 'tv' : 'movie';
           const altDetails = await getTitleDetails(altType, movieId);
           if (!isDummyTitle(altDetails?.title || altDetails?.name)) {
@@ -816,7 +906,29 @@ export async function getRecentlyAddedTitles(
     })
   );
 
-  return results.filter(Boolean) as TitleDetails[];
+  return {
+    items: enrichedResults.filter(Boolean) as TitleDetails[],
+    total,
+    page: safePage,
+    totalPages,
+    limit: safeLimit,
+  };
+}
+
+/**
+ * Fetches the most recently uploaded titles from MongoDB Atlas (or local fallback)
+ * and retrieves their TMDB metadata for display in the "Recently Added" carousel.
+ */
+export async function getRecentlyAddedTitles(
+  limit = 24,
+  mediaTypeFilter: 'all' | 'movie' | 'tv' = 'all'
+): Promise<TitleDetails[]> {
+  const paginated = await getPaginatedUploadedTitles({
+    limit,
+    type: mediaTypeFilter,
+    page: 1,
+  });
+  return paginated.items;
 }
 
 export interface FilterUploadedOptions {

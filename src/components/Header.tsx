@@ -23,27 +23,28 @@ interface NavItem {
 
 const NAVIGATION_ITEMS: NavItem[] = [
   { label: 'Home', href: '/' },
+  { label: 'Explore', href: '/explore' },
   {
     label: 'Movies',
     href: '/movies',
     children: [
-      { label: 'All Uploaded Movies', href: '/search?type=movie' },
-      { label: '4K Ultra HD (2160p)', href: '/search?type=movie&quality=4k' },
-      { label: '1080p Full HD', href: '/search?type=movie&quality=1080p' },
-      { label: 'BluRay / REMUX', href: '/search?type=movie&quality=remux' },
-      { label: 'HDR / Dolby Vision', href: '/search?type=movie&quality=hdr' },
-      { label: 'Hindi / Dual Audio', href: '/search?type=movie&audio=hindi' },
+      { label: 'All Uploaded Movies', href: '/movies' },
+      { label: '4K Ultra HD (2160p)', href: '/movies?quality=4k' },
+      { label: '1080p Full HD', href: '/movies?quality=1080p' },
+      { label: 'BluRay / REMUX', href: '/movies?quality=remux' },
+      { label: 'HDR / Dolby Vision', href: '/movies?quality=hdr' },
+      { label: 'Hindi / Dual Audio', href: '/movies?audio=hindi' },
     ],
   },
   {
     label: 'Web Series',
     href: '/tv',
     children: [
-      { label: 'All Web Series', href: '/search?type=tv' },
-      { label: 'Complete Season Packs (Zip)', href: '/search?type=tv&category=zippack' },
-      { label: '4K / 1080p Web Series', href: '/search?type=tv&quality=1080p' },
-      { label: 'Hindi Dubbed Series', href: '/search?type=tv&audio=hindi' },
-      { label: 'English & International', href: '/search?type=tv&audio=english' },
+      { label: 'All Web Series', href: '/tv' },
+      { label: 'Complete Season Packs (Zip)', href: '/tv?category=zippack' },
+      { label: '4K / 1080p Web Series', href: '/tv?quality=1080p' },
+      { label: 'Hindi Dubbed Series', href: '/tv?audio=hindi' },
+      { label: 'English & International', href: '/tv?audio=english' },
     ],
   },
   {
@@ -59,7 +60,7 @@ const NAVIGATION_ITEMS: NavItem[] = [
     ],
   },
   { label: 'Anime', href: '/search?genre=16&name=Anime' },
-  { label: '4K HDR', href: '/search?quality=4k_hdr' },
+  { label: '4K HDR', href: '/movies?quality=4k' },
   { label: 'Top IMDb', href: '/search?sort=top_rated' },
 ];
 

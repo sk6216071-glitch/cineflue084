@@ -10,15 +10,15 @@ export default async function HomePage() {
     recentMovies,
     recentSeries,
   ] = await Promise.all([
-    getRecentlyAddedTitles(36, 'all'),
-    getRecentlyAddedTitles(24, 'movie'),
-    getRecentlyAddedTitles(24, 'tv'),
+    getRecentlyAddedTitles(96, 'all'),
+    getRecentlyAddedTitles(72, 'movie'),
+    getRecentlyAddedTitles(72, 'tv'),
   ]);
 
   return (
     <div className="min-h-screen pb-16 space-y-8 pt-6">
-      {/* Latest Uploads Section with 16:9 Landscape Poster Grid matching Reference Screenshot */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* Latest Uploads Section with 16:9 Landscape Poster Grid and Pagination */}
+      <section id="latest-uploads-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <LatestUploadsGrid
           allTitles={recentAll}
           movieTitles={recentMovies}

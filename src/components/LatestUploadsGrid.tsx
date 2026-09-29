@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Flame, Film, Tv, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import { Flame, Film, Tv, Sparkles, ArrowRight } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import MovieCard from './MovieCard';
+import Pagination from './Pagination';
 
 interface LatestUploadsGridProps {
   allTitles: TitleDetails[];
@@ -17,6 +19,13 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
   seriesTitles,
 }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'movie' | 'tv'>('all');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const ITEMS_PER_PAGE = 24;
+
+  const handleTabChange = (tab: 'all' | 'movie' | 'tv') => {
+    setActiveTab(tab);
+    setCurrentPage(1);
+  };
 
   const displayedTitles = useMemo(() => {
     if (activeTab === 'movie') return movieTitles;
@@ -24,8 +33,16 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
     return allTitles;
   }, [activeTab, allTitles, movieTitles, seriesTitles]);
 
+  const totalPages = Math.max(1, Math.ceil(displayedTitles.length / ITEMS_PER_PAGE));
+  const validPage = Math.min(currentPage, totalPages);
+
+  const pagedTitles = useMemo(() => {
+    const start = (validPage - 1) * ITEMS_PER_PAGE;
+    return displayedTitles.slice(start, start + ITEMS_PER_PAGE);
+  }, [displayedTitles, validPage]);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Header with Title and Filter Tabs */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-800/80 pb-4">
         <div>
@@ -45,7 +62,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
         {/* Filter Pills */}
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#14121f] border border-[#2b2542] self-start sm:self-auto">
           <button
-            onClick={() => setActiveTab('all')}
+            onClick={() => handleTabChange('all')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'all'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -55,7 +72,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
             All ({allTitles.length})
           </button>
           <button
-            onClick={() => setActiveTab('movie')}
+            onClick={() => handleTabChange('movie')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'movie'
                 ? 'bg-amber-500 text-black shadow-md'
@@ -66,7 +83,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
             Movies ({movieTitles.length})
           </button>
           <button
-            onClick={() => setActiveTab('tv')}
+            onClick={() => handleTabChange('tv')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'tv'
                 ? 'bg-sky-500 text-black shadow-md'
@@ -80,16 +97,53 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
       </div>
 
       {/* 4-Column Responsive Grid matching Reference Screenshot */}
-      {displayedTitles.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
-          {displayedTitles.map((item, idx) => (
-            <MovieCard
-              key={`${item.media_type}-${item.id}-${idx}`}
-              item={item}
-              aspect="landscape"
-              priority={idx < 4}
+      {pagedTitles.length > 0 ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
+            {pagedTitles.map((item, idx) => (
+              <MovieCard
+                key={`${item.media_type}-${item.id}-${idx}`}
+                item={item}
+                aspect="landscape"
+                priority={idx < 4}
+              />
+            ))}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <Pagination
+              currentPage={validPage}
+              totalPages={totalPages}
+              onPageChange={(p) => {
+                setCurrentPage(p);
+                const el = document.getElementById('latest-uploads-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
             />
-          ))}
+          )}
+
+          {/* Direct Explore Shortcuts */}
+          <div className="pt-6 border-t border-zinc-800/60 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/explore"
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-extrabold transition-all shadow-md shadow-amber-500/20 flex items-center gap-2"
+            >
+              Explore Complete Catalog <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="/movies"
+              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs sm:text-sm font-bold transition-all"
+            >
+              Explore All Movies
+            </Link>
+            <Link
+              href="/tv"
+              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs sm:text-sm font-bold transition-all"
+            >
+              Explore All Web Series
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="py-16 text-center rounded-2xl bg-zinc-900/40 border border-zinc-800/60 p-8 space-y-3">

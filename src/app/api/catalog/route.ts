@@ -1,5 +1,5 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
-import { getFilteredUploadedTitles } from '@/lib/redisDb';
+import { NextRequest, NextResponse } from 'next/server';
+import { getPaginatedUploadedTitles } from '@/lib/redisDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,9 +12,10 @@ export async function GET(request: NextRequest) {
     const audio = searchParams.get('audio') || undefined;
     const ott = searchParams.get('ott') || undefined;
     const query = searchParams.get('q') || searchParams.get('query') || undefined;
-    const limit = Number(searchParams.get('limit')) || 60;
+    const limit = Number(searchParams.get('limit')) || 24;
+    const page = Number(searchParams.get('page')) || 1;
 
-    const result = await getFilteredUploadedTitles({
+    const result = await getPaginatedUploadedTitles({
       type,
       quality,
       category,
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
       ott,
       query,
       limit,
+      page,
     });
 
     return NextResponse.json({
