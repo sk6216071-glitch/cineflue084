@@ -135,6 +135,19 @@ export interface TitleDetails {
   'watch/providers'?: {
     results: Record<string, WatchProvidersData>;
   };
+  uploadMeta?: {
+    is4k?: boolean;
+    is1080p?: boolean;
+    isDV?: boolean;
+    isHDR?: boolean;
+    isBluRay?: boolean;
+    platform?: string;
+    category?: string;
+    size?: string;
+    createdAt?: string;
+    rawTitle?: string;
+    statusText?: string;
+  };
 }
 
 export interface PersonDetails {

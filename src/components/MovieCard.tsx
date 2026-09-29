@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Star, Plus, Check, Eye, Heart, Film, Tv, Play } from 'lucide-react';
+import { Star, Plus, Check, Eye, Heart, Film, Tv, Play, Clock } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { getImageURL } from '@/lib/tmdb';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -11,16 +11,43 @@ import { useWatchlist } from '@/context/WatchlistContext';
 interface MovieCardProps {
   item: TitleDetails;
   priority?: boolean;
+  aspect?: 'portrait' | 'landscape';
 }
 
-export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) => {
+function formatTimeAgo(dateStr?: string): string {
+  if (!dateStr) return '';
+  try {
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    if (isNaN(diffMs) || diffMs < 0) return '';
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 30) return `${diffDays} days ago`;
+    const diffMonths = Math.floor(diffDays / 30);
+    return `${diffMonths} mo ago`;
+  } catch {
+    return '';
+  }
+}
+
+export const MovieCard: React.FC<MovieCardProps> = ({
+  item,
+  priority = false,
+  aspect = 'portrait',
+}) => {
   const { watchlist, addToWatchlist, removeFromWatchlist, toggleStatus, toggleFavorite, isMounted } = useWatchlist();
 
   const mediaType = item.media_type || (item.name ? 'tv' : 'movie');
   const title = item.title || item.name || 'Untitled';
   const releaseDate = item.release_date || item.first_air_date || '';
   const year = releaseDate ? releaseDate.split('-')[0] : '';
-  const posterUrl = getImageURL(item.poster_path, 'w500');
+
+  const isLandscape = aspect === 'landscape';
+  const posterUrl = isLandscape
+    ? getImageURL(item.backdrop_path || item.poster_path, 'w780')
+    : getImageURL(item.poster_path, 'w500');
 
   const existing = isMounted ? watchlist.find((w) => w.id === item.id) : undefined;
   const isInWatchlist = !!existing;
@@ -56,11 +83,210 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
     toggleFavorite(item.id);
   };
 
+  // Upload metadata sensing (DV, 4K, Platform, Category, Size)
+  const uploadMeta = item.uploadMeta || {};
+  const is4k =
+    uploadMeta.is4k ||
+    (item as any).qualities?.includes('4K UHD') ||
+    (item as any).qualities?.includes('4K');
+  const is1080p = uploadMeta.is1080p || (item as any).qualities?.includes('1080p');
+  const isDV =
+    uploadMeta.isDV ||
+    (item as any).qualities?.some((q: string) => /dv|dolby\s*vision/i.test(q));
+  const isHDR =
+    uploadMeta.isHDR ||
+    (item as any).qualities?.some((q: string) => /hdr/i.test(q));
+  const isBluRay =
+    uploadMeta.isBluRay ||
+    (item as any).qualities?.includes('REMUX') ||
+    (item as any).qualities?.includes('BluRay');
+
+  // Platform
+  let platform = uploadMeta.platform;
+  if (!platform || platform === 'TV' || platform === 'MOVIE') {
+    const t = (item.title || item.name || '').toLowerCase();
+    if (/netflix|\.nf\./i.test(t)) platform = 'NF';
+    else if (/amazon|amzn|prime/i.test(t)) platform = 'AMZN';
+    else if (/apple|atvp/i.test(t)) platform = 'ATVP';
+    else if (/disney|hotstar|dsnp/i.test(t)) platform = 'DSNP';
+    else if (/hbo|max/i.test(t)) platform = 'MAX';
+    else if (/zee5/i.test(t)) platform = 'ZEE5';
+    else if (/jio/i.test(t)) platform = 'JIO';
+    else platform = mediaType === 'tv' ? 'TV' : 'MOVIE';
+  }
+
+  // Category
+  let category = uploadMeta.category;
+  if (!category) {
+    const isHindi = /hindi|bollywood/i.test(
+      (item.original_title || item.original_name || '') + ' ' + (item.title || item.name || '')
+    );
+    if (mediaType === 'tv') {
+      category = isHindi ? 'HINDI TV SHOWS' : 'ENGLISH TV SERIES';
+    } else {
+      category = isHindi ? 'BOLLYWOOD' : 'HOLLYWOOD';
+    }
+  }
+
+  // Size
+  const size = uploadMeta.size || (item as any).size || '';
+
+  // Time ago
+  const timeAgo = formatTimeAgo(uploadMeta.createdAt);
+
+  // Status text
+  const statusText =
+    uploadMeta.statusText ||
+    (mediaType === 'tv'
+      ? item.status === 'Ended'
+        ? 'COMPLETED'
+        : 'ON'
+      : 'MOVIE');
+
+  // Landscape Mode (Matching Reference Screenshot Aspect Ratio & Badges)
+  if (isLandscape) {
+    return (
+      <div className="group relative flex flex-col rounded-2xl bg-[#12101c] border border-[#252038] hover:border-amber-400/50 overflow-hidden cursor-pointer select-none transition-all duration-300 shadow-md hover:shadow-2xl hover:shadow-purple-950/20">
+        {/* 16:9 Landscape Poster Image Container */}
+        <Link
+          href={`/${mediaType}/${item.id}`}
+          className="relative aspect-[16/9] w-full overflow-hidden bg-[#181524] block"
+        >
+          <Image
+            src={posterUrl}
+            alt={title}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+            priority={priority}
+            className="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+          />
+
+          {/* Top Gradient for badge legibility */}
+          <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/85 via-black/35 to-transparent pointer-events-none z-10" />
+
+          {/* Bottom Gradient for category & size legibility */}
+          <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none z-10" />
+
+          {/* Badges Top Left (4K / DV / HDR / 1080p / BluRay) */}
+          <div className="absolute top-2.5 left-2.5 flex items-center gap-1 z-20">
+            {is4k && (
+              <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-black text-[10px] tracking-wide shadow-md">
+                4K
+              </span>
+            )}
+            {isDV && (
+              <span className="px-2 py-0.5 rounded bg-black/75 backdrop-blur-sm text-white font-bold text-[10px] tracking-wide border border-white/15 shadow-md">
+                DV
+              </span>
+            )}
+            {!isDV && isHDR && (
+              <span className="px-2 py-0.5 rounded bg-amber-500 text-black font-black text-[10px] tracking-wide shadow-md">
+                HDR
+              </span>
+            )}
+            {!is4k && is1080p && (
+              <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-black text-[10px] tracking-wide shadow-md">
+                1080p
+              </span>
+            )}
+            {isBluRay && (
+              <span className="px-2 py-0.5 rounded bg-sky-950/90 text-sky-300 font-bold text-[10px] tracking-wide border border-sky-400/30 shadow-md">
+                BluRay
+              </span>
+            )}
+          </div>
+
+          {/* Badge Top Right (Platform Pill e.g. AMZN, NF) */}
+          <div className="absolute top-2.5 right-2.5 z-20">
+            <span className="px-2 py-0.5 rounded bg-white text-black font-black text-[10px] uppercase tracking-wider shadow-md">
+              {platform}
+            </span>
+          </div>
+
+          {/* Bottom Left of Image: Category (ENGLISH TV SERIES, HOLLYWOOD, etc.) */}
+          <div className="absolute bottom-2 left-2.5 z-20 max-w-[65%] truncate">
+            <span className="text-[10px] font-black uppercase text-zinc-200 tracking-wider drop-shadow-[0_1.5px_2px_rgba(0,0,0,0.9)]">
+              {category}
+            </span>
+          </div>
+
+          {/* Bottom Right of Image: Total Size Badge (e.g. 192 GB) */}
+          {size && (
+            <div className="absolute bottom-2 right-2.5 z-20">
+              <span className="px-2 py-0.5 rounded bg-black/85 backdrop-blur-sm text-white font-bold text-[10px] border border-white/15 shadow-md">
+                {size}
+              </span>
+            </div>
+          )}
+
+          {/* Play Icon on Hover */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 transform scale-75 group-hover:scale-100 pointer-events-none z-20">
+            <div className="w-12 h-12 rounded-full bg-amber-500/90 text-black flex items-center justify-center shadow-xl shadow-amber-500/40 backdrop-blur-sm border border-amber-300/50">
+              <Play className="w-5 h-5 fill-black ml-0.5" />
+            </div>
+          </div>
+
+          {/* Action Buttons on Hover */}
+          <div className="absolute top-2.5 right-14 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30 pointer-events-auto">
+            <button
+              onClick={handleWatchlistClick}
+              title={isInWatchlist && !isWatched ? 'Remove from Watchlist' : 'Add to Watchlist'}
+              className="p-1.5 rounded-lg bg-black/80 hover:bg-amber-500 text-white hover:text-black border border-white/20 transition-all"
+              suppressHydrationWarning
+            >
+              {isInWatchlist && !isWatched ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Plus className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={handleFavoriteClick}
+              title={isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
+              className="p-1.5 rounded-lg bg-black/80 hover:bg-rose-500 text-white border border-white/20 transition-all"
+              suppressHydrationWarning
+            >
+              <Heart className={`w-3.5 h-3.5 ${isFavorite ? 'fill-current text-white' : ''}`} />
+            </button>
+          </div>
+        </Link>
+
+        {/* Info Section Below Poster */}
+        <div className="p-3.5 flex flex-col justify-between flex-1 bg-[#100e19]">
+          <Link href={`/${mediaType}/${item.id}`} className="block">
+            <h3 className="text-sm font-bold text-zinc-100 group-hover:text-amber-400 transition-colors duration-200 line-clamp-2 leading-snug">
+              {title} {year ? `(${year})` : ''}
+            </h3>
+          </Link>
+
+          {/* Meta / Status Line */}
+          <div className="flex items-center justify-between text-xs text-zinc-400 mt-2.5 pt-2 border-t border-zinc-800/50">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{statusText}</span>
+            </div>
+
+            <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-medium">
+              {timeAgo && (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-zinc-500" />
+                  {timeAgo}
+                </span>
+              )}
+              {item.vote_average > 0 && (
+                <span className="flex items-center gap-0.5 text-amber-400 font-bold">
+                  <Star className="w-3 h-3 fill-amber-400" />
+                  {item.vote_average.toFixed(1)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Portrait Mode (Default for Catalog / Search / Actor pages)
   return (
     <div className="group cine-card-glow relative flex flex-col rounded-2xl bg-[#10131b] border border-white/10 overflow-hidden cursor-pointer select-none">
       {/* Poster Image Container with Shimmer and Zoom */}
       <Link href={`/${mediaType}/${item.id}`} className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-950 block">
-        {/* Poster Image with 700ms Smooth Cinema Zoom */}
         <Image
           src={posterUrl}
           alt={title}
@@ -114,10 +340,9 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
           </div>
         </div>
 
-        {/* Bottom Quick-Action Buttons (Staggered Spring Entrance on Hover) */}
+        {/* Bottom Quick-Action Buttons */}
         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-3 group-hover:translate-y-0 z-30 pointer-events-auto">
           <div className="flex items-center gap-1.5">
-            {/* Watchlist toggle */}
             <button
               onClick={handleWatchlistClick}
               title={isInWatchlist && !isWatched ? 'Remove from Watchlist' : 'Add to Watchlist'}
@@ -131,7 +356,6 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
               {isInWatchlist && !isWatched ? <Check className="w-4 h-4 stroke-[3]" /> : <Plus className="w-4 h-4" />}
             </button>
 
-            {/* Watched toggle */}
             <button
               onClick={handleWatchedClick}
               title={isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
@@ -146,7 +370,6 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, priority = false }) 
             </button>
           </div>
 
-          {/* Favorite toggle */}
           <button
             onClick={handleFavoriteClick}
             title={isFavorite ? 'Remove Favorite' : 'Add to Favorites'}

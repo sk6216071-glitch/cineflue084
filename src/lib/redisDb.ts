@@ -659,6 +659,51 @@ export async function getRecentlyAddedTitles(
   const isDummyTitle = (t?: string) =>
     !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');
 
+  const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv') => {
+    const docTitle = String(docItem?.title || '');
+    const docQuality = String(docItem?.quality || '');
+    const docAudio = String(docItem?.audioLanguage || '');
+
+    const is4k = /2160p|4k|uhd/i.test(docTitle) || /4k|2160/i.test(docQuality);
+    const is1080p = /1080p|fhd/i.test(docTitle) || /1080/i.test(docQuality);
+    const isDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(docTitle);
+    const isHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(docTitle);
+    const isBluRay = /(?:^|[\s._\-[\]()])(?:bluray|blu-ray|remux|bdrip)(?:[\s._\-[\]()]|$)/i.test(docTitle);
+
+    let platform = '';
+    if (/(?:^|[\s._\-[\]()])(?:nf|netflix)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'NF';
+    else if (/(?:^|[\s._\-[\]()])(?:amzn|prime\s*video)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'AMZN';
+    else if (/(?:^|[\s._\-[\]()])(?:max|hbo)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'MAX';
+    else if (/(?:^|[\s._\-[\]()])(?:atvp|apple)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'ATVP';
+    else if (/(?:^|[\s._\-[\]()])(?:dsnp|disney(?:\s*\+)?|hotstar)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'DSNP';
+    else if (/(?:^|[\s._\-[\]()])(?:zee5)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'ZEE5';
+    else if (/(?:^|[\s._\-[\]()])(?:jiocinema|jio)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'JIO';
+    else if (/(?:^|[\s._\-[\]()])(?:sonyliv|sliv)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'SONYLIV';
+
+    const isHindi = /hindi|hin|bollywood/i.test(`${docTitle} ${docAudio}`);
+    let category = '';
+    if (mType === 'tv') {
+      category = isHindi ? 'HINDI TV SHOWS' : 'ENGLISH TV SERIES';
+    } else {
+      category = isHindi ? 'BOLLYWOOD' : 'HOLLYWOOD';
+    }
+
+    const sizeMatch = docItem?.size || docTitle.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i)?.[1]?.toUpperCase();
+
+    return {
+      is4k,
+      is1080p: is4k ? false : is1080p,
+      isDV,
+      isHDR,
+      isBluRay,
+      platform: platform || (mType === 'tv' ? 'TV' : 'MOVIE'),
+      category,
+      size: sizeMatch || '',
+      createdAt: docItem?.createdAt || docItem?.updatedAt || '',
+      rawTitle: docTitle,
+    };
+  };
+
   // 3. Resolve metadata: prioritize stored doc metadata first, then live TMDB
   const results = await Promise.all(
     recentMovieEntries.map(async ({ movieId, mediaType, doc }) => {
@@ -677,6 +722,7 @@ export async function getRecentlyAddedTitles(
           vote_count: 1500,
           media_type: doc.mediaType || mediaType,
           genres: [{ id: 28, name: 'Featured' }],
+          uploadMeta: extractUploadMeta(doc, mediaType),
         } as TitleDetails;
       }
 
@@ -697,6 +743,7 @@ export async function getRecentlyAddedTitles(
           return {
             ...details,
             media_type: mediaType,
+            uploadMeta: extractUploadMeta(doc, mediaType),
           };
         }
 
@@ -723,6 +770,7 @@ export async function getRecentlyAddedTitles(
             vote_count: 1000,
             media_type: mediaType,
             genres: [{ id: 18, name: 'Featured' }],
+            uploadMeta: extractUploadMeta(doc, mediaType),
           } as TitleDetails;
         }
       } catch (e) {

@@ -1,23 +1,25 @@
 import React from 'react';
 import Link from 'next/link';
-import { Compass, ArrowRight, Film, Tv } from 'lucide-react';
+import { Compass, ArrowRight } from 'lucide-react';
 import { getRecentlyAddedTitles } from '@/lib/redisDb';
 import { POPULAR_GENRES } from '@/lib/mockData';
-import SectionCarousel from '@/components/SectionCarousel';
+import LatestUploadsGrid from '@/components/LatestUploadsGrid';
 
 export const revalidate = 60; // ISR cache 60s for immediate link updates
 
 export default async function HomePage() {
   const [
+    recentAll,
     recentMovies,
     recentSeries,
   ] = await Promise.all([
+    getRecentlyAddedTitles(36, 'all'),
     getRecentlyAddedTitles(24, 'movie'),
     getRecentlyAddedTitles(24, 'tv'),
   ]);
 
   return (
-    <div className="min-h-screen pb-12 space-y-6">
+    <div className="min-h-screen pb-16 space-y-8">
       {/* Genre Fast Explorer Bar */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="bg-[#0f121a]/80 backdrop-blur-md border border-zinc-800/80 rounded-2xl p-4 sm:p-5">
@@ -48,35 +50,14 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 1. Uploaded Movies Carousel (Exclusively titles with custom download links) */}
-      {recentMovies && recentMovies.length > 0 && (
-        <SectionCarousel
-          title="Recent Movies"
-          subtitle="Feature films with verified download & streaming links"
-          items={recentMovies}
-          viewAllLink="/movies"
-          icon={
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
-              <Film className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" strokeWidth={2.4} />
-            </div>
-          }
+      {/* Latest Uploads Section with 16:9 Landscape Poster Grid matching Reference Screenshot */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <LatestUploadsGrid
+          allTitles={recentAll}
+          movieTitles={recentMovies}
+          seriesTitles={recentSeries}
         />
-      )}
-
-      {/* 2. Uploaded Web Series Carousel (Includes Money Heist, Narcos, etc.) */}
-      {recentSeries && recentSeries.length > 0 && (
-        <SectionCarousel
-          title="Recent Web Series"
-          subtitle="TV Series with complete season packs & episode links"
-          items={recentSeries}
-          viewAllLink="/tv"
-          icon={
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center shadow-sm">
-              <Tv className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400" strokeWidth={2.4} />
-            </div>
-          }
-        />
-      )}
+      </section>
     </div>
   );
 }

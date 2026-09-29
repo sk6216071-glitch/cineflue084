@@ -12,6 +12,7 @@ interface SectionCarouselProps {
   items: TitleDetails[];
   viewAllLink?: string;
   icon?: React.ReactNode;
+  aspect?: 'portrait' | 'landscape';
 }
 
 export const SectionCarousel: React.FC<SectionCarouselProps> = ({
@@ -20,8 +21,10 @@ export const SectionCarousel: React.FC<SectionCarouselProps> = ({
   items,
   viewAllLink,
   icon,
+  aspect = 'portrait',
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isLandscape = aspect === 'landscape';
 
   const handleScroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -89,9 +92,13 @@ export const SectionCarousel: React.FC<SectionCarouselProps> = ({
           {items.map((item, idx) => (
             <div
               key={`${item.media_type}-${item.id}-${idx}`}
-              className="w-[160px] sm:w-[190px] md:w-[210px] shrink-0 snap-start"
+              className={
+                isLandscape
+                  ? 'w-[280px] sm:w-[320px] md:w-[360px] shrink-0 snap-start'
+                  : 'w-[160px] sm:w-[190px] md:w-[210px] shrink-0 snap-start'
+              }
             >
-              <MovieCard item={item} priority={idx < 4} />
+              <MovieCard item={item} aspect={aspect} priority={idx < 4} />
             </div>
           ))}
         </div>
