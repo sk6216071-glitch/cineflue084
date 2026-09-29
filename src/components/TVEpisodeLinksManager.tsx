@@ -256,22 +256,31 @@ function parseOptionTitleAndTags(
   // 3. Episode size (per episode)
   let epSize = '';
   if (option.episodes.length > 0) {
-    epSize = option.episodes[0].size || detectSize(option.episodes[0].title) || '';
-    if (!epSize) {
-      for (const ep of option.episodes) {
-        const s = ep.size || detectSize(ep.title);
-        if (s) {
-          epSize = s;
-          break;
-        }
+    for (const ep of option.episodes) {
+      const s = ep.size || detectSize(ep.title) || detectSize(ep.url);
+      if (s) {
+        epSize = s;
+        break;
       }
     }
+  }
+  if (!epSize) {
+    epSize = detectSize(rawTitle) || '';
   }
 
   // 4. Zip pack size
   let zipSize = '';
   if (option.packs.length > 0) {
-    zipSize = option.packs[0].size || detectSize(option.packs[0].title) || '';
+    for (const pack of option.packs) {
+      const s = pack.size || detectSize(pack.title) || detectSize(pack.url);
+      if (s) {
+        zipSize = s;
+        break;
+      }
+    }
+  }
+  if (!zipSize && option.packs.length > 0) {
+    zipSize = detectSize(rawTitle) || '';
   }
 
   return {
@@ -395,11 +404,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const enrichedLinks: EnrichedLink[] = useMemo(() => {
     return customLinks.map((l) => {
       const detectedSeason = detectSeasonNumber(l);
-      const detectedEp = detectEpisodeNumber(l);
-      const detectedType = detectLinkType({ ...l, episodeNumber: detectedEp });
+      const detectedEp = detectEpisodeNumber({ ...l, episodeNumber: l.episodeNumber, url: l.url });
+      const detectedType = detectLinkType({ ...l, episodeNumber: detectedEp, url: l.url });
       const detectedQ = l.quality && l.quality !== 'HD' ? l.quality : detectQuality(l.title, l.quality);
       const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
-      const detectedSz = l.size || detectSize(l.title);
+      const detectedSz = l.size || detectSize(l.title) || detectSize(l.url);
       const prof = extractReleaseProfile(l.title, detectedQ);
 
       return {
@@ -491,6 +500,46 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         const options: ReleaseOption[] = [];
 
         optionsMap.forEach((optVal) => {
+          // Intelligent Auto-Recovery:
+          // If no episodes were detected, but multiple links are in packs:
+          // A TV season release never has multiple zip packs on the same server!
+          // Separate true zip/rar archive packs from episode links.
+          if (optVal.episodes.length === 0 && optVal.packs.length > 0) {
+            const realPacks: EnrichedLink[] = [];
+            const recoveredEpisodes: EnrichedLink[] = [];
+
+            optVal.packs.forEach((p, idx) => {
+              const combined = `${p.title || ''} ${p.url || ''}`.toLowerCase();
+              const isExplicitZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(
+                combined
+              );
+
+              if (isExplicitZip && (optVal.packs.length > 1 || combined.includes('.zip') || combined.includes('.rar'))) {
+                realPacks.push(p);
+              } else {
+                const epNum = p.episodeNumber || detectEpisodeNumber(p) || idx + 1;
+                recoveredEpisodes.push({
+                  ...p,
+                  episodeNumber: epNum,
+                  linkType: 'single_episode',
+                  category: 'SingleEpisode',
+                });
+              }
+            });
+
+            if (recoveredEpisodes.length > 0) {
+              optVal.episodes = recoveredEpisodes;
+              optVal.packs = realPacks;
+            }
+          }
+
+          // Ensure every episode has a valid positive integer episodeNumber
+          optVal.episodes.forEach((ep, idx) => {
+            if (!ep.episodeNumber || ep.episodeNumber <= 0) {
+              ep.episodeNumber = detectEpisodeNumber(ep) || idx + 1;
+            }
+          });
+
           let epCount = '10';
           if (optVal.episodes.length > 0) {
             epCount = `${optVal.episodes.length}`;
@@ -807,6 +856,14 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                                 </div>
                                                 {epGroup.links.map((link, idx) => {
                                                   const server = detectServer(link.url);
+                                                  const sameServerCount = epGroup.links.filter(
+                                                    (l) => detectServer(l.url).name === server.name
+                                                  ).length;
+                                                  const serverLabel =
+                                                    sameServerCount > 1
+                                                      ? `${server.name || 'Server'} ${idx + 1}`
+                                                      : server.name || `Server ${idx + 1}`;
+
                                                   return (
                                                     <a
                                                       key={link.id || idx}
@@ -817,7 +874,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                                     >
                                                       <span className="flex items-center gap-1.5">
                                                         <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                                        <span>{server.name || `Server ${idx + 1}`}</span>
+                                                        <span>{serverLabel}</span>
                                                       </span>
                                                       <Download className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 group-hover:translate-y-0.5 transition-all" />
                                                     </a>
@@ -865,6 +922,14 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                             </div>
                                             {option.packs.map((pack, pIdx) => {
                                               const server = detectServer(pack.url);
+                                              const sameServerCount = option.packs.filter(
+                                                (p) => detectServer(p.url).name === server.name
+                                              ).length;
+                                              const serverLabel =
+                                                sameServerCount > 1
+                                                  ? `${server.name || 'Zip Server'} ${pIdx + 1}`
+                                                  : server.name || `Zip Server ${pIdx + 1}`;
+
                                               return (
                                                 <a
                                                   key={pack.id || pIdx}
@@ -875,7 +940,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                                 >
                                                   <span className="flex items-center gap-1.5">
                                                     <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                                    <span>{server.name || `Zip Server ${pIdx + 1}`}</span>
+                                                    <span>{serverLabel}</span>
                                                   </span>
                                                   <Download className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 group-hover:translate-y-0.5 transition-all" />
                                                 </a>

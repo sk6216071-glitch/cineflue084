@@ -57,40 +57,77 @@ export function detectSeasonNumber(link: { title?: string; seasonNumber?: number
 /**
  * Auto-detect Episode Number from title or link metadata (supports E01 - E100+)
  */
-export function detectEpisodeNumber(link: { title?: string; episodeNumber?: number }): number | undefined {
+export function detectEpisodeNumber(link: { title?: string; episodeNumber?: number; url?: string }): number | undefined {
   if (link.episodeNumber !== undefined && link.episodeNumber > 0) {
     return link.episodeNumber;
   }
 
-  if (link.title) {
-    // 1. Check patterns like 1x05, 01x13, 10x100 (Season x Episode)
-    const xMatch = link.title.match(/(?:^|[\s._\-[\]()])\d{1,3}x0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
-    if (xMatch && xMatch[1]) {
-      return parseInt(xMatch[1], 10);
+  let text = link.title || '';
+  if (link.url) {
+    try {
+      const decoded = decodeURIComponent(link.url);
+      text = `${text} ${decoded}`;
+    } catch {
+      text = `${text} ${link.url}`;
     }
+  }
 
-    // 2. Check patterns like S01E05, S1E1, s01e13, S02-E04, S100E100
-    const sEpMatch = link.title.match(/s\d{1,3}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
-    if (sEpMatch && sEpMatch[1]) {
-      return parseInt(sEpMatch[1], 10);
+  if (!text) return undefined;
+
+  // 1. Check patterns like 1x05, 01x13, 10x100 (Season x Episode)
+  const xMatch = text.match(/(?:^|[\s._\-[\]()])\d{1,3}x0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
+  if (xMatch && xMatch[1]) {
+    return parseInt(xMatch[1], 10);
+  }
+
+  // 2. Check patterns like S01E05, S1E1, s01e13, S02-E04, S100E100, S01.E01, S01_E01
+  const sEpMatch = text.match(/s\d{1,3}[\s._\-]*(?:ep|episode|e)[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
+  if (sEpMatch && sEpMatch[1]) {
+    return parseInt(sEpMatch[1], 10);
+  }
+
+  // 3. Check patterns like S01.01, S01-01, S01_01, S01 01 (season.episode without 'e')
+  const sNumMatch = text.match(/s\d{1,3}[\s._\-]+0*(\d{1,3})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i);
+  if (sNumMatch && sNumMatch[1]) {
+    const candidate = parseInt(sNumMatch[1], 10);
+    if (candidate > 0 && candidate < 200) {
+      return candidate;
     }
+  }
 
-    // 3. Check patterns like Episode 01, Episode 1, Episode 100, Episode.01, Episode-01
-    const episodeMatch = link.title.match(/(?:^|[\s._\-[\]()])episode[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
-    if (episodeMatch && episodeMatch[1]) {
-      return parseInt(episodeMatch[1], 10);
+  // 4. Check patterns like Episode 01, Episode 1, Episode: 1, Episode - 1, Episode.01, Episode-01
+  const episodeMatch = text.match(/(?:^|[\s._\-[\]()])episode[\s._\-:]*0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
+  if (episodeMatch && episodeMatch[1]) {
+    return parseInt(episodeMatch[1], 10);
+  }
+
+  // 5. Check patterns like EP01, EP 01, EP.01, EP. 01, EP: 1, EP - 1, Ep:01
+  const epMatch = text.match(/(?:^|[\s._\-[\]()])ep[\s._\-:]*0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
+  if (epMatch && epMatch[1]) {
+    return parseInt(epMatch[1], 10);
+  }
+
+  // 6. Check patterns like E01, E1, E.01, E. 1, E: 1, E-01 (must not match 2160p, 1080p, etc.)
+  const eMatch = text.match(/(?:^|[\s._\-[\]()])e[\s._\-:]*0*(\d{1,4})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i);
+  if (eMatch && eMatch[1]) {
+    return parseInt(eMatch[1], 10);
+  }
+
+  // 7. Check brackets like [01], [1], (01), (1) following a season or separator
+  const bracketMatch = text.match(/(?:season|\bS\d{1,3}\b|[-|•:])[ \t]*[\[(]0*(\d{1,3})[\])]/i);
+  if (bracketMatch && bracketMatch[1]) {
+    const candidate = parseInt(bracketMatch[1], 10);
+    if (candidate > 0 && candidate < 200) {
+      return candidate;
     }
+  }
 
-    // 4. Check patterns like EP01, EP 01, EP100, Ep01, Ep 1, Ep.01, Ep-01, Ep_01
-    const epMatch = link.title.match(/(?:^|[\s._\-[\]()])ep[\s._-]?0*(\d{1,4})(?:[\s._\-[\]()]|\b)/i);
-    if (epMatch && epMatch[1]) {
-      return parseInt(epMatch[1], 10);
-    }
-
-    // 5. Check standalone E01, E1, E100, E.01, E-01, E_01 (must not match 2160p, 1080p, etc.)
-    const eMatch = link.title.match(/(?:^|[\s._\-[\]()])e0*(\d{1,4})(?:[\s._\-[\]()]|\b)(?![0-9]*p\b)/i);
-    if (eMatch && eMatch[1]) {
-      return parseInt(eMatch[1], 10);
+  // 8. Check patterns like " - 01.mkv", " - 01", " - 1.mkv", ".01.mkv"
+  const fileNumMatch = text.match(/[-_.\s]0*(\d{1,3})\.(?:mkv|mp4|avi|webm)/i);
+  if (fileNumMatch && fileNumMatch[1]) {
+    const candidate = parseInt(fileNumMatch[1], 10);
+    if (candidate > 0 && candidate < 200) {
+      return candidate;
     }
   }
 
@@ -100,7 +137,30 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
 /**
  * Auto-detect whether a link is a Complete Season Zip/Batch Pack or Single Episode
  */
-export function detectLinkType(link: { title?: string; linkType?: string; category?: string; episodeNumber?: number }): 'zip_pack' | 'single_episode' {
+export function detectLinkType(link: { title?: string; linkType?: string; category?: string; episodeNumber?: number; url?: string }): 'zip_pack' | 'single_episode' {
+  const title = link.title || '';
+  const url = link.url || '';
+  const combined = `${title} ${url}`.toLowerCase();
+
+  // 1. Explicit Zip / Archive file indicators
+  const isExplicitZip = /(?:\.zip|\.rar|\.7z|\.tar|\.gz|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bfull\s*season\b)/i.test(combined);
+
+  // 2. Check for detected episode number (if present and not explicit complete zip pack, always single_episode)
+  const ep = detectEpisodeNumber(link);
+
+  if (ep !== undefined && ep > 0) {
+    if (isExplicitZip && /(?:complete|pack|zip|batch|all\s*episodes)/i.test(combined)) {
+      return 'zip_pack';
+    }
+    return 'single_episode';
+  }
+
+  // 3. Explicit zip archives without episode number
+  if (isExplicitZip) {
+    return 'zip_pack';
+  }
+
+  // 4. Check explicit flags from database/admin
   if (link.linkType === 'single_episode' || link.category === 'SingleEpisode') {
     return 'single_episode';
   }
@@ -108,27 +168,8 @@ export function detectLinkType(link: { title?: string; linkType?: string; catego
     return 'zip_pack';
   }
 
-  const title = link.title || '';
-
-  // Explicit Zip / Archive file indicators
-  const isExplicitZip = /(?:\.zip|\.rar|\.7z|\.tar|\.gz|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bfull\s*season\b)/i.test(title);
-
-  const ep = detectEpisodeNumber(link);
-
-  if (ep !== undefined && ep > 0) {
-    // If it mentions specific episode E01-E13 complete pack, treat as zip_pack
-    if (isExplicitZip && /(?:complete|pack|zip|batch|all\s*episodes)/i.test(title)) {
-      return 'zip_pack';
-    }
-    return 'single_episode';
-  }
-
-  if (isExplicitZip) {
-    return 'zip_pack';
-  }
-
-  // If no episode number was detected, default to zip_pack for whole season releases
-  return 'zip_pack';
+  // 5. Default: for media files and streaming links, default to single episode
+  return 'single_episode';
 }
 
 /**
@@ -369,18 +410,25 @@ export function parseBulkLinksInput(
 
       const meta = parseFullMediaTitle(titlePart);
       const sNum = meta.seasonNumber || fallbackSeason;
+      let finalEp = meta.episodeNumber || detectEpisodeNumber({ title: titlePart, url });
+      let finalLinkType = meta.linkType;
+      const isExplicitZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b)/i.test(`${titlePart} ${url}`);
+      if (!finalEp && !isExplicitZip) {
+        finalEp = items.filter((it) => it.linkType !== 'zip_pack').length + 1;
+        finalLinkType = 'single_episode';
+      }
 
       items.push({
         id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
-        title: titlePart || `Episode / Pack ${items.length + 1}`,
+        title: titlePart || `Episode ${finalEp || items.length + 1}`,
         url,
-        linkType: meta.linkType,
+        linkType: finalLinkType,
         seasonNumber: sNum,
-        episodeNumber: meta.episodeNumber,
+        episodeNumber: finalEp,
         quality: meta.quality || '1080p WEB-DL',
         audioLanguage: meta.audioLanguage || 'English',
         size: meta.size,
-        category: meta.category,
+        category: finalLinkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
       });
       i++;
     } else {
@@ -413,18 +461,25 @@ export function parseBulkLinksInput(
 
           const meta = parseFullMediaTitle(titlePart);
           const sNum = meta.seasonNumber || fallbackSeason;
+          let finalEp = meta.episodeNumber || detectEpisodeNumber({ title: titlePart, url });
+          let finalLinkType = meta.linkType;
+          const isExplicitZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b)/i.test(`${titlePart} ${url}`);
+          if (!finalEp && !isExplicitZip) {
+            finalEp = items.filter((it) => it.linkType !== 'zip_pack').length + 1;
+            finalLinkType = 'single_episode';
+          }
 
           items.push({
             id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
-            title: titlePart || `Episode / Pack ${items.length + 1}`,
+            title: titlePart || `Episode ${finalEp || items.length + 1}`,
             url,
-            linkType: meta.linkType,
+            linkType: finalLinkType,
             seasonNumber: sNum,
-            episodeNumber: meta.episodeNumber,
+            episodeNumber: finalEp,
             quality: meta.quality || '1080p WEB-DL',
             audioLanguage: meta.audioLanguage || 'English',
             size: meta.size,
-            category: meta.category,
+            category: finalLinkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
           });
           i += 2;
           continue;
