@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -179,10 +179,14 @@ export default function AdminPage() {
   const [isTestingTmdb, setIsTestingTmdb] = useState(false);
   const [tmdbTestResult, setTmdbTestResult] = useState<{ success: boolean; msg: string } | null>(null);
 
-  // Links Moderation Filter & Search
+  // Links Moderation Filter, Search & Pagination
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [linkCategoryFilter, setLinkCategoryFilter] = useState('All');
+  const [linksCurrentPage, setLinksCurrentPage] = useState<number>(1);
+  const [linksPerPage, setLinksPerPage] = useState<number>(50);
+  const [isRefreshingLinks, setIsRefreshingLinks] = useState(false);
   const [deletedCuratedLinkIds, setDeletedCuratedLinkIds] = useState<Set<string>>(new Set());
+  const attemptedTitleFetchRef = useRef<Set<number>>(new Set());
 
   // Mode in Manage Links: 'single' vs 'bulk' vs 'grid'
   const [addLinkMode, setAddLinkMode] = useState<'single' | 'bulk' | 'grid'>('single');
@@ -383,8 +387,9 @@ export default function AdminPage() {
       }
 
       // Real-time live fetch of all cloud database links
-      const fetchAllAdminLinks = async () => {
+      const fetchAllAdminLinks = async (showLoading = false) => {
         try {
+          if (showLoading) setIsRefreshingLinks(true);
           const res = await fetch(`/api/curated-links?_t=${Date.now()}`, { cache: 'no-store' });
           if (res.ok) {
             const data = await res.json();
@@ -400,14 +405,15 @@ export default function AdminPage() {
                 }
               }
               setCustomLinksMap(cleanedMap);
-              localStorage.setItem('cinefuel_custom_links', JSON.stringify(cleanedMap));
             }
           }
-        } catch {}
+        } catch {} finally {
+          if (showLoading) setIsRefreshingLinks(false);
+        }
       };
 
       fetchAllAdminLinks();
-      const adminSyncInterval = setInterval(fetchAllAdminLinks, 3000);
+      const adminSyncInterval = setInterval(() => fetchAllAdminLinks(false), 30000);
 
       const storedLists = localStorage.getItem('cinefuel_custom_lists');
       if (storedLists) {
@@ -433,11 +439,11 @@ export default function AdminPage() {
 
       // Initial fetch and interval for user requests
       fetchAdminRequests();
-      const requestsSyncInterval = setInterval(fetchAdminRequests, 4000);
+      const requestsSyncInterval = setInterval(fetchAdminRequests, 15000);
 
       // Initial fetch and interval for defective link reports
       fetchAdminReports();
-      const reportsSyncInterval = setInterval(fetchAdminReports, 4000);
+      const reportsSyncInterval = setInterval(fetchAdminReports, 15000);
 
       const handleLinksUpdated = () => {
         setDeletedCuratedLinkIds(getDeletedLinkIds());
@@ -2161,6 +2167,35 @@ export default function AdminPage() {
     await deleteMultipleGlobalCustomLinks(itemsToDelete.map((i) => ({ movieId: i.movieId, linkId: i.link.id })));
   };
 
+  // Manual Refresh of Custom Links
+  const refreshAdminLinks = async () => {
+    setIsRefreshingLinks(true);
+    try {
+      const res = await fetch(`/api/curated-links?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.allLinks && typeof data.allLinks === 'object') {
+          const currentDeleted = getDeletedLinkIds();
+          const cleanedMap: Record<string, CustomLink[]> = {};
+          for (const [k, arr] of Object.entries(data.allLinks)) {
+            if (Array.isArray(arr)) {
+              const filtered = (arr as CustomLink[]).filter((l) => !currentDeleted.has(l.id));
+              if (filtered.length > 0) {
+                cleanedMap[k] = filtered;
+              }
+            }
+          }
+          setCustomLinksMap(cleanedMap);
+          addLog(`Refreshed ${Object.keys(cleanedMap).length} title link buckets from database`, 'success');
+        }
+      }
+    } catch (e: any) {
+      addLog(`Failed to refresh links: ${e.message}`, 'warn');
+    } finally {
+      setIsRefreshingLinks(false);
+    }
+  };
+
   // Export Full JSON Backup
   const handleExportBackup = () => {
     if (typeof window === 'undefined') return;
@@ -2211,94 +2246,123 @@ export default function AdminPage() {
     reader.readAsText(file);
   };
 
-  // Helper to resolve title name from cache, watchlist, or fallback
-  const resolveTitleInfo = (movieId: number) => {
-    if (knownTitlesCache[movieId]) return knownTitlesCache[movieId];
-    const inWatchlist = watchlist.find((w) => w.id === movieId);
-    if (inWatchlist) {
-      return {
-        title: inWatchlist.title || `Title #${movieId}`,
-        poster_path: inWatchlist.poster_path,
-        media_type: inWatchlist.mediaType,
-      };
-    }
-    const inMock = Object.values(MOCK_TITLES).find((m) => m.id === movieId);
-    if (inMock) {
-      return {
-        title: inMock.title || inMock.name || `Title #${movieId}`,
-        poster_path: inMock.poster_path,
-        media_type: ((inMock.media_type as any) || (inMock.name ? 'tv' : 'movie')) as 'movie' | 'tv',
-      };
-    }
-    return { title: `Title #${movieId}` };
-  };
+  // Memoized Title Lookup Map for O(1) Instant Title Resolution across 7,000+ links
+  const titleLookupMap = useMemo(() => {
+    const map = new Map<number, { title: string; poster_path?: string | null; media_type?: 'movie' | 'tv' }>();
+    PINNED_TITLES.forEach((p) => {
+      map.set(p.id, { title: p.title, poster_path: p.poster_path, media_type: p.media_type });
+    });
+    Object.values(MOCK_TITLES).forEach((m) => {
+      map.set(m.id, {
+        title: m.title || m.name || `Title #${m.id}`,
+        poster_path: m.poster_path,
+        media_type: ((m.media_type as any) || (m.name ? 'tv' : 'movie')) as 'movie' | 'tv',
+      });
+    });
+    watchlist.forEach((w) => {
+      map.set(w.id, {
+        title: w.title || `Title #${w.id}`,
+        poster_path: w.poster_path,
+        media_type: w.mediaType,
+      });
+    });
+    Object.entries(knownTitlesCache).forEach(([idStr, val]) => {
+      map.set(Number(idStr), val);
+    });
+    return map;
+  }, [watchlist, knownTitlesCache]);
 
-  // Flatten all custom links across all movie IDs for the moderation table
-  const allFlattenedLinks: Array<{ movieId: number; movieName: string; mediaType: 'movie' | 'tv'; link: CustomLink }> = [];
-  const seenLinkIds = new Set<string>();
+  const resolveTitleInfo = useCallback(
+    (movieId: number) => {
+      return titleLookupMap.get(movieId) || { title: `Title #${movieId}` };
+    },
+    [titleLookupMap]
+  );
 
-  // 1. Built-in Curated Links (Filtered by deletedCuratedLinkIds)
-  Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
-    const numId = Number(movieIdStr);
-    const info = resolveTitleInfo(numId);
-    links.forEach((l) => {
-      if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
-        seenLinkIds.add(l.id);
-        allFlattenedLinks.push({
-          movieId: numId,
-          movieName: info.title,
-          mediaType: info.media_type || 'movie',
-          link: l,
+  // Flatten all custom links across all movie IDs for the moderation table (Memoized)
+  const allFlattenedLinks = useMemo(() => {
+    const list: Array<{ movieId: number; movieName: string; mediaType: 'movie' | 'tv'; link: CustomLink }> = [];
+    const seenLinkIds = new Set<string>();
+
+    // 1. Built-in Curated Links (Filtered by deletedCuratedLinkIds)
+    Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
+      const numId = Number(movieIdStr);
+      const info = resolveTitleInfo(numId);
+      links.forEach((l) => {
+        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
+          seenLinkIds.add(l.id);
+          list.push({
+            movieId: numId,
+            movieName: info.title,
+            mediaType: info.media_type || 'movie',
+            link: l,
+          });
+        }
+      });
+    });
+
+    // 2. Watchlist Links (Filtered by deletedCuratedLinkIds)
+    watchlist.forEach((w) => {
+      if (w.customLinks && Array.isArray(w.customLinks)) {
+        w.customLinks.forEach((l) => {
+          if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
+            seenLinkIds.add(l.id);
+            list.push({
+              movieId: w.id,
+              movieName: w.title || `Title #${w.id}`,
+              mediaType: w.mediaType || 'movie',
+              link: l,
+            });
+          }
         });
       }
     });
-  });
 
-  // 2. Watchlist Links (Filtered by deletedCuratedLinkIds)
-  watchlist.forEach((w) => {
-    if (w.customLinks && Array.isArray(w.customLinks)) {
-      w.customLinks.forEach((l) => {
-        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
-          seenLinkIds.add(l.id);
-          allFlattenedLinks.push({
-            movieId: w.id,
-            movieName: w.title || `Title #${w.id}`,
-            mediaType: w.mediaType || 'movie',
-            link: l,
-          });
-        }
-      });
-    }
-  });
+    // 3. Dynamic Live Server/Cloud Custom Links
+    Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
+      if (Array.isArray(links)) {
+        const numId = Number(movieIdStr);
+        const info = resolveTitleInfo(numId);
+        const isTv =
+          info.media_type === 'tv' ||
+          links.some(
+            (l) =>
+              l.seasonNumber !== undefined ||
+              l.episodeNumber !== undefined ||
+              l.linkType === 'single_episode' ||
+              l.linkType === 'zip_pack'
+          );
+        links.forEach((l: CustomLink) => {
+          if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
+            seenLinkIds.add(l.id);
+            list.push({
+              movieId: numId,
+              movieName: info.title,
+              mediaType: isTv ? 'tv' : 'movie',
+              link: l,
+            });
+          }
+        });
+      }
+    });
 
-  // 3. Dynamic Live Server/Cloud Custom Links
-  Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
-    if (Array.isArray(links)) {
-      const numId = Number(movieIdStr);
-      const info = resolveTitleInfo(numId);
-      const isTv = info.media_type === 'tv' || links.some((l) => l.seasonNumber !== undefined || l.episodeNumber !== undefined || l.linkType === 'single_episode' || l.linkType === 'zip_pack');
-      links.forEach((l: CustomLink) => {
-        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
-          seenLinkIds.add(l.id);
-          allFlattenedLinks.push({
-            movieId: numId,
-            movieName: info.title,
-            mediaType: isTv ? 'tv' : 'movie',
-            link: l,
-          });
-        }
-      });
-    }
-  });
+    return list;
+  }, [customLinksMap, deletedCuratedLinkIds, watchlist, resolveTitleInfo]);
 
-  // Auto-resolve title names from TMDB for unknown IDs in customLinksMap
+  // Auto-resolve title names from TMDB for unknown IDs in customLinksMap (Throttled & Non-reentrant)
   useEffect(() => {
     const unknownIds = Object.keys(customLinksMap)
       .map(Number)
-      .filter((id) => id > 0 && (!knownTitlesCache[id] || knownTitlesCache[id].title.startsWith('Title #')));
+      .filter(
+        (id) =>
+          id > 0 &&
+          !attemptedTitleFetchRef.current.has(id) &&
+          (!knownTitlesCache[id] || knownTitlesCache[id].title.startsWith('Title #'))
+      );
     if (unknownIds.length === 0) return;
 
-    unknownIds.slice(0, 15).forEach(async (id) => {
+    unknownIds.slice(0, 10).forEach(async (id) => {
+      attemptedTitleFetchRef.current.add(id);
       try {
         const res = await fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=8265bd1679663a7ea12ac168da84d2e8`);
         if (res.ok) {
@@ -2323,17 +2387,54 @@ export default function AdminPage() {
         }
       } catch {}
     });
-  }, [customLinksMap, knownTitlesCache]);
+  }, [customLinksMap]);
 
-  const filteredLinks = allFlattenedLinks.filter((item) => {
-    const matchesCat = linkCategoryFilter === 'All' || item.link.category === linkCategoryFilter;
-    const matchesSearch =
-      linkSearchQuery === '' ||
-      item.link.title.toLowerCase().includes(linkSearchQuery.toLowerCase()) ||
-      item.link.url.toLowerCase().includes(linkSearchQuery.toLowerCase()) ||
-      item.movieName.toLowerCase().includes(linkSearchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+  // Reset pagination to page 1 whenever filters change
+  useEffect(() => {
+    setLinksCurrentPage(1);
+  }, [linkSearchQuery, linkCategoryFilter]);
+
+  // Memoized Filtered Links
+  const filteredLinks = useMemo(() => {
+    const q = linkSearchQuery.toLowerCase().trim();
+    if (!q && linkCategoryFilter === 'All') {
+      return allFlattenedLinks;
+    }
+    return allFlattenedLinks.filter((item) => {
+      const matchesCat = linkCategoryFilter === 'All' || item.link.category === linkCategoryFilter;
+      if (!matchesCat) return false;
+      if (!q) return true;
+      return (
+        item.link.title?.toLowerCase().includes(q) ||
+        item.link.url?.toLowerCase().includes(q) ||
+        item.movieName?.toLowerCase().includes(q) ||
+        String(item.movieId).includes(q)
+      );
+    });
+  }, [allFlattenedLinks, linkCategoryFilter, linkSearchQuery]);
+
+  // Pagination Slice
+  const totalLinkPages = Math.max(1, Math.ceil(filteredLinks.length / linksPerPage));
+  const paginatedLinks = useMemo(() => {
+    const start = (linksCurrentPage - 1) * linksPerPage;
+    return filteredLinks.slice(start, start + linksPerPage);
+  }, [filteredLinks, linksCurrentPage, linksPerPage]);
+
+  const isCurrentPageAllSelected =
+    paginatedLinks.length > 0 && paginatedLinks.every((item) => selectedLinkIds.has(item.link.id));
+
+  const handleSelectAllCurrentPage = () => {
+    if (paginatedLinks.length === 0) return;
+    setSelectedLinkIds((prev) => {
+      const next = new Set(prev);
+      if (isCurrentPageAllSelected) {
+        paginatedLinks.forEach((item) => next.delete(item.link.id));
+      } else {
+        paginatedLinks.forEach((item) => next.add(item.link.id));
+      }
+      return next;
+    });
+  };
 
   // Displayed titles for Manage Titles tab (combines live search or catalog)
   const displayedCatalogTitles = useMemo(() => {
@@ -3757,18 +3858,30 @@ export default function AdminPage() {
           {/* Links Moderation Table */}
           <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                <Layers className="w-4 h-4 text-amber-400" /> All Saved Custom Links ({filteredLinks.length})
-              </h3>
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-amber-400" /> All Saved Custom Links ({filteredLinks.length.toLocaleString()})
+                </h3>
+                <button
+                  type="button"
+                  onClick={refreshAdminLinks}
+                  disabled={isRefreshingLinks}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[11px] font-semibold text-zinc-300 hover:text-white transition-colors"
+                  title="Reload custom links from cloud database"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isRefreshingLinks ? 'animate-spin text-amber-400' : 'text-zinc-400'}`} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+              </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="relative">
                   <input
                     type="text"
                     placeholder="Search links, titles..."
                     value={linkSearchQuery}
                     onChange={(e) => setLinkSearchQuery(e.target.value)}
-                    className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-48"
+                    className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-44"
                   />
                   <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 </div>
@@ -3789,31 +3902,108 @@ export default function AdminPage() {
                   <option value="Official">Official</option>
                   <option value="Recent">Recent</option>
                 </select>
+
+                <select
+                  value={linksPerPage}
+                  onChange={(e) => {
+                    setLinksPerPage(Number(e.target.value));
+                    setLinksCurrentPage(1);
+                  }}
+                  className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
+                  title="Rows per page"
+                >
+                  <option value={25}>25 / page</option>
+                  <option value={50}>50 / page</option>
+                  <option value={100}>100 / page</option>
+                  <option value={200}>200 / page</option>
+                </select>
               </div>
             </div>
 
             {/* Bulk Action Controls */}
             {selectedLinkIds.size > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 animate-fadeIn shadow-lg">
-                <div className="flex items-center gap-2 text-xs font-bold">
+                <div className="flex items-center gap-2 text-xs font-bold flex-wrap">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
                   <span>
                     {selectedLinkIds.size} of {filteredLinks.length} link{selectedLinkIds.size !== 1 ? 's' : ''} selected
                   </span>
+                  {selectedLinkIds.size < filteredLinks.length && (
+                    <button
+                      type="button"
+                      onClick={handleSelectAllFiltered}
+                      className="ml-2 text-[11px] underline text-amber-400 hover:text-amber-300 font-normal"
+                    >
+                      (Select all {filteredLinks.length.toLocaleString()} matching)
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => setSelectedLinkIds(new Set())}
                     className="px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 text-xs font-semibold transition-colors"
                   >
                     Clear Selection
                   </button>
                   <button
+                    type="button"
                     onClick={handleBulkDelete}
                     className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs transition-all shadow-md shadow-rose-600/30 active:scale-95"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete Selected ({selectedLinkIds.size})</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Top Pagination Bar */}
+            {filteredLinks.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 py-2 px-1 text-xs text-zinc-400 border-b border-zinc-800/60">
+                <div className="text-zinc-400 text-xs">
+                  Showing <span className="font-semibold text-white">{filteredLinks.length === 0 ? 0 : (linksCurrentPage - 1) * linksPerPage + 1}</span>-
+                  <span className="font-semibold text-white">{Math.min(linksCurrentPage * linksPerPage, filteredLinks.length)}</span> of{' '}
+                  <span className="font-bold text-amber-400">{filteredLinks.length.toLocaleString()}</span> links
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage(1)}
+                    disabled={linksCurrentPage <= 1}
+                    className="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-[11px] font-mono transition-all"
+                    title="First page"
+                  >
+                    «
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={linksCurrentPage <= 1}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+                  >
+                    ‹ Prev
+                  </button>
+                  <span className="px-2.5 py-1 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs font-mono text-zinc-300">
+                    <span className="text-amber-400 font-bold">{linksCurrentPage}</span> / {totalLinkPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage((p) => Math.min(totalLinkPages, p + 1))}
+                    disabled={linksCurrentPage >= totalLinkPages}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage(totalLinkPages)}
+                    disabled={linksCurrentPage >= totalLinkPages}
+                    className="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-[11px] font-mono transition-all"
+                    title="Last page"
+                  >
+                    »
                   </button>
                 </div>
               </div>
@@ -3827,10 +4017,10 @@ export default function AdminPage() {
                       <th className="py-3 px-3 w-10 text-center">
                         <input
                           type="checkbox"
-                          checked={filteredLinks.length > 0 && filteredLinks.every((item) => selectedLinkIds.has(item.link.id))}
-                          onChange={handleSelectAllFiltered}
+                          checked={isCurrentPageAllSelected}
+                          onChange={handleSelectAllCurrentPage}
                           className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-amber-500 focus:ring-amber-400 cursor-pointer accent-amber-500"
-                          title="Select / Deselect all visible links"
+                          title="Select / Deselect all links on current page"
                         />
                       </th>
                       <th className="py-3 px-3">Target Title</th>
@@ -3841,7 +4031,7 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {filteredLinks.map((item) => {
+                    {paginatedLinks.map((item) => {
                       const isSelected = selectedLinkIds.has(item.link.id);
                       return (
                         <tr
@@ -3920,6 +4110,55 @@ export default function AdminPage() {
             ) : (
               <div className="p-8 text-center text-zinc-500 text-xs">
                 No custom links match your search or filter.
+              </div>
+            )}
+
+            {/* Bottom Pagination Bar */}
+            {filteredLinks.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400">
+                <div>
+                  Showing <span className="font-semibold text-white">{(linksCurrentPage - 1) * linksPerPage + 1}</span>-
+                  <span className="font-semibold text-white">{Math.min(linksCurrentPage * linksPerPage, filteredLinks.length)}</span> of{' '}
+                  <span className="font-bold text-amber-400">{filteredLinks.length.toLocaleString()}</span> links
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage(1)}
+                    disabled={linksCurrentPage <= 1}
+                    className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-[11px] font-mono transition-all"
+                  >
+                    « First
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={linksCurrentPage <= 1}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+                  >
+                    ‹ Prev
+                  </button>
+                  <span className="px-3 py-1.5 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs font-mono text-zinc-300">
+                    Page <strong className="text-amber-400">{linksCurrentPage}</strong> of <strong className="text-zinc-200">{totalLinkPages}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage((p) => Math.min(totalLinkPages, p + 1))}
+                    disabled={linksCurrentPage >= totalLinkPages}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinksCurrentPage(totalLinkPages)}
+                    disabled={linksCurrentPage >= totalLinkPages}
+                    className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white text-[11px] font-mono transition-all"
+                  >
+                    Last »
+                  </button>
+                </div>
               </div>
             )}
           </div>
