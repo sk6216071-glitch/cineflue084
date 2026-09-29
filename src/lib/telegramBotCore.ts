@@ -317,18 +317,19 @@ Please check the spelling and try again.`,
   if (mediaType === 'tv') {
     if (isZip) {
       category = 'ZipPack';
-      displayTitle = `Season ${meta.seasonNumber} Complete (${meta.quality} • ${meta.audioLanguage})`;
+      displayTitle = meta.rawReleaseTitle || `${officialTitle} (${releaseYear}) Season ${meta.seasonNumber} Complete ${meta.quality} [${meta.audioLanguage}]`;
     } else {
       category = 'SingleEpisode';
-      const epStr = meta.episodeNumber ? `Episode ${meta.episodeNumber}` : 'Episode';
-      displayTitle = `Season ${meta.seasonNumber} ${epStr} (${meta.quality} • ${meta.audioLanguage})`;
+      const epStr = meta.episodeNumber ? `E${String(meta.episodeNumber).padStart(2, '0')}` : 'E01';
+      displayTitle = meta.rawReleaseTitle || `${officialTitle} (${releaseYear}) S${String(meta.seasonNumber).padStart(2, '0')}${epStr} ${meta.quality} [${meta.audioLanguage}]`;
     }
   } else {
-    displayTitle = `${meta.quality} • ${meta.audioLanguage}`;
-  }
-
-  if (meta.size) {
-    displayTitle += ` [${meta.size}]`;
+    // Exact scene release format matching reference: Black Widow (2021) IMAX 1080p 10bit Bluray x265 HEVC [Org DD 5.1 Hindi + DD 5.1 English] MSubs ~ TombDoc.mkv
+    if (meta.rawReleaseTitle && meta.rawReleaseTitle.length >= 10) {
+      displayTitle = meta.rawReleaseTitle;
+    } else {
+      displayTitle = `${officialTitle} (${releaseYear}) ${meta.quality} [${meta.audioLanguage}] ~ CineFuel.mkv`;
+    }
   }
 
   const customLinkId = `tg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;

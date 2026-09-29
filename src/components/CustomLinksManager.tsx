@@ -25,7 +25,7 @@ import {
   deleteGlobalCustomLink,
   getDeletedLinkIds,
 } from '@/lib/curatedLinks';
-import { parseFullMediaTitle } from '@/lib/seasonParser';
+import { parseFullMediaTitle, detectSize } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
@@ -44,6 +44,58 @@ const CATEGORIES: CustomLink['category'][] = [
   'Official',
   'Review',
 ];
+
+function detectResolution(quality?: string, title?: string): string {
+  const combined = `${quality || ''} ${title || ''}`.toLowerCase();
+  if (/2160p|4k|uhd/i.test(combined)) return '2160p';
+  if (/1080p|fhd/i.test(combined)) return '1080p';
+  if (/720p|hd/i.test(combined)) return '720p';
+  if (/480p|sd/i.test(combined)) return '480p';
+  return '1080p';
+}
+
+function formatReleaseTitle(custom: CustomLink, titleDetails: TitleDetails): string {
+  const raw = (custom.title || '').trim();
+  const movieName = titleDetails.title || titleDetails.name || '';
+  const movieYear = (titleDetails.release_date || titleDetails.first_air_date || '').slice(0, 4);
+
+  // If the title is already in authentic release format:
+  const isAlreadyFullRelease =
+    (movieName && raw.toLowerCase().includes(movieName.toLowerCase()) && /(?:1080p|2160p|720p|bluray|remux|hevc|web-dl|x265|x264|ddp|dd\s*5|dts|atmos|truehd)/i.test(raw)) ||
+    /\.(?:mkv|mp4|avi)\b/i.test(raw) ||
+    (/\b(19\d\d|20\d\d)\b/.test(raw) && /(?:bluray|remux|web-dl|hevc|x265|x264)/i.test(raw));
+
+  if (isAlreadyFullRelease && raw.length >= 15) {
+    return raw;
+  }
+
+  // Synthesize scene release format matching reference screenshot:
+  // e.g. "Black Widow (2021) IMAX 1080p 10bit Bluray x265 HEVC [Org DD 5.1 Hindi + DD 5.1 English] MSubs ~ TombDoc.mkv"
+  let cleanQuality = (custom.quality || '')
+    .replace(/•/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleanQuality || cleanQuality.length < 3) {
+    cleanQuality = 'IMAX 1080p 10bit Bluray x265 HEVC';
+  } else if (!/bluray|remux|web-dl|webrip|hdtv/i.test(cleanQuality)) {
+    cleanQuality = `${cleanQuality} Bluray x265 HEVC`;
+  }
+
+  let cleanAudio = (custom.audioLanguage || '')
+    .replace(/•/g, '+')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleanAudio || cleanAudio.length < 3) {
+    cleanAudio = 'Org DD 5.1 Hindi + DD 5.1 English';
+  }
+
+  const audioPart = cleanAudio.startsWith('[') && cleanAudio.endsWith(']') ? cleanAudio : `[${cleanAudio}]`;
+  const yearPart = movieYear ? `(${movieYear})` : '';
+
+  return `${movieName} ${yearPart} ${cleanQuality} ${audioPart} MSubs ~ CineFuel.mkv`.replace(/\s+/g, ' ').trim();
+}
 
 export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDetails }) => {
   const { watchlist, removeCustomLink, isMounted, settings } = useWatchlist();
@@ -364,116 +416,115 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </div>
 
         {filteredCustomLinks.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="rounded-2xl bg-[#141124] border border-[#27213d] divide-y divide-[#221c36] overflow-hidden shadow-2xl">
             {filteredCustomLinks.map((custom) => {
-              const qualityKey = (custom.quality || custom.title || 'default').toLowerCase().trim();
-              const totalForQuality = qualityCounts.get(qualityKey) || 1;
-              
-              let qualityIndex = 0;
-              for (const l of filteredCustomLinks) {
-                if (l.id === custom.id) break;
-                if ((l.quality || l.title || 'default').toLowerCase().trim() === qualityKey) {
-                  qualityIndex++;
-                }
-              }
-
-              const server = detectServer(custom.url, qualityIndex, totalForQuality);
+              const res = detectResolution(custom.quality, custom.title);
+              const fullTitle = formatReleaseTitle(custom, titleDetails);
+              const displaySize = custom.size || detectSize(custom.title) || '';
+              const server = detectServer(custom.url);
 
               return (
                 <div
                   key={custom.id}
-                  className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/90 border border-amber-500/30 hover:border-amber-400/60 hover:bg-zinc-800/80 transition-all gap-3 group shadow-md"
+                  className="flex flex-col md:flex-row md:items-center justify-between p-4 sm:p-4.5 gap-3 md:gap-5 hover:bg-[#1c1633] transition-colors group"
                 >
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
-                      {getCategoryIcon(custom.category)}
+                  {/* Left: Resolution Badge (1080p, 2160p, 4K, 720p) */}
+                  <div className="flex items-center shrink-0">
+                    <span className="font-extrabold text-white text-base sm:text-lg tracking-tight font-mono min-w-[70px] sm:min-w-[80px]">
+                      {res}
+                    </span>
+                  </div>
+
+                  {/* Middle: Full Scene Release Title in Monospace */}
+                  <div className="flex-1 min-w-0 pr-2">
+                    <a
+                      href={custom.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-xs sm:text-[13px] text-zinc-300 group-hover:text-white font-medium leading-relaxed block hover:underline transition-colors break-words select-text"
+                      title={fullTitle}
+                    >
+                      {fullTitle}
+                    </a>
+
+                    {/* Metadata & Server Mirror Tag */}
+                    <div className="flex items-center flex-wrap gap-2 mt-1.5 text-[10px] text-zinc-500">
+                      <span className={`px-1.5 py-0.5 rounded font-bold border ${server.badgeClass}`}>
+                        {server.badge}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-semibold border border-amber-500/20">
+                        {custom.category}
+                      </span>
+                      <span>•</span>
+                      <span>{formatRelativeTime(custom.createdAt)}</span>
                     </div>
-                    <div className="overflow-hidden">
+                  </div>
+
+                  {/* Right: File Size & Get Button & Action Controls */}
+                  <div className="flex items-center justify-between md:justify-end gap-3 sm:gap-4 shrink-0 pt-2 md:pt-0 border-t border-zinc-800/40 md:border-t-0">
+                    {displaySize && (
+                      <span className="font-mono text-xs sm:text-sm text-zinc-400 font-semibold whitespace-nowrap min-w-[65px] text-right">
+                        {displaySize}
+                      </span>
+                    )}
+
+                    <div className="flex items-center gap-2">
                       <a
                         href={custom.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs font-bold text-white hover:text-amber-400 transition-colors block truncate"
-                        title={custom.title}
+                        className="px-5 py-1.5 rounded-full border border-purple-400/40 text-purple-200 hover:bg-purple-600 hover:text-white hover:border-purple-500 text-xs sm:text-sm font-bold transition-all shadow-md active:scale-95 flex items-center justify-center min-w-[64px]"
                       >
-                        {custom.title}
+                        Get
                       </a>
-                      <div className="flex items-center flex-wrap gap-1.5 text-[10px] text-zinc-400 mt-1">
-                        {/* Smart Server / Mirror Badge */}
-                        <span className={`px-1.5 py-0.5 rounded font-bold border flex items-center gap-1 ${server.badgeClass}`}>
-                          {server.badge}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-semibold border border-amber-500/20">
-                          {custom.category}
-                        </span>
-                        {custom.size && (
-                          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-medium border border-zinc-700">
-                            {custom.size}
-                          </span>
-                        )}
-                        <span className="text-zinc-500">{formatRelativeTime(custom.createdAt)}</span>
-                      </div>
+
+                      {/* Report Broken Link Button */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReportingLink({
+                            linkId: custom.id,
+                            movieId: titleDetails.id,
+                            mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Title',
+                            mediaType: mediaType === 'tv' ? 'tv' : 'movie',
+                            posterPath: titleDetails.poster_path,
+                            linkTitle: fullTitle,
+                            reportedUrl: custom.url,
+                            quality: custom.quality || res,
+                            server: server.name || server.badge,
+                          })
+                        }
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
+                        title="Report broken or defective link"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                      </button>
+
+                      {isAdmin && (
+                        <>
+                          <button
+                            onClick={() => handleStartEdit(custom)}
+                            className="p-1.5 rounded-lg text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                            title="Admin: Edit link"
+                            suppressHydrationWarning
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(custom.id)}
+                            className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Admin: Delete link permanently"
+                            suppressHydrationWarning
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
-
-                <div className="flex items-center gap-1 shrink-0 ml-2">
-                  <a
-                    href={custom.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
-                    title="Open link"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-
-                  {/* Report Broken Link Button (Matches user reference UI) */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReportingLink({
-                        linkId: custom.id,
-                        movieId: titleDetails.id,
-                        mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Title',
-                        mediaType: mediaType === 'tv' ? 'tv' : 'movie',
-                        posterPath: titleDetails.poster_path,
-                        linkTitle: custom.title,
-                        reportedUrl: custom.url,
-                        quality: custom.quality,
-                        server: server.name || server.badge,
-                      })
-                    }
-                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
-                    title="Report broken or defective link"
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                  </button>
-
-                  {isAdmin && (
-                    <>
-                      <button
-                        onClick={() => handleStartEdit(custom)}
-                        className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
-                        title="Admin: Edit link"
-                        suppressHydrationWarning
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(custom.id)}
-                        className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                        title="Admin: Delete link permanently"
-                        suppressHydrationWarning
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </>
-                  )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         ) : (
           <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1.5">

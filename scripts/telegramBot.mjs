@@ -240,14 +240,37 @@ function cleanLeadingLabels(str) {
 
 function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   let url = fallbackUrl;
+  let rawReleaseTitle = '';
+
   const mdMatch = text.match(/\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/i);
   if (mdMatch) {
     url = mdMatch[2];
+    if (mdMatch[1] && mdMatch[1].trim().length >= 8) {
+      rawReleaseTitle = mdMatch[1].trim();
+    }
   } else if (!url) {
     const rawUrlMatch = text.match(STRICT_URL_REGEX);
     if (rawUrlMatch) {
       url = rawUrlMatch[0].startsWith('http') ? rawUrlMatch[0] : 'https://' + rawUrlMatch[0];
     }
+  }
+
+  if (!rawReleaseTitle) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const candidate = lines.find(l => !l.startsWith('http') && /(?:1080p|2160p|720p|4k|bluray|remux|web-dl|hevc|x265|x264|\.mkv|\.mp4)/i.test(l)) || lines[0];
+    if (candidate && candidate.length >= 8 && !candidate.startsWith('http')) {
+      rawReleaseTitle = candidate
+        .replace(/(?:Link|URL|Download)\s*[-:=]+\s*/gi, '')
+        .replace(/https?:\/\/[^\s]+/gi, '')
+        .trim();
+    }
+  }
+
+  if (rawReleaseTitle) {
+    rawReleaseTitle = rawReleaseTitle
+      .replace(/^(?:📥|🔗|⚡|🔥|🎬|▶️|\d+\.|\d+\))\s*/gu, '')
+      .replace(/^(?:Name|Title|Movie|Download|Link)\s*[-:=]+\s*/i, '')
+      .trim();
   }
 
   let cleanText = text
@@ -464,6 +487,7 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     season,
     episode,
     isZip,
+    rawReleaseTitle,
   };
 }
 
@@ -1426,18 +1450,21 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       const tvSeason = meta.season || 1;
       if (meta.isZip) {
         category = 'ZipPack';
-        displayTitle = `Season ${tvSeason} Complete (${meta.quality} • ${meta.audio})`;
+        displayTitle = meta.rawReleaseTitle || `${officialTitle} (${releaseYear}) Season ${tvSeason} Complete ${meta.quality} [${meta.audio}]`;
       } else {
         category = 'SingleEpisode';
-        const epStr = meta.episode ? `Episode ${meta.episode}` : 'Episode 1';
-        displayTitle = `Season ${tvSeason} ${epStr} (${meta.quality} • ${meta.audio})`;
+        const epStr = meta.episode ? `E${String(meta.episode).padStart(2, '0')}` : 'E01';
+        displayTitle = meta.rawReleaseTitle || `${officialTitle} (${releaseYear}) S${String(tvSeason).padStart(2, '0')}${epStr} ${meta.quality} [${meta.audio}]`;
       }
     } else {
       category = 'Streaming';
-      displayTitle = `${meta.quality} • ${meta.audio}`;
+      // Exact scene release format matching reference: Black Widow (2021) IMAX 1080p 10bit Bluray x265 HEVC [Org DD 5.1 Hindi + DD 5.1 English] MSubs ~ TombDoc.mkv
+      if (meta.rawReleaseTitle && meta.rawReleaseTitle.length >= 10) {
+        displayTitle = meta.rawReleaseTitle;
+      } else {
+        displayTitle = `${officialTitle} (${releaseYear}) ${meta.quality} [${meta.audio}] ~ CineFuel.mkv`;
+      }
     }
-
-    if (meta.size) displayTitle += ` [${meta.size}]`;
 
     const serverInfo = detectServer(meta.url);
 

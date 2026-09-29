@@ -8,6 +8,7 @@ export interface ParsedMediaMeta {
   audioLanguage?: string;
   size?: string;
   category: 'ZipPack' | 'SingleEpisode';
+  rawReleaseTitle?: string;
 }
 
 /**
@@ -258,6 +259,18 @@ export function parseFullMediaTitle(title: string): ParsedMediaMeta {
   const size = detectSize(title);
   const category: 'ZipPack' | 'SingleEpisode' = linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode';
 
+  // Extract raw release title candidate if present
+  let rawReleaseTitle = '';
+  const lines = title.split('\n').map((l) => l.trim()).filter(Boolean);
+  const candidate = lines.find((l) => !l.startsWith('http') && /(?:1080p|2160p|720p|4k|bluray|remux|web-dl|hevc|x265|x264|\.mkv|\.mp4)/i.test(l)) || lines[0];
+  if (candidate && candidate.length > 8 && !candidate.startsWith('http')) {
+    rawReleaseTitle = candidate
+      .replace(/^(?:📥|🔗|⚡|🔥|🎬|▶️|\d+\.|\d+\))\s*/gu, '')
+      .replace(/^(?:Name|Title|Movie|Download|Link)\s*[-:=]+\s*/i, '')
+      .replace(/https?:\/\/[^\s]+/gi, '')
+      .trim();
+  }
+
   return {
     seasonNumber,
     episodeNumber,
@@ -266,6 +279,7 @@ export function parseFullMediaTitle(title: string): ParsedMediaMeta {
     audioLanguage,
     size,
     category,
+    rawReleaseTitle: rawReleaseTitle || undefined,
   };
 }
 
