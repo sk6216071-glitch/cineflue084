@@ -31,6 +31,7 @@ import {
   getQualityWeight,
   parseFullMediaTitle,
   detectShowPlatform,
+  stripWatermarks,
 } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import RequestLinkModal from './RequestLinkModal';
@@ -80,14 +81,12 @@ interface GroupedEpisode {
 
 // Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p
 function extractReleaseProfile(title: string, quality?: string, titleDetails?: TitleDetails) {
-  // Strip website domain watermarks (e.g. 4kHdHub.Com, Vegamovies.NL, etc.) before checking resolution
-  const cleanTitle = (title || '')
-    .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
-    .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ')
-    .trim();
+  // Strip website domain watermarks (e.g. 4kHdHub.Com, TSS-4kHdHub.com, Vegamovies.NL, etc.) before checking resolution
+  const cleanTitle = stripWatermarks(title || '');
+  const cleanQuality = stripWatermarks(quality || '');
 
   const titleLower = cleanTitle.toLowerCase();
-  const qHintLower = (quality || '').toLowerCase();
+  const qHintLower = cleanQuality.toLowerCase();
 
   // 1. Resolution sensing (First analyze title directly, fallback to quality hint)
   let resolution = '1080p';
@@ -96,24 +95,27 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
   if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '1080p';
     resTag = '1080p';
-  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
-    resolution = '2160p / 4K';
-    resTag = '2160p';
   } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '720p';
     resTag = '720p';
   } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '480p';
     resTag = '480p';
-  } else if (qHintLower.includes('2160') || qHintLower.includes('4k')) {
+  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     resolution = '2160p / 4K';
     resTag = '2160p';
-  } else if (qHintLower.includes('720')) {
+  } else if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
+    resolution = '1080p';
+    resTag = '1080p';
+  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
     resolution = '720p';
     resTag = '720p';
-  } else if (qHintLower.includes('480')) {
+  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
     resolution = '480p';
     resTag = '480p';
+  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
+    resolution = '2160p / 4K';
+    resTag = '2160p';
   }
 
   // 2. Platform sensing (Detect accurate platform: DSNP for Disney+ Marvel/Star Wars, AMZN, NF, etc.)
@@ -225,10 +227,7 @@ function parseOptionTitleAndTags(
   }
 
   // 2. Base release title
-  let baseTitle = rawTitle;
-  baseTitle = baseTitle
-    .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
-    .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ')
+  let baseTitle = stripWatermarks(rawTitle)
     .replace(/^Name\s*:\s*/i, '')
     .replace(/HUBCLOUD\s*=\s*/gi, '')
     .replace(/\[Part[-.\s]*\d+\]/gi, '')

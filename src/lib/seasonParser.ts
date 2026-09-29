@@ -173,6 +173,29 @@ export function detectLinkType(link: { title?: string; linkType?: string; catego
 }
 
 /**
+ * Strip website domains, release site branding, and noise watermarks
+ * Prevents false 4K matches on watermarks like (TSS-4kHdHub.com) or (UHDmovies.vip)
+ */
+export function stripWatermarks(text: string): string {
+  if (!text) return '';
+  return text
+    // 1. Remove bracketed / parenthesized domains (e.g. (TSS-4kHdHub.com), [4kHdHub.org], (UHDmovies.vip))
+    .replace(/[\(\[]\s*[-a-z0-9_.]*(?:4k|uhd|hd|movie|flix|hub|luxe|kat|mod|dot|vega|sky|desire)[a-z0-9-_.]*(?:\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link|cloud|live))[^\)\]]*[\)\]]/gi, ' ')
+    // 2. Remove any other parenthesized/bracketed domain name ending with a common TLD
+    .replace(/[\(\[]\s*[-a-z0-9_.]+\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link)\s*[\)\]]/gi, ' ')
+    // 3. Remove raw domain names containing 4k, uhd, or known movie site names
+    .replace(/(?:[-_.\s\(\[]*)?(?:tss[-_.]*)?[a-z0-9-_.]*(?:4k|uhd|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies|desiremovies|moviesmod|dotmovies)[a-z0-9-_.]*(?:\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link|cloud|live))[^\s\(\)\[\]]*/gi, ' ')
+    // 4. Remove standalone site brandings
+    .replace(/\b(?:tss[-_.]*)?(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies|desiremovies|moviesmod|dotmovies)[a-z0-9-_.]*/gi, ' ')
+    // 5. Remove trailing HubCloud / noise
+    .replace(/HUBCLOUD\s*=?\s*$/gi, '')
+    .replace(/HUBCLOUD\s*=?\s*/gi, ' ')
+    .replace(/\s+\./g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Auto-extract Quality/Resolution format tags from title
  */
 export function detectQuality(title: string, defaultQuality?: string): string {
@@ -180,21 +203,19 @@ export function detectQuality(title: string, defaultQuality?: string): string {
 
   const tags: string[] = [];
 
-  const cleanForQuality = title
-    .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
-    .replace(/\b(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies)[a-z0-9-_.]*/gi, ' ');
+  const cleanForQuality = stripWatermarks(title);
 
-  // 1. Resolution
+  // 1. Resolution (Check 1080p, 720p, 480p FIRST before 4K, to prevent false 4K matches)
   let is4k = false;
   if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('1080p FHD');
-  } else if (/(?:^|[\s._\-[\]()])(?:2160p|uhd|\b4k\b)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
-    tags.push('2160p 4K');
-    is4k = true;
   } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('720p HD');
   } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('480p SD');
+  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
+    tags.push('2160p 4K');
+    is4k = true;
   }
 
   // 2. Source

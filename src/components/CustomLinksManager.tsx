@@ -25,7 +25,7 @@ import {
   deleteGlobalCustomLink,
   getDeletedLinkIds,
 } from '@/lib/curatedLinks';
-import { parseFullMediaTitle, detectSize } from '@/lib/seasonParser';
+import { parseFullMediaTitle, detectSize, stripWatermarks } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
@@ -46,11 +46,21 @@ const CATEGORIES: CustomLink['category'][] = [
 ];
 
 function detectResolution(quality?: string, title?: string): string {
-  const combined = `${quality || ''} ${title || ''}`.toLowerCase();
-  if (/2160p|4k|uhd/i.test(combined)) return '2160p';
-  if (/1080p|fhd/i.test(combined)) return '1080p';
-  if (/720p|hd/i.test(combined)) return '720p';
-  if (/480p|sd/i.test(combined)) return '480p';
+  const cleanTitle = stripWatermarks(title || '');
+  const cleanQuality = stripWatermarks(quality || '');
+
+  // 1. Check title first (title is the true source of truth for the media file)
+  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanTitle)) return '1080p';
+  if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanTitle)) return '720p';
+  if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanTitle)) return '480p';
+  if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanTitle)) return '2160p';
+
+  // 2. Fallback to quality hint if title had no resolution tag
+  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanQuality)) return '1080p';
+  if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanQuality)) return '720p';
+  if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanQuality)) return '480p';
+  if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanQuality)) return '2160p';
+
   return '1080p';
 }
 
@@ -66,7 +76,7 @@ function formatReleaseTitle(custom: CustomLink, titleDetails: TitleDetails): str
     (/\b(19\d\d|20\d\d)\b/.test(raw) && /(?:bluray|remux|web-dl|hevc|x265|x264)/i.test(raw));
 
   if (isAlreadyFullRelease && raw.length >= 15) {
-    return raw;
+    return stripWatermarks(raw);
   }
 
   // Synthesize scene release format matching reference screenshot:
@@ -221,7 +231,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const qualityCounts = useMemo(() => {
     const counts = new Map<string, number>();
     filteredCustomLinks.forEach(link => {
-      const key = (link.quality || link.title || 'default').toLowerCase().trim();
+      const key = detectResolution(link.quality, link.title);
       counts.set(key, (counts.get(key) || 0) + 1);
     });
     return counts;

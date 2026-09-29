@@ -4,7 +4,7 @@ import path from 'path';
 import { getDatabase } from '@/lib/mongodb';
 import { TitleDetails } from '@/types';
 import { getTitleDetails } from '@/lib/tmdb';
-import { detectShowPlatform } from '@/lib/seasonParser';
+import { detectShowPlatform, stripWatermarks } from '@/lib/seasonParser';
 
 // Support both standard Upstash env vars and Vercel KV auto-provisioned env vars
 const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
@@ -674,11 +674,25 @@ export async function getRecentlyAddedTitles(
       ? docItem.originCountry
       : [];
 
-    const is4k = /2160p|4k|uhd/i.test(docTitle) || /4k|2160/i.test(docQuality);
-    const is1080p = /1080p|fhd/i.test(docTitle) || /1080/i.test(docQuality);
-    const isDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(docTitle);
-    const isHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(docTitle);
-    const isBluRay = /(?:^|[\s._\-[\]()])(?:bluray|blu-ray|remux|bdrip)(?:[\s._\-[\]()]|$)/i.test(docTitle);
+    const cleanDocTitle = stripWatermarks(docTitle);
+    const cleanDocQuality = stripWatermarks(docQuality);
+
+    const has1080p = /(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+                     /(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
+    const has720p = /(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+                    /(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
+    const has480p = /(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+                    /(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality);
+
+    // Only genuine 4K if NOT explicitly 1080p / 720p / 480p
+    const is4k = !has1080p && !has720p && !has480p && (
+      /(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle) ||
+      /(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanDocQuality)
+    );
+    const is1080p = has1080p || (!is4k && !has720p && !has480p);
+    const isDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
+    const isHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
+    const isBluRay = /(?:^|[\s._\-[\]()])(?:bluray|blu-ray|remux|bdrip)(?:[\s._\-[\]()]|$)/i.test(cleanDocTitle);
 
     const platform = detectShowPlatform(docTitle, details);
 
@@ -712,7 +726,7 @@ export async function getRecentlyAddedTitles(
 
     return {
       is4k,
-      is1080p: is4k ? false : is1080p,
+      is1080p,
       isDV,
       isHDR,
       isBluRay,
