@@ -1,15 +1,11 @@
 import React from 'react';
-import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Star, Clock, Calendar, Film, Tv, Play, Plus, Check, Eye, Heart, Share2, Sparkles, User, Clapperboard } from 'lucide-react';
+import { Clock, Film, Tv } from 'lucide-react';
 import { getTitleDetails } from '@/lib/tmdb';
 import { getImageURL, getBackdropURL } from '@/lib/tmdb';
 import RatingComparator from '@/components/RatingComparator';
 import CustomLinksManager from '@/components/CustomLinksManager';
-import DigitalReleaseTracker from '@/components/DigitalReleaseTracker';
-import DetailActions from './DetailActions';
-import CollapsibleSection from '@/components/CollapsibleSection';
 
 interface PageProps {
   params: Promise<{
@@ -31,13 +27,6 @@ export default async function TitleDetailPage({ params }: PageProps) {
   const releaseYear = releaseDate.split('-')[0];
   const posterUrl = getImageURL(titleDetails.poster_path, 'w780');
   const backdropUrl = getBackdropURL(titleDetails.backdrop_path, 'original');
-
-  const mainTrailer = titleDetails.videos?.results?.find(
-    (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
-  );
-
-  const castList = titleDetails.credits?.cast?.slice(0, 12) || [];
-  const director = titleDetails.credits?.crew?.find((c) => c.job === 'Director' || c.department === 'Directing');
 
   return (
     <div className="min-h-screen pb-20 space-y-10">
@@ -72,7 +61,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
             />
           </div>
 
-          {/* Text & Meta & Action buttons */}
+          {/* Text & Meta */}
           <div className="flex-1 flex flex-col items-center md:items-start text-center md:text-left space-y-3 w-full">
             {/* Badges */}
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs font-semibold">
@@ -132,10 +121,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
               </div>
             )}
 
-            {/* Client Interactive Action Buttons */}
-            <DetailActions titleDetails={titleDetails} trailerKey={mainTrailer?.key} />
-
-            {/* Rating Comparison Detail (Moved Above for Clearer Space Below) */}
+            {/* Rating Comparison Detail */}
             <div className="w-full pt-2">
               <RatingComparator titleDetails={titleDetails} />
             </div>
@@ -143,112 +129,9 @@ export default async function TitleDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* 2. Main Content Grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Columns: Story, Cast, Custom Links */}
-        <div className="lg:col-span-2 space-y-8">
-          {/* Story Overview */}
-          <CollapsibleSection
-            title="Storyline & Overview"
-            icon={<Film className="w-5 h-5 text-amber-400" />}
-            defaultOpen={false}
-          >
-            <p className="text-zinc-300 text-sm sm:text-base leading-relaxed">
-              {titleDetails.overview || 'No synopsis available for this title.'}
-            </p>
-            {director && (
-              <div className="pt-3 border-t border-zinc-800/60 flex items-center gap-2 text-xs text-zinc-400">
-                <span className="font-semibold text-zinc-300">Directed by:</span>
-                <span className="text-amber-400 font-medium">{director.name}</span>
-              </div>
-            )}
-          </CollapsibleSection>
-
-          {/* Cast & Crew Reel */}
-          {castList.length > 0 && (
-            <CollapsibleSection
-              title="Cast & Characters"
-              icon={<User className="w-5 h-5 text-amber-400" />}
-              badge={`${castList.length} Cast`}
-              defaultOpen={false}
-            >
-              <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
-                {castList.map((actor) => {
-                  const actorPhoto = getImageURL(actor.profile_path, 'w200');
-                  return (
-                    <Link
-                      key={actor.id}
-                      href={`/person/${actor.id}`}
-                      className="w-24 sm:w-28 shrink-0 group flex flex-col items-center text-center space-y-1.5"
-                    >
-                      <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-zinc-900 border-2 border-zinc-700 group-hover:border-amber-400 transition-colors">
-                        <Image
-                          src={actorPhoto}
-                          alt={actor.name}
-                          fill
-                          sizes="96px"
-                          className="object-cover group-hover:scale-105 transition-transform"
-                        />
-                      </div>
-                      <span className="text-xs font-semibold text-zinc-100 group-hover:text-amber-400 transition-colors line-clamp-1">
-                        {actor.name}
-                      </span>
-                      <span className="text-[10px] text-zinc-400 line-clamp-1">
-                        {actor.character}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </CollapsibleSection>
-          )}
-
-          {/* Digital & OTT Release Schedule Tracker */}
-          <DigitalReleaseTracker
-            titleId={titleDetails.id}
-            releaseDate={releaseDate}
-            titleName={title}
-          />
-
-          {/* Custom Links Management Section */}
-          <CustomLinksManager titleDetails={titleDetails} />
-        </div>
-
-        {/* Right 1 Column: Media Info */}
-        <div className="space-y-8">
-          {/* Additional Metadata Box */}
-          <div className="bg-[#0f121a] border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider border-b border-zinc-800 pb-3">
-              Title Information
-            </h3>
-            <div className="space-y-2.5">
-              <div className="flex justify-between py-1 border-b border-zinc-800/50">
-                <span className="text-zinc-400">Original Title</span>
-                <span className="text-zinc-200 font-medium">{titleDetails.original_title || titleDetails.original_name || title}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-zinc-800/50">
-                <span className="text-zinc-400">Status</span>
-                <span className="text-zinc-200 font-medium">{titleDetails.status || 'Released'}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-zinc-800/50">
-                <span className="text-zinc-400">Release Date</span>
-                <span className="text-zinc-200 font-medium">{releaseDate || 'N/A'}</span>
-              </div>
-              {titleDetails.budget ? (
-                <div className="flex justify-between py-1 border-b border-zinc-800/50">
-                  <span className="text-zinc-400">Budget</span>
-                  <span className="text-zinc-200 font-medium">${(titleDetails.budget / 1000000).toFixed(0)}M</span>
-                </div>
-              ) : null}
-              {titleDetails.revenue ? (
-                <div className="flex justify-between py-1 border-b border-zinc-800/50">
-                  <span className="text-zinc-400">Box Office Revenue</span>
-                  <span className="text-emerald-400 font-semibold">${(titleDetails.revenue / 1000000).toFixed(0)}M</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
+      {/* 2. Main Content Area: Download & Streaming Links */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <CustomLinksManager titleDetails={titleDetails} />
       </div>
     </div>
   );
