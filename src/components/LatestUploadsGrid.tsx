@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import Link from 'next/link';
-import { Flame, Film, Tv, Sparkles, ArrowRight } from 'lucide-react';
+import { Flame, Film, Tv, Sparkles } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import MovieCard from './MovieCard';
 import Pagination from './Pagination';
@@ -122,28 +121,6 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
               }}
             />
           )}
-
-          {/* Direct Explore Shortcuts */}
-          <div className="pt-6 border-t border-zinc-800/60 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/explore"
-              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-extrabold transition-all shadow-md shadow-amber-500/20 flex items-center gap-2"
-            >
-              Explore Complete Catalog <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="/movies"
-              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs sm:text-sm font-bold transition-all"
-            >
-              Explore All Movies
-            </Link>
-            <Link
-              href="/tv"
-              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs sm:text-sm font-bold transition-all"
-            >
-              Explore All Web Series
-            </Link>
-          </div>
         </div>
       ) : (
         <div className="py-16 text-center rounded-2xl bg-zinc-900/40 border border-zinc-800/60 p-8 space-y-3">
