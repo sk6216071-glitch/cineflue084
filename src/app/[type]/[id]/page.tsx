@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { Clock, Film, Tv } from 'lucide-react';
 import { getTitleDetails } from '@/lib/tmdb';
 import { getImageURL, getBackdropURL } from '@/lib/tmdb';
-import RatingComparator from '@/components/RatingComparator';
 import CustomLinksManager from '@/components/CustomLinksManager';
 
 interface PageProps {
@@ -48,7 +47,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
         </div>
 
         {/* Content Box */}
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-start pt-12">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-start pt-12 pb-16">
           {/* Poster Card */}
           <div className="w-44 sm:w-56 md:w-64 shrink-0 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/10 bg-zinc-900 group relative">
             <Image
@@ -121,17 +120,12 @@ export default async function TitleDetailPage({ params }: PageProps) {
               </div>
             )}
 
-            {/* Rating Comparison Detail */}
-            <div className="w-full pt-2">
-              <RatingComparator titleDetails={titleDetails} />
+            {/* TV Series Season & Episode Vault / Movie Direct Download Links */}
+            <div className="w-full pt-3">
+              <CustomLinksManager titleDetails={titleDetails} />
             </div>
           </div>
         </div>
-      </div>
-
-      {/* 2. Main Content Area: Download & Streaming Links */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <CustomLinksManager titleDetails={titleDetails} />
       </div>
     </div>
   );
