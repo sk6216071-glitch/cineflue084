@@ -30,6 +30,7 @@ import {
   detectSize,
   getQualityWeight,
   parseFullMediaTitle,
+  detectShowPlatform,
 } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import RequestLinkModal from './RequestLinkModal';
@@ -78,7 +79,7 @@ interface GroupedEpisode {
 }
 
 // Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p
-function extractReleaseProfile(title: string, quality?: string) {
+function extractReleaseProfile(title: string, quality?: string, titleDetails?: TitleDetails) {
   // Strip website domain watermarks (e.g. 4kHdHub.Com, Vegamovies.NL, etc.) before checking resolution
   const cleanTitle = (title || '')
     .replace(/[-_.\s]*4k[a-z0-9-_.]*(?:\.com|\.org|\.net|\.in|\.cx|\.to|\.nl|\.app|\.site|\.vip)\b/gi, ' ')
@@ -115,16 +116,21 @@ function extractReleaseProfile(title: string, quality?: string) {
     resTag = '480p';
   }
 
-  // 2. Source sensing
+  // 2. Platform sensing (Detect accurate platform: DSNP for Disney+ Marvel/Star Wars, AMZN, NF, etc.)
+  const platform = detectShowPlatform(title, titleDetails);
+
+  // 3. Source sensing (Disney+ streaming series are official DSNP.WEB-DL, never REMUX or BluRay disc)
   let source = 'WEB-DL';
-  if (/(?:^|[\s._\-[\]()])remux(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'REMUX';
+  if (platform === 'DSNP') {
+    source = 'WEB-DL';
+  } else if (/(?:^|[\s._\-[\]()])remux(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'REMUX';
   else if (/(?:^|[\s._\-[\]()])(?:bluray|blu-ray|bdrip)(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'BluRay';
   else if (/(?:^|[\s._\-[\]()])(?:web-dl|webdl|webrip|web)(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'WEB-DL';
   else if (/(?:^|[\s._\-[\]()])hdtv(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'HDTV';
   else if (qHintLower.includes('remux')) source = 'REMUX';
   else if (qHintLower.includes('bluray')) source = 'BluRay';
 
-  // 3. Dynamic Range sensing (Sense DV HDR vs HDR vs SDR / simple H.265)
+  // 4. Dynamic Range sensing (Sense DV HDR vs HDR vs SDR / simple H.265)
   // First analyze the filename/title directly:
   const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(titleLower);
   const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
@@ -150,7 +156,7 @@ function extractReleaseProfile(title: string, quality?: string) {
     dynamicRange = 'SDR';
   }
 
-  // 4. Codec sensing (Supports H.265, H265, HEVC, x265, H.264, x264, etc.)
+  // 5. Codec sensing (Supports H.265, H265, HEVC, x265, H.264, x264, etc.)
   let codec = '';
   if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     codec = 'H.265';
@@ -163,17 +169,6 @@ function extractReleaseProfile(title: string, quality?: string) {
   } else {
     codec = resTag === '2160p' ? 'H.265' : 'H.264';
   }
-
-  // 5. Platform sensing (Strict boundaries so titles like "Primeval" do not falsely match Amazon Prime)
-  let platform = 'NF';
-  if (/(?:^|[\s._\-[\]()])(?:dsnp|disney(?:\s*\+)?|hotstar)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'DSNP';
-  else if (/(?:^|[\s._\-[\]()])(?:amzn|prime\s*video)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'AMZN';
-  else if (/(?:^|[\s._\-[\]()])(?:hbo|max)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'MAX';
-  else if (/(?:^|[\s._\-[\]()])(?:atvp|apple\s*tv)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'ATVP';
-  else if (/(?:^|[\s._\-[\]()])(?:nf|netflix)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'NF';
-  else if (/(?:^|[\s._\-[\]()])(?:zee5)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'ZEE5';
-  else if (/(?:^|[\s._\-[\]()])(?:sonyliv|sliv)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'SONYLIV';
-  else if (/(?:^|[\s._\-[\]()])(?:jiocinema|jio)(?:[\s._\-[\]()]|$)/i.test(titleLower)) platform = 'JIO';
 
   // 6. Part sensing (e.g. Part 1, Part 2, Part-1, Part-2, pt1, pt2)
   let part = '';
@@ -195,7 +190,9 @@ function extractReleaseProfile(title: string, quality?: string) {
       const partSeg = part ? `.${part.replace(/-/g, '.')}` : '';
       const dynSeg = dynamicRange ? `.${dynamicRange.replace(/\s+/g, '.')}` : '';
       const codecSeg = codec || (resTag === '2160p' ? 'H.265' : 'H.264');
-      return `${cleanShow}.${sTag}${partSeg}.${resTag}.${platform}.${source}.DUAL.DDP5.1.Atmos${dynSeg}.${codecSeg}`;
+      const platSeg = platform ? `.${platform}` : '';
+      const effSource = platform === 'DSNP' ? 'WEB-DL' : source;
+      return `${cleanShow}.${sTag}${partSeg}.${resTag}${platSeg}.${effSource}.DUAL.DDP5.1.Atmos${dynSeg}.${codecSeg}`;
     },
   };
 }
@@ -242,15 +239,33 @@ function parseOptionTitleAndTags(
 
   baseTitle = baseTitle.replace(/\.(?:mkv|mp4|zip|rar)$/i, '');
 
+  const correctPlat = detectShowPlatform(baseTitle, titleDetails);
+
   if (!baseTitle.includes('.') || baseTitle.includes('(')) {
-    const prof = extractReleaseProfile(rawTitle);
+    const prof = extractReleaseProfile(rawTitle, undefined, titleDetails);
     const sTag = `S${String(seasonNum).padStart(2, '0')}`;
     const cleanShow = showName.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '.');
     const partSeg = partTag ? `.${partTag.replace(/-/g, '.')}` : '';
     const dynSeg = prof.dynamicRange ? `.${prof.dynamicRange.replace(/\s+/g, '.')}` : '';
     const resSeg = groupRes.replace(/\s*\/\s*/g, '.');
+    const platSeg = prof.platform ? `.${prof.platform}` : '';
+    const sourceSeg = prof.platform === 'DSNP' ? 'WEB-DL' : groupSource;
     const codecSeg = prof.codec || (resSeg.includes('2160') ? 'H.265' : 'H.264');
-    baseTitle = `${cleanShow}.${sTag}${partSeg}.${resSeg}.${prof.platform}.${groupSource}.DUAL.DDP5.1.Atmos${dynSeg}.${codecSeg}`;
+    baseTitle = `${cleanShow}.${sTag}${partSeg}.${resSeg}${platSeg}.${sourceSeg}.DUAL.DDP5.1.Atmos${dynSeg}.${codecSeg}`;
+  } else {
+    // If title has dot syntax, normalize platform & source tags according to verified platform
+    if (correctPlat === 'DSNP') {
+      // Disney+ titles MUST use DSNP.WEB-DL (never NF, never REMUX/BluRay)
+      baseTitle = baseTitle
+        .replace(/(?:^|\.)(?:NF|AMZN|ATVP|MAX|SLIV|SONYLIV|ZEE5|JIO)(?:\.(?:REMUX|BluRay|BDRip|WEB-DL|WEBRip))?(?=\.|$)/gi, '.DSNP.WEB-DL')
+        .replace(/(?:^|\.)DSNP\.(?:REMUX|BluRay|BDRip)(?=\.|$)/gi, '.DSNP.WEB-DL');
+      if (!baseTitle.includes('.DSNP.')) {
+        baseTitle = baseTitle.replace(/(?:^|\.)(?:REMUX|BluRay|BDRip|WEB-DL|WEBRip)(?=\.|$)/i, '.DSNP.WEB-DL');
+      }
+    } else if (correctPlat) {
+      // Normalize wrong NF tag on other known OTT services (e.g. Amazon The Boys, Apple Ted Lasso)
+      baseTitle = baseTitle.replace(/(?:^|\.)NF(?=\.|$)/gi, `.${correctPlat}`);
+    }
   }
 
   // 3. Episode size (per episode)
@@ -409,7 +424,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const detectedQ = l.quality && l.quality !== 'HD' ? l.quality : detectQuality(l.title, l.quality);
       const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
       const detectedSz = l.size || detectSize(l.title) || detectSize(l.url);
-      const prof = extractReleaseProfile(l.title, detectedQ);
+      const prof = extractReleaseProfile(l.title, detectedQ, titleDetails);
 
       return {
         ...l,
@@ -469,7 +484,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         >();
 
         fVal.links.forEach((link) => {
-          const prof = extractReleaseProfile(link.title, link.quality);
+          const prof = extractReleaseProfile(link.title, link.quality, titleDetails);
           const partSuffix = prof.part ? `_${prof.part}` : '';
           const optKey = `s${s}_${fKey}_${prof.dynamicRange || 'std'}_${prof.codec || 'codec'}${partSuffix}`;
 
@@ -769,9 +784,19 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                               const num = ep.episodeNumber || 1;
                               if (!groupedEpisodesMap.has(num)) {
                                 const epNumStr = String(num).padStart(2, '0');
+                                const epPlat = detectShowPlatform(ep.title || option.title, titleDetails);
                                 let displayTitle = ep.title;
+                                if (epPlat === 'DSNP') {
+                                  displayTitle = displayTitle
+                                    .replace(/(?:^|\.)(?:NF|AMZN|ATVP|MAX)(?:\.(?:REMUX|BluRay|BDRip|WEB-DL|WEBRip))?(?=\.|$)/gi, '.DSNP.WEB-DL')
+                                    .replace(/(?:^|\.)DSNP\.(?:REMUX|BluRay|BDRip)(?=\.|$)/gi, '.DSNP.WEB-DL');
+                                } else if (epPlat) {
+                                  displayTitle = displayTitle.replace(/(?:^|\.)NF(?=\.|$)/gi, `.${epPlat}`);
+                                }
                                 if (!displayTitle.includes('.')) {
-                                  displayTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}E${epNumStr}.${group.resolution.replace(/\s*\/\s*/g, '.')}.${group.source}.Multi.mkv`;
+                                  const effSource = epPlat === 'DSNP' ? 'WEB-DL' : group.source;
+                                  const platSeg = epPlat ? `.${epPlat}` : '';
+                                  displayTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}E${epNumStr}.${group.resolution.replace(/\s*\/\s*/g, '.')}${platSeg}.${effSource}.Multi.mkv`;
                                 }
                                 const detectedSz = ep.size || detectSize(ep.title) || '';
                                 groupedEpisodesMap.set(num, {

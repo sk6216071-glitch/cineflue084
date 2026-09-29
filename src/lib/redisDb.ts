@@ -4,6 +4,7 @@ import path from 'path';
 import { getDatabase } from '@/lib/mongodb';
 import { TitleDetails } from '@/types';
 import { getTitleDetails } from '@/lib/tmdb';
+import { detectShowPlatform } from '@/lib/seasonParser';
 
 // Support both standard Upstash env vars and Vercel KV auto-provisioned env vars
 const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
@@ -679,15 +680,7 @@ export async function getRecentlyAddedTitles(
     const isHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(docTitle);
     const isBluRay = /(?:^|[\s._\-[\]()])(?:bluray|blu-ray|remux|bdrip)(?:[\s._\-[\]()]|$)/i.test(docTitle);
 
-    let platform = '';
-    if (/(?:^|[\s._\-[\]()])(?:nf|netflix)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'NF';
-    else if (/(?:^|[\s._\-[\]()])(?:amzn|prime\s*video)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'AMZN';
-    else if (/(?:^|[\s._\-[\]()])(?:max|hbo)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'MAX';
-    else if (/(?:^|[\s._\-[\]()])(?:atvp|apple)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'ATVP';
-    else if (/(?:^|[\s._\-[\]()])(?:dsnp|disney(?:\s*\+)?|hotstar)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'DSNP';
-    else if (/(?:^|[\s._\-[\]()])(?:zee5)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'ZEE5';
-    else if (/(?:^|[\s._\-[\]()])(?:jiocinema|jio)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'JIO';
-    else if (/(?:^|[\s._\-[\]()])(?:sonyliv|sliv)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'SONYLIV';
+    const platform = detectShowPlatform(docTitle, details);
 
     // Comprehensive category classification (Matches OlAMovies standard)
     let category = '';

@@ -492,3 +492,144 @@ export function parseBulkLinksInput(
   return items;
 }
 
+/**
+ * Auto-detect official OTT Streaming Platform (DSNP, NF, AMZN, ATVP, MAX, JIO, SONYLIV, ZEE5)
+ * Accurately maps Marvel & Star Wars series to Disney+ (DSNP), Amazon shows to AMZN, etc.
+ */
+export function detectShowPlatform(
+  rawTitle: string,
+  titleDetails?: { title?: string; name?: string; networks?: any[]; 'watch/providers'?: any; production_companies?: any }
+): string {
+  const titleLower = (rawTitle || '').toLowerCase();
+  const showName = (titleDetails?.name || titleDetails?.title || '').toLowerCase();
+  const combined = `${titleLower} ${showName}`.toLowerCase();
+
+  // 1. TMDB Networks detection (Highest authority)
+  const networks = titleDetails?.networks || [];
+  if (Array.isArray(networks) && networks.length > 0) {
+    for (const net of networks) {
+      const netName = (net.name || '').toLowerCase();
+      const netId = Number(net.id);
+      if (netId === 2739 || /disney/i.test(netName)) return 'DSNP';
+      if (netId === 213 || /netflix/i.test(netName)) return 'NF';
+      if (netId === 1024 || /amazon|prime/i.test(netName)) return 'AMZN';
+      if (netId === 2552 || /apple/i.test(netName)) return 'ATVP';
+      if (netId === 49 || netId === 3186 || /hbo|max/i.test(netName)) return 'MAX';
+      if (netId === 453 || /hulu/i.test(netName)) return 'HULU';
+      if (/jio/i.test(netName)) return 'JIO';
+      if (/sony/i.test(netName)) return 'SONYLIV';
+      if (/zee/i.test(netName)) return 'ZEE5';
+      if (/paramount/i.test(netName)) return 'PARAMOUNT';
+      if (/peacock/i.test(netName)) return 'PEACOCK';
+    }
+  }
+
+  // 2. TMDB Production Companies detection
+  const companies = titleDetails?.production_companies || [];
+  if (Array.isArray(companies) && companies.length > 0) {
+    for (const comp of companies) {
+      const compName = (comp.name || '').toLowerCase();
+      if (/marvel\s*studios|lucasfilm|walt\s*disney|pixar/i.test(compName)) return 'DSNP';
+      if (/netflix/i.test(compName)) return 'NF';
+      if (/amazon\s*studios/i.test(compName)) return 'AMZN';
+      if (/apple\s*studios/i.test(compName)) return 'ATVP';
+      if (/hbo|warner\s*bros/i.test(compName)) return 'MAX';
+    }
+  }
+
+  // 3. High-Precision Known Titles / Franchise Registry (Marvel MCU, Star Wars = Disney+ DSNP)
+  // Disney+ (Marvel Cinematic Universe, Star Wars & Disney+ originals)
+  if (
+    /(?:hawkeye|echo\b|loki\b|moon\s*knight|wandavision|ms\.?\s*marvel|she[- ]*hulk|secret\s*invasion|falcon\s*(?:and|&)\s*(?:the\s*)?winter\s*soldier|what\s*if|agatha|ironheart|daredevil:\s*born\s*again|daredevil\s*born\s*again|mandalorian|ahsoka|andor\b|obi[- ]*wan|boba\s*fett|acolyte|skeleton\s*crew|bad\s*batch|tales\s*of\s*the\s*jedi|percy\s*jackson|extraordinary|shogun\b)/i.test(
+      combined
+    )
+  ) {
+    return 'DSNP';
+  }
+
+  // Amazon Prime Video
+  if (
+    /(?:the\s*boys|gen\s*v|reacher|rings\s*of\s*power|lord\s*of\s*the\s*rings|fallout|citadel|invincible|wheel\s*of\s*time|jack\s*ryan|bosch|mirzapur|the\s*family\s*man|panchayat|farzi|paatal\s*lok|made\s*in\s*heaven|fleabag|maisel)/i.test(
+      combined
+    )
+  ) {
+    return 'AMZN';
+  }
+
+  // Apple TV+
+  if (
+    /(?:ted\s*lasso|severance|silo\b|foundation\b|morning\s*show|slow\s*horses|for\s*all\s*mankind|monarch:\s*legacy|presumed\s*innocent|masters\s*of\s*the\s*air|shrinking|black\s*bird|defending\s*jacob|dark\s*matter)/i.test(
+      combined
+    )
+  ) {
+    return 'ATVP';
+  }
+
+  // HBO / Max
+  if (
+    /(?:house\s*of\s*the\s*dragon|game\s*of\s*thrones|last\s*of\s*us|succession|euphoria|white\s*lotus|peacemaker|true\s*detective|the\s*penguin|penguin\b|chernobyl|westworld|sopranos|the\s*wire|barry\b|silicon\s*valley|dune:\s*prophecy)/i.test(
+      combined
+    )
+  ) {
+    return 'MAX';
+  }
+
+  // Netflix
+  if (
+    /(?:stranger\s*things|squid\s*game|wednesday|money\s*heist|dark\b|witcher|black\s*mirror|bridgerton|one\s*piece|cobra\s*kai|sex\s*education|ozark|narcos|all\s*of\s*us\s*are\s*dead|alice\s*in\s*borderland|sacred\s*games|delhi\s*crime|kota\s*factory|american\s*primeval|heartstopper|the\s*crown|outer\s*banks|lucifer|emily\s*in\s*paris|sandman|arcane|3\s*body\s*problem|baby\s*reindeer|sweet\s*tooth|locke\s*(?:and|&)\s*key)/i.test(
+      combined
+    )
+  ) {
+    return 'NF';
+  }
+
+  // JioCinema
+  if (/(?:asur\b|taaza\s*khabar|special\s*ops|criminal\s*justice|aarya|freelancer)/i.test(combined)) {
+    return 'JIO';
+  }
+
+  // SonyLIV
+  if (/(?:scam\s*1992|scam\s*2003|gullak|rocket\s*boys|maharani|tabbar|undekhi)/i.test(combined)) {
+    return 'SONYLIV';
+  }
+
+  // Zee5
+  if (/(?:taj:\s*divided|sunflower|pitchers|tripling|rangbaaz)/i.test(combined)) {
+    return 'ZEE5';
+  }
+
+  // 4. TMDB Watch Providers detection
+  const wpResults = titleDetails?.['watch/providers']?.results || {};
+  const allProviders = [
+    ...(wpResults.IN?.flatrate || []),
+    ...(wpResults.US?.flatrate || []),
+    ...(wpResults.GB?.flatrate || []),
+  ];
+  for (const p of allProviders) {
+    const pName = (p.provider_name || '').toLowerCase();
+    if (/disney|hotstar/i.test(pName)) return 'DSNP';
+    if (/netflix/i.test(pName)) return 'NF';
+    if (/amazon|prime/i.test(pName)) return 'AMZN';
+    if (/apple/i.test(pName)) return 'ATVP';
+    if (/max|hbo/i.test(pName)) return 'MAX';
+    if (/jio/i.test(pName)) return 'JIO';
+    if (/sony/i.test(pName)) return 'SONYLIV';
+    if (/zee5/i.test(pName)) return 'ZEE5';
+  }
+
+  // 5. Explicit platform tag in release title / filename (checked if not identified above)
+  if (/(?:^|[\s._\-[\]()])(?:dsnp|disney(?:\s*\+)?|hotstar)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'DSNP';
+  if (/(?:^|[\s._\-[\]()])(?:amzn|prime\s*video)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'AMZN';
+  if (/(?:^|[\s._\-[\]()])(?:atvp|apple\s*tv(?:\s*\+)?)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'ATVP';
+  if (/(?:^|[\s._\-[\]()])(?:max|hbo\s*max|hbo)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'MAX';
+  if (/(?:^|[\s._\-[\]()])(?:nf|netflix)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'NF';
+  if (/(?:^|[\s._\-[\]()])(?:zee5)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'ZEE5';
+  if (/(?:^|[\s._\-[\]()])(?:sonyliv|sliv)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'SONYLIV';
+  if (/(?:^|[\s._\-[\]()])(?:jiocinema|jio)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'JIO';
+  if (/(?:^|[\s._\-[\]()])(?:hulu)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'HULU';
+  if (/(?:^|[\s._\-[\]()])(?:paramount(?:\s*\+)?|p\+)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'PARAMOUNT';
+  if (/(?:^|[\s._\-[\]()])(?:peacock)(?:[\s._\-[\]()]|$)/i.test(titleLower)) return 'PEACOCK';
+
+  return '';
+}
+

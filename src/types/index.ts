@@ -137,6 +137,8 @@ export interface TitleDetails {
   'watch/providers'?: {
     results: Record<string, WatchProvidersData>;
   };
+  networks?: Array<{ id: number; name: string; logo_path?: string }>;
+  production_companies?: Array<{ id: number; name: string; logo_path?: string }>;
   uploadMeta?: {
     is4k?: boolean;
     is1080p?: boolean;

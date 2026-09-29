@@ -7,6 +7,7 @@ import { Star, Plus, Check, Eye, Heart, Film, Tv, Play, Clock } from 'lucide-rea
 import { TitleDetails } from '@/types';
 import { getImageURL } from '@/lib/tmdb';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { detectShowPlatform } from '@/lib/seasonParser';
 
 interface MovieCardProps {
   item: TitleDetails;
@@ -102,17 +103,13 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     (item as any).qualities?.includes('BluRay');
 
   // Platform
-  let platform = uploadMeta.platform;
-  if (!platform || platform === 'TV' || platform === 'MOVIE') {
-    const t = (item.title || item.name || '').toLowerCase();
-    if (/netflix|\.nf\./i.test(t)) platform = 'NF';
-    else if (/amazon|amzn|prime/i.test(t)) platform = 'AMZN';
-    else if (/apple|atvp/i.test(t)) platform = 'ATVP';
-    else if (/disney|hotstar|dsnp/i.test(t)) platform = 'DSNP';
-    else if (/hbo|max/i.test(t)) platform = 'MAX';
-    else if (/zee5/i.test(t)) platform = 'ZEE5';
-    else if (/jio/i.test(t)) platform = 'JIO';
-    else platform = mediaType === 'tv' ? 'TV' : 'MOVIE';
+  const detectedPlat = detectShowPlatform(
+    `${uploadMeta.rawTitle || ''} ${item.title || ''} ${item.name || ''}`,
+    item
+  );
+  let platform = detectedPlat || (uploadMeta.platform !== 'TV' && uploadMeta.platform !== 'MOVIE' ? uploadMeta.platform : '');
+  if (!platform) {
+    platform = mediaType === 'tv' ? 'TV' : 'MOVIE';
   }
 
   // Category resolution & Hollywood/Bollywood guardrail
