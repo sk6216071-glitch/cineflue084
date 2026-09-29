@@ -26,6 +26,10 @@ export interface ProcessResult {
 export function cleanTitleForSearch(text: string): { query: string; year?: number } {
   let s = text.replace(new RegExp(STRICT_URL_REGEX.source, 'gi'), '');
   
+  // Clean leading labels e.g. "Name : ", "Title : ", "1. Name : "
+  s = s.replace(/^[\s\r\n]*(?:\[?\d{1,3}[\]).:-]\s*)?(?:(?:Name|Title|Movie(?:\s*Name)?|Series(?:\s*Name)?|Show(?:\s*Name)?|Film(?:\s*Name)?|File(?:\s*Name)?|Filename|Release)\s*[-:=]+\s*)+/gi, ' ');
+  s = s.replace(/(?:HubCloud|GDFlix|Gofile|Drive|Server|Link|URL)\s*[-:=]+\s*/gi, ' ');
+
   // Extract 4-digit year if present (19xx or 20xx)
   const yearMatch = s.match(/\b(19\d\d|20\d\d)\b/);
   const year = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
@@ -46,6 +50,7 @@ export function cleanTitleForSearch(text: string): { query: string; year?: numbe
   // Clean punctuation and excess whitespace
   s = s.replace(/[\(\)\[\]\{\}\-_.:|•+]/g, ' ');
   s = s.replace(/\s+/g, ' ').trim();
+  s = s.replace(/^[\s(\[]*\d{1,3}[\s)\]]*[\s._\-:]+/i, '').replace(/^(?:Name|Title|Movie|Series|Show|Film|File|Release)\s*:\s*/gi, '').trim();
 
   return { query: s, year };
 }

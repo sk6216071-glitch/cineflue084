@@ -229,6 +229,15 @@ function splitMessageIntoReleaseBlocks(text) {
   return blocks;
 }
 
+function cleanLeadingLabels(str) {
+  if (!str) return '';
+  return str
+    .replace(/^[\s\r\n]*(?:\[?\d{1,3}[\]).:-]\s*)?(?:(?:Name|Title|Movie(?:\s*Name)?|Series(?:\s*Name)?|Show(?:\s*Name)?|Film(?:\s*Name)?|File(?:\s*Name)?|Filename|Release)\s*[-:=]+\s*)+/gi, '')
+    .replace(/^[\s(\[]*\d{1,3}[\s)\]]*[\s._\-:]+/i, '')
+    .replace(/^(?:Name|Title|Movie|Series|Show|Film|File|Release)\s*:\s*/gi, '')
+    .trim();
+}
+
 function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   let url = fallbackUrl;
   const mdMatch = text.match(/\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/i);
@@ -244,7 +253,8 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   let cleanText = text
     .replace(/\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/gi, ' ')
     .replace(new RegExp(STRICT_URL_REGEX.source, 'gi'), ' ')
-    .replace(/(?:Link|URL)\s*[-:]\s*[^\s\r\n]+/gi, ' ')
+    .replace(/(?:Link|URL)\s*[-:=]+\s*[^\s\r\n]+/gi, ' ')
+    .replace(/(?:HubCloud|GDFlix|Gofile|Drive|Server)\s*[-:=]+\s*/gi, ' ')
     .replace(/https?:\/\/[^\s]+/gi, ' ')
     .replace(/www\.[^\s]+/gi, ' ');
 
@@ -258,17 +268,20 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     .replace(/\b(?:4khdhub|hdhub4u|moviesmod|bollyflix|dotmovies|vegamovies|katmoviehd|uhdmovies)[^\s]*\b/gi, ' ')
     .replace(/\.(mkv|mp4|avi|m4v)\b/gi, ' ');
 
+  // Strip leading labels at start of text or lines
+  cleanText = cleanLeadingLabels(cleanText);
+
   // 1. Explicit key-value labels if present
   const getField = (pattern) => {
     const m = cleanText.match(pattern);
-    return m ? m[1].replace(/^[-\s:]+/, '').trim() : undefined;
+    return m ? m[1].replace(/^[-\s:=]+/, '').trim() : undefined;
   };
 
-  const explicitTitle = getField(/(?:^|\n)\s*Title\s*[-:]\s*([^\n\r]+)/i);
-  const explicitQuality = getField(/(?:^|\n)\s*Quality\s*[-:]\s*([^\n\r]+)/i);
-  let explicitAudio = getField(/(?:^|\n)\s*(?:Language|Audio)\s*[-:]\s*([^\n\r]+)/i);
-  let explicitSize = getField(/(?:^|\n)\s*(?:File\s*size|Size)\s*[-:]\s*([^\n\r]+)/i);
-  let explicitType = getField(/(?:^|\n)\s*Media\s*Type\s*[-:]\s*([^\n\r]+)/i);
+  const explicitTitle = getField(/(?:^|\n)\s*(?:Title|Name|Movie|Series|Show)\s*[-:=]+\s*([^\n\r]+)/i);
+  const explicitQuality = getField(/(?:^|\n)\s*Quality\s*[-:=]+\s*([^\n\r]+)/i);
+  let explicitAudio = getField(/(?:^|\n)\s*(?:Language|Audio)\s*[-:=]+\s*([^\n\r]+)/i);
+  let explicitSize = getField(/(?:^|\n)\s*(?:File\s*size|Size)\s*[-:=]+\s*([^\n\r]+)/i);
+  let explicitType = getField(/(?:^|\n)\s*Media\s*Type\s*[-:=]+\s*([^\n\r]+)/i);
 
   // 2. Bracketed file size e.g. [5.75 GB] or [15.42 GB]
   if (!explicitSize) {
@@ -415,10 +428,8 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     titleForSearch = titleForSearch.replace(/[\(\)\[\]\{\}\-_.:|•+~#*@/\\=]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
-  // Strip leading list numbers, indexes, or release prefixes e.g. "2.", "01.", "[1]", "1 - "
-  titleForSearch = titleForSearch
-    .replace(/^[\s(\[]*\d{1,3}[\s)\]]*[\s._\-:]+/i, '')
-    .trim();
+  // Strip leading list numbers, indexes, or release prefixes e.g. "2.", "01.", "[1]", "Name :", "Title :"
+  titleForSearch = cleanLeadingLabels(titleForSearch);
 
   // 7. Quality Detection
   let quality = explicitQuality;
@@ -502,7 +513,8 @@ const globalTmdbCache = new Map();
  */
 async function searchImdb(cleanQ, targetYear, forcedType) {
   try {
-    const slug = cleanQ.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const cleanTitle = cleanLeadingLabels(cleanQ);
+    const slug = cleanTitle.toLowerCase().replace(/[^a-z0-9]/g, '_');
     const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(slug)}.json`;
     const res = await safeFetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
@@ -521,8 +533,8 @@ async function searchImdb(cleanQ, targetYear, forcedType) {
       for (const item of list) {
         let score = 0;
         const normTitle = (item.l || '').toLowerCase().trim();
-        if (normTitle === cleanQ.toLowerCase()) score += 100;
-        else if (normTitle.startsWith(cleanQ.toLowerCase())) score += 40;
+        if (normTitle === cleanTitle.toLowerCase()) score += 100;
+        else if (normTitle.startsWith(cleanTitle.toLowerCase())) score += 40;
 
         if (targetYear && item.y === Number(targetYear)) score += 80;
         else if (targetYear && item.y && Math.abs(item.y - Number(targetYear)) <= 1) score += 40;
@@ -558,8 +570,8 @@ async function searchImdb(cleanQ, targetYear, forcedType) {
  */
 async function searchTmdb(query, year, forcedType = null) {
   if (!query || query.trim().length < 2) return null;
-  // Strip leading list numbers, indexes e.g. "2.", "01.", "[1]"
-  const cleanQ = query.trim().replace(/^[\s(\[]*\d{1,3}[\s)\]]*[\s._\-:]+/i, '').trim();
+  // Strip leading list numbers, indexes e.g. "2.", "01.", "[1]", and leading labels e.g. "Name :", "Title :"
+  const cleanQ = cleanLeadingLabels(query.trim());
   const cacheKey = `${cleanQ.toLowerCase()}_${year || 'any'}_${forcedType || 'any'}`;
   if (globalTmdbCache.has(cacheKey)) {
     return globalTmdbCache.get(cacheKey);
@@ -1557,6 +1569,25 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
     tvMsg += `✅ All ${publishedItems.length} episodes are now live in their respective Season ${first.season} slots!${autoMigrationNotice}`;
 
     return sendTelegram(chatId, tvMsg);
+  }
+
+  // Case B2: Batch of Multiple Releases for the SAME Movie (e.g. The Matrix with 8 qualities/encodes)
+  const allSameMovie = publishedItems.length > 1 &&
+    publishedItems.every(i => i.mediaType === 'movie' && i.movieId === publishedItems[0].movieId);
+
+  if (allSameMovie) {
+    const first = publishedItems[0];
+    let movieMsg = `🎉 *Batch Movie Upload Successful!*\n\n`;
+    movieMsg += `🎬 *Movie:* ${first.title} (${first.year})\n`;
+    movieMsg += `🏷️ *Upload Mode:* 🎥 Multi-Quality Releases (*${publishedItems.length} Links*)\n\n`;
+    publishedItems.forEach((item, index) => {
+      movieMsg += `${index + 1}️⃣ 💎 \`${item.quality}\`${item.size ? ` [${item.size}]` : ''}\n`;
+      movieMsg += `   🔊 \`${item.audio}\` • \`${item.serverBadge || '⚡ Cloud Server'}\`\n`;
+    });
+    movieMsg += `\n🌐 *View Movie on Website:*\n[Open ${first.title} on CineFuel](${first.pageUrl})\n\n`;
+    movieMsg += `✅ All ${publishedItems.length} releases are now live on your site!${autoMigrationNotice}`;
+
+    return sendTelegram(chatId, movieMsg);
   }
 
   // Case C: Multi-Movie Collection / Trilogy Batch
