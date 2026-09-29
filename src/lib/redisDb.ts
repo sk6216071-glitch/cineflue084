@@ -659,10 +659,19 @@ export async function getRecentlyAddedTitles(
   const isDummyTitle = (t?: string) =>
     !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');
 
-  const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv') => {
+  const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv', details?: any) => {
     const docTitle = String(docItem?.title || '');
     const docQuality = String(docItem?.quality || '');
     const docAudio = String(docItem?.audioLanguage || '');
+    const movieTitle = String(details?.title || details?.name || docItem?.movieTitle || '');
+    const origLang = String(
+      details?.original_language || docItem?.originalLanguage || docItem?.original_language || ''
+    ).toLowerCase().trim();
+    const origCountry: string[] = Array.isArray(details?.origin_country)
+      ? details.origin_country
+      : Array.isArray(docItem?.originCountry)
+      ? docItem.originCountry
+      : [];
 
     const is4k = /2160p|4k|uhd/i.test(docTitle) || /4k|2160/i.test(docQuality);
     const is1080p = /1080p|fhd/i.test(docTitle) || /1080/i.test(docQuality);
@@ -680,12 +689,30 @@ export async function getRecentlyAddedTitles(
     else if (/(?:^|[\s._\-[\]()])(?:jiocinema|jio)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'JIO';
     else if (/(?:^|[\s._\-[\]()])(?:sonyliv|sliv)(?:[\s._\-[\]()]|$)/i.test(docTitle)) platform = 'SONYLIV';
 
-    const isHindi = /hindi|hin|bollywood/i.test(`${docTitle} ${docAudio}`);
+    // Comprehensive category classification (Matches OlAMovies standard)
     let category = '';
-    if (mType === 'tv') {
-      category = isHindi ? 'HINDI TV SHOWS' : 'ENGLISH TV SERIES';
+    const titleCombined = `${movieTitle} ${docTitle}`.toLowerCase();
+    const isHollywoodTitle = /(?:marvel|avenger|spider[- ]*man|spiderman|iron[- ]*man|thor|captain\s*america|captain\s*marvel|black\s*widow|ant[- ]*man|antman|doctor\s*strange|black\s*panther|guardians\s*of\s*the\s*galaxy|deadpool|wolverine|x[- ]*men|eternals|shang[- ]*chi|loki|hawkeye|daredevil|punisher|batman|superman|justice\s*league|wonder\s*woman|aquaman|flash|joker|harley\s*quinn|shazam|lanterns|star\s*wars|avatar|jurassic|fast\s*(?:and|&)\s*furious|mission:?\s*impossible|transformers?|harry\s*potter|fantastic\s*beasts|lord\s*of\s*the\s*rings|hobbit|game\s*of\s*thrones|house\s*of\s*the\s*dragon|stranger\s*things|godzilla|kong|john\s*wick|dune|oppenheimer|interstellar|inception|matrix|terminator|gladiator|alien|predator|blade\s*runner|mad\s*max|planet\s*of\s*the\s*apes|fallout|the\s*boys|reacher|jack\s*ryan|witcher|halo|peaky\s*blinders|walking\s*dead|american\s*primeval|squid\s*game|toy\s*story|pixar|disney)/i.test(titleCombined);
+    const hasEnglishOrDual = /(?:dual|multi|english|eng|\+\s*eng|eng\s*\+|org\s*eng|atmos|truehd)/i.test(`${docTitle} ${docAudio}`);
+    const isExplicitBollywood = /(?:bollywood|hindi\s*movie|desiremovies|bollyflix|vegamovies|katmoviehd)/i.test(`${titleCombined} ${docAudio}`);
+    const isIndianLang = origLang === 'hi' || (origCountry.includes('IN') && (origLang === 'hi' || !origLang));
+
+    if (isIndianLang && !isHollywoodTitle) {
+      category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
+    } else if (['te', 'ta', 'ml', 'kn'].includes(origLang) && !isHollywoodTitle) {
+      category = mType === 'tv' ? 'SOUTH TV SHOWS' : 'SOUTH INDIAN';
+    } else if (origLang === 'ja') {
+      category = 'ANIME';
+    } else if (origLang === 'ko') {
+      category = mType === 'tv' ? 'K-DRAMA' : 'KOREAN';
+    } else if (origLang === 'en' || origCountry.some((c: string) => ['US', 'GB', 'CA', 'AU', 'NZ'].includes(c))) {
+      category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    } else if (isHollywoodTitle || hasEnglishOrDual) {
+      category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    } else if (isExplicitBollywood) {
+      category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
     } else {
-      category = isHindi ? 'BOLLYWOOD' : 'HOLLYWOOD';
+      category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
     }
 
     const sizeMatch = docItem?.size || docTitle.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i)?.[1]?.toUpperCase();
@@ -721,8 +748,9 @@ export async function getRecentlyAddedTitles(
           vote_average: doc.voteAverage || 7.8,
           vote_count: 1500,
           media_type: doc.mediaType || mediaType,
+          original_language: doc.originalLanguage || (doc.original_language || ''),
           genres: [{ id: 28, name: 'Featured' }],
-          uploadMeta: extractUploadMeta(doc, mediaType),
+          uploadMeta: extractUploadMeta(doc, mediaType, doc),
         } as TitleDetails;
       }
 
@@ -743,7 +771,7 @@ export async function getRecentlyAddedTitles(
           return {
             ...details,
             media_type: mediaType,
-            uploadMeta: extractUploadMeta(doc, mediaType),
+            uploadMeta: extractUploadMeta(doc, mediaType, details),
           };
         }
 
@@ -770,7 +798,7 @@ export async function getRecentlyAddedTitles(
             vote_count: 1000,
             media_type: mediaType,
             genres: [{ id: 18, name: 'Featured' }],
-            uploadMeta: extractUploadMeta(doc, mediaType),
+            uploadMeta: extractUploadMeta(doc, mediaType, details),
           } as TitleDetails;
         }
       } catch (e) {

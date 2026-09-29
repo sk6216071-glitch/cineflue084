@@ -1447,6 +1447,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       mediaType,
       title: displayTitle,
       movieTitle: officialTitle,
+      originalLanguage: tmdbItem.original_language || '',
+      originCountry: tmdbItem.origin_country || [],
       posterPath: tmdbItem.poster_path || null,
       backdropPath: tmdbItem.backdrop_path || null,
       releaseDate: releaseDate || '',

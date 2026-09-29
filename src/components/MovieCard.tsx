@@ -115,16 +115,45 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     else platform = mediaType === 'tv' ? 'TV' : 'MOVIE';
   }
 
-  // Category
+  // Category resolution & Hollywood/Bollywood guardrail
   let category = uploadMeta.category;
-  if (!category) {
-    const isHindi = /hindi|bollywood/i.test(
-      (item.original_title || item.original_name || '') + ' ' + (item.title || item.name || '')
+  const origLang = (item.original_language || (item as any).originalLanguage || '').toLowerCase().trim();
+  const origCountry: string[] = Array.isArray((item as any).origin_country)
+    ? (item as any).origin_country
+    : Array.isArray((item as any).originCountry)
+    ? (item as any).originCountry
+    : [];
+  const titleCombined = `${item.title || ''} ${item.name || ''} ${item.original_title || ''} ${item.original_name || ''} ${uploadMeta.rawTitle || ''}`.toLowerCase();
+
+  const isHollywood =
+    origLang === 'en' ||
+    origCountry.some((c: string) => ['US', 'GB', 'CA', 'AU', 'NZ'].includes(c)) ||
+    /(?:marvel|avenger|spider[- ]*man|spiderman|iron[- ]*man|thor|captain\s*america|captain\s*marvel|black\s*widow|ant[- ]*man|antman|doctor\s*strange|black\s*panther|guardians\s*of\s*the\s*galaxy|deadpool|wolverine|x[- ]*men|eternals|shang[- ]*chi|loki|hawkeye|daredevil|punisher|batman|superman|justice\s*league|wonder\s*woman|aquaman|flash|joker|harley\s*quinn|shazam|lanterns|star\s*wars|avatar|jurassic|fast\s*(?:and|&)\s*furious|mission:?\s*impossible|transformers?|harry\s*potter|fantastic\s*beasts|lord\s*of\s*the\s*rings|hobbit|game\s*of\s*thrones|house\s*of\s*the\s*dragon|stranger\s*things|godzilla|kong|john\s*wick|dune|oppenheimer|interstellar|inception|matrix|terminator|gladiator|alien|predator|blade\s*runner|mad\s*max|planet\s*of\s*the\s*apes|fallout|the\s*boys|reacher|jack\s*ryan|witcher|halo|peaky\s*blinders|walking\s*dead|american\s*primeval|squid\s*game|toy\s*story|pixar|disney)/i.test(
+      titleCombined
     );
-    if (mediaType === 'tv') {
-      category = isHindi ? 'HINDI TV SHOWS' : 'ENGLISH TV SERIES';
+
+  const hasEnglishOrDual = /(?:dual|multi|english|eng|\+\s*eng|eng\s*\+|org\s*eng|atmos|truehd)/i.test(
+    `${uploadMeta.rawTitle || ''} ${(item as any).audioLanguage || ''}`
+  );
+
+  // Guardrail: Hollywood productions with Hindi dub audio should NEVER be categorized as BOLLYWOOD or HINDI TV SHOWS
+  if (isHollywood || hasEnglishOrDual) {
+    category = mediaType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+  } else if (!category || category === 'BOLLYWOOD' || category === 'HINDI TV SHOWS') {
+    if (origLang === 'hi' || origCountry.includes('IN')) {
+      category = mediaType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
+    } else if (['te', 'ta', 'ml', 'kn'].includes(origLang)) {
+      category = mediaType === 'tv' ? 'SOUTH TV SHOWS' : 'SOUTH INDIAN';
+    } else if (origLang === 'ja') {
+      category = 'ANIME';
+    } else if (origLang === 'ko') {
+      category = mediaType === 'tv' ? 'K-DRAMA' : 'KOREAN';
+    } else if (origLang === 'en') {
+      category = mediaType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    } else if (/(?:bollywood|hindi\s*movie|desiremovies|bollyflix|vegamovies|katmoviehd)/i.test(titleCombined)) {
+      category = mediaType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
     } else {
-      category = isHindi ? 'BOLLYWOOD' : 'HOLLYWOOD';
+      category = mediaType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
     }
   }
 

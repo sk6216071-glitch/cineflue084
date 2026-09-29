@@ -88,6 +88,8 @@ export interface TitleDetails {
   genres: Genre[];
   genre_ids?: number[];
   media_type: 'movie' | 'tv';
+  original_language?: string;
+  origin_country?: string[];
   runtime?: number;
   episode_run_time?: number[];
   number_of_seasons?: number;
@@ -184,6 +186,13 @@ export interface CustomLink {
   linkType?: 'zip_pack' | 'single_episode' | 'general';
   serverName?: string; // 'HubCloud' | 'GDFlix' | 'Google Drive' | 'Mega'
   serverBadge?: string; // '⚡ Server 1: HubCloud'
+  movieTitle?: string;
+  originalLanguage?: string;
+  originCountry?: string[];
+  posterPath?: string | null;
+  backdropPath?: string | null;
+  releaseDate?: string;
+  voteAverage?: number;
 }
 
 export interface WatchlistItem {
