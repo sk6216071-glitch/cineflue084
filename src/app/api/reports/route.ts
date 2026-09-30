@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllReports, saveNewReport, updateReportStatus, deleteReport } from '@/lib/reportsDb';
+import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
 
@@ -84,6 +85,20 @@ export async function POST(req: NextRequest) {
     };
 
     await saveNewReport(newReport);
+
+    // Auto-register / update reporter account in Central Users Directory
+    try {
+      if (userEmail && userEmail.includes('@')) {
+        await saveUserToDatabase({
+          uid: userId.trim(),
+          email: userEmail.trim(),
+          displayName: (userName || userEmail.split('@')[0] || 'Cinephile').trim(),
+          provider: 'report_submitter',
+        });
+      }
+    } catch (uErr) {
+      console.warn('Failed to auto-sync reporter to usersDb:', uErr);
+    }
 
     return NextResponse.json({
       success: true,

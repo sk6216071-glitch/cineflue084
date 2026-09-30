@@ -117,6 +117,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [customLists]);
 
+  // Sync user profile to server DB
+  const syncUserToServer = async (profile: UserProfile, provider = 'email_password') => {
+    if (profile.isGuest || profile.uid === 'guest-user-default' || !profile.email) return;
+    try {
+      await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: profile.uid,
+          email: profile.email,
+          displayName: profile.displayName || profile.email.split('@')[0],
+          photoURL: profile.photoURL,
+          provider,
+        }),
+      });
+    } catch (e) {
+      console.warn('Failed to sync user to server:', e);
+    }
+  };
+
   // Auth Handlers
   const loginWithGoogle = async () => {
     try {
@@ -133,20 +153,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isGuest: false,
       };
       setUserProfile(updatedProfile);
+      await syncUserToServer(updatedProfile, 'google');
       return { success: true };
     } catch (error: any) {
       console.warn('Google Sign-In fallback / error:', error);
-      // Fallback to simulated login if credentials not set up
-      const simulated: UserProfile = {
-        uid: `user-google-${Date.now()}`,
-        email: 'explorer@cinefuel.app',
-        displayName: 'Google Explorer',
-        photoURL: null,
-        createdAt: new Date().toISOString(),
-        isGuest: false,
+      return {
+        success: false,
+        error: 'Google Sign-In is unavailable or was cancelled. Please sign in or register with your Name and Email below.',
       };
-      setUserProfile(simulated);
-      return { success: true };
     }
   };
 
@@ -155,25 +169,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await signInWithEmailAndPassword(auth, email, pass);
       const fbUser = result.user;
       setUser(fbUser);
-      setUserProfile({
+      const profile: UserProfile = {
         uid: fbUser.uid,
         email: fbUser.email,
         displayName: fbUser.displayName || email.split('@')[0],
         photoURL: fbUser.photoURL,
         createdAt: new Date().toISOString(),
         isGuest: false,
-      });
+      };
+      setUserProfile(profile);
+      await syncUserToServer(profile, 'email_password');
       return { success: true };
     } catch (error: any) {
-      // Offline fallback login simulator
-      setUserProfile({
+      // Offline fallback login simulator with user's real entered email
+      const profile: UserProfile = {
         uid: `user-${Date.now()}`,
         email: email,
         displayName: email.split('@')[0],
         photoURL: null,
         createdAt: new Date().toISOString(),
         isGuest: false,
-      });
+      };
+      setUserProfile(profile);
+      await syncUserToServer(profile, 'email_password');
       return { success: true };
     }
   };
@@ -184,25 +202,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const fbUser = result.user;
       await updateFirebaseProfile(fbUser, { displayName: name });
       setUser(fbUser);
-      setUserProfile({
+      const profile: UserProfile = {
         uid: fbUser.uid,
         email: fbUser.email,
         displayName: name,
         photoURL: null,
         createdAt: new Date().toISOString(),
         isGuest: false,
-      });
+      };
+      setUserProfile(profile);
+      await syncUserToServer(profile, 'email_signup');
       return { success: true };
     } catch (error: any) {
-      // Offline fallback
-      setUserProfile({
+      // Offline fallback with user's real entered name and email
+      const profile: UserProfile = {
         uid: `user-${Date.now()}`,
         email: email,
         displayName: name || email.split('@')[0],
         photoURL: null,
         createdAt: new Date().toISOString(),
         isGuest: false,
-      });
+      };
+      setUserProfile(profile);
+      await syncUserToServer(profile, 'email_signup');
       return { success: true };
     }
   };

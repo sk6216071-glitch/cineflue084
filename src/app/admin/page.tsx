@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
-import { CustomLink, CustomList, TitleDetails, UserRequest, DefectiveLinkReport } from '@/types';
+import { CustomLink, CustomList, TitleDetails, UserRequest, DefectiveLinkReport, RegisteredUser } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, getBackdropURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
@@ -177,6 +177,11 @@ export default function AdminPage() {
   const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
   const [isTestingTmdb, setIsTestingTmdb] = useState(false);
   const [tmdbTestResult, setTmdbTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+  // Users Directory state
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userFilterCategory, setUserFilterCategory] = useState<'all' | 'requesters' | 'reporters'>('all');
 
   // Links Moderation Filter, Search & Pagination
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
@@ -442,14 +447,20 @@ export default function AdminPage() {
       fetchAdminReports();
       const reportsSyncInterval = setInterval(fetchAdminReports, 15000);
 
+      // Initial fetch and interval for registered users
+      fetchAdminUsers();
+      const usersSyncInterval = setInterval(fetchAdminUsers, 20000);
+
       const handleLinksUpdated = () => {
         setDeletedCuratedLinkIds(getDeletedLinkIds());
         fetchAllAdminLinks();
         fetchAdminRequests();
         fetchAdminReports();
+        fetchAdminUsers();
       };
       const handleReportsUpdated = () => {
         fetchAdminReports();
+        fetchAdminUsers();
       };
       window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
       window.addEventListener('cinefuel_report_submitted', handleReportsUpdated);
@@ -457,6 +468,7 @@ export default function AdminPage() {
         clearInterval(adminSyncInterval);
         clearInterval(requestsSyncInterval);
         clearInterval(reportsSyncInterval);
+        clearInterval(usersSyncInterval);
         window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
         window.removeEventListener('cinefuel_report_submitted', handleReportsUpdated);
       };
@@ -807,6 +819,37 @@ export default function AdminPage() {
   const addLog = (message: string, level: 'info' | 'success' | 'warn' = 'info') => {
     const time = new Date().toLocaleTimeString();
     setSystemLogs((prev) => [{ timestamp: time, level, message }, ...prev.slice(0, 19)]);
+  };
+
+  // Registered Users Directory Action Handlers
+  const fetchAdminUsers = async () => {
+    try {
+      setIsLoadingUsers(true);
+      const res = await fetch(`/api/users?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.users)) {
+          setRegisteredUsers(data.users);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch registered users:', e);
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+  const handleDeleteUser = async (uid: string, email: string) => {
+    if (!confirm(`Are you sure you want to remove user "${email || uid}" from the system?`)) return;
+    try {
+      const res = await fetch(`/api/users?uid=${encodeURIComponent(uid)}`, { method: 'DELETE' });
+      if (res.ok) {
+        setRegisteredUsers((prev) => prev.filter((u) => u.uid !== uid));
+        addLog(`Deleted user account: ${email || uid}`, 'info');
+      }
+    } catch (e: any) {
+      alert('Failed to delete user: ' + e.message);
+    }
   };
 
   // User Requests Action Handlers
@@ -2449,6 +2492,27 @@ export default function AdminPage() {
     return combined;
   }, [titleSearchQuery, manageTitlesResults]);
 
+  // Filtered registered users for Manage Users directory tab
+  const filteredRegisteredUsers = useMemo(() => {
+    let list = registeredUsers;
+    if (userFilterCategory === 'requesters') {
+      list = list.filter((u) => (u.requestsCount || 0) > 0);
+    } else if (userFilterCategory === 'reporters') {
+      list = list.filter((u) => (u.reportsCount || 0) > 0);
+    }
+
+    const q = userSearchQuery.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter((u) => {
+      const matchName = (u.displayName || '').toLowerCase().includes(q);
+      const matchEmail = (u.email || '').toLowerCase().includes(q);
+      const matchUid = (u.uid || '').toLowerCase().includes(q);
+      const matchRecent = (u.recentRequests || []).some((t) => t.toLowerCase().includes(q));
+      return matchName || matchEmail || matchUid || matchRecent;
+    });
+  }, [registeredUsers, userFilterCategory, userSearchQuery]);
+
   // -------------------------------------------------------------
   // 1. Password Lock Gate (If not authenticated) - Cinematic Glassmorphism Edition
   // -------------------------------------------------------------
@@ -2779,6 +2843,17 @@ export default function AdminPage() {
           suppressHydrationWarning
         >
           <Users className="w-4 h-4" /> Manage Users
+          {registeredUsers.length > 0 && (
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                activeTab === 'users'
+                  ? 'bg-black text-amber-400'
+                  : 'bg-zinc-800 text-zinc-300'
+              }`}
+            >
+              {registeredUsers.length}
+            </span>
+          )}
         </button>
 
         <button
@@ -2860,10 +2935,18 @@ export default function AdminPage() {
               <span className="text-[11px] text-zinc-400 font-medium">{reportsList.length} reported links</span>
             </div>
 
-            <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Cached Titles</span>
-              <p className="text-3xl font-black text-emerald-400">{Object.keys(knownTitlesCache).length}</p>
-              <span className="text-[11px] text-emerald-400 font-medium">TMDB Fast Indexed</span>
+            <div
+              onClick={() => setActiveTab('users')}
+              className="p-5 rounded-2xl bg-[#11141c] border border-amber-500/20 hover:border-amber-500/50 cursor-pointer transition-all space-y-1 group"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">User Accounts</span>
+                <span className="text-[10px] text-amber-400 group-hover:underline">Manage →</span>
+              </div>
+              <p className="text-3xl font-black text-amber-400">{registeredUsers.length}</p>
+              <span className="text-[11px] text-zinc-400 font-medium">
+                {registeredUsers.filter((u) => (u.requestsCount || 0) > 0).length} active requesters
+              </span>
             </div>
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
@@ -4499,13 +4582,21 @@ export default function AdminPage() {
                                 </p>
                               )}
                               {(req.userName || req.userEmail || req.userContact) && (
-                                <span className="text-[11px] text-blue-400 font-mono flex items-center gap-1.5 bg-blue-500/10 px-2.5 py-0.5 rounded-lg border border-blue-500/20">
-                                  <UserCheck className="w-3.5 h-3.5 text-blue-400" />
+                                <button
+                                  onClick={() => {
+                                    setActiveTab('users');
+                                    setUserSearchQuery(req.userEmail || req.userName || req.userContact || '');
+                                  }}
+                                  className="text-[11px] text-blue-400 hover:text-blue-300 font-mono flex items-center gap-1.5 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-0.5 rounded-lg border border-blue-500/20 transition-colors text-left"
+                                  title="Jump to this user in Manage Users directory"
+                                >
+                                  <UserCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                                   <span>
                                     {req.userName ? `${req.userName} • ` : ''}
                                     {req.userEmail || req.userContact}
                                   </span>
-                                </span>
+                                  <span className="text-[10px] text-zinc-500 underline ml-1 hidden sm:inline">View Account →</span>
+                                </button>
                               )}
                             </div>
                           )}
@@ -4919,10 +5010,17 @@ export default function AdminPage() {
                               Reported {formatRelativeTime(report.createdAt)}
                             </span>
                             {(report.userName || report.userEmail) && (
-                              <span className="text-zinc-300 font-mono flex items-center gap-1 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                              <button
+                                onClick={() => {
+                                  setActiveTab('users');
+                                  setUserSearchQuery(report.userEmail || report.userName || '');
+                                }}
+                                className="text-zinc-300 hover:text-white font-mono flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 px-2 py-0.5 rounded border border-zinc-800 transition-colors"
+                                title="Jump to this user in Manage Users directory"
+                              >
                                 <UserCheck className="w-3 h-3 text-emerald-400" />
                                 <span>{report.userName ? `${report.userName} (${report.userEmail})` : report.userEmail}</span>
-                              </span>
+                              </button>
                             )}
                           </div>
 
@@ -5034,58 +5132,298 @@ export default function AdminPage() {
       {/* TAB 4: MANAGE USERS */}
       {/* ========================================================= */}
       {activeTab === 'users' && (
-        <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
-          <div className="space-y-1">
-            <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-              <Users className="w-4 h-4 text-amber-400" /> User Directory & Account Vault
-            </h3>
-            <p className="text-xs text-zinc-400">
-              Overview of connected user accounts, Firebase authentication states, and collection storage.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-sm">
-                  {userProfile?.displayName ? userProfile.displayName[0].toUpperCase() : 'U'}
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">
-                    {userProfile?.displayName || 'Active Account'}
-                  </h4>
-                  <span className="text-xs text-zinc-400">{userProfile?.email || 'Guest User Session'}</span>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-zinc-800/80 grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2 rounded-xl bg-black/40">
-                  <span className="text-zinc-500 block text-[10px]">Watchlist</span>
-                  <span className="font-bold text-white" suppressHydrationWarning>{isMounted ? watchlist.length : 0}</span>
-                </div>
-                <div className="p-2 rounded-xl bg-black/40">
-                  <span className="text-zinc-500 block text-[10px]">Favorites</span>
-                  <span className="font-bold text-amber-400" suppressHydrationWarning>{isMounted ? stats.favoritesCount : 0}</span>
-                </div>
-                <div className="p-2 rounded-xl bg-black/40">
-                  <span className="text-zinc-500 block text-[10px]">Watched</span>
-                  <span className="font-bold text-emerald-400" suppressHydrationWarning>{isMounted ? stats.watchedCount : 0}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-                <UserCheck className="w-4 h-4 text-emerald-400" /> Firebase Auth Integration
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Users authenticate securely with email/password or Google Auth. User custom watchlists, ratings, and custom links sync automatically to their profile.
+        <div className="p-6 sm:p-8 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800/80">
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2.5">
+                <Users className="w-5 h-5 text-amber-400" /> User Directory & Account Vault
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono">
+                  {registeredUsers.length} {registeredUsers.length === 1 ? 'User' : 'Users'}
+                </span>
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Real-time registry of authenticated users, sign-in accounts, movie request history, and active link reports.
               </p>
-              <div className="text-[11px] text-zinc-500 font-mono">
-                Status: <span className="text-emerald-400">Firebase Ready</span> • Role: <span className="text-amber-400">Master Administrator</span>
-              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchAdminUsers()}
+                disabled={isLoadingUsers}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-amber-500/10 active:scale-95 disabled:opacity-50"
+                title="Fetch latest accounts from database"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingUsers ? 'animate-spin' : ''}`} />
+                <span>{isLoadingUsers ? 'Fetching...' : 'Fetch Users'}</span>
+              </button>
             </div>
           </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+              <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+                Total Accounts
+              </span>
+              <p className="text-2xl font-black text-white">{registeredUsers.length}</p>
+              <span className="text-[10px] text-zinc-500 block">Registered & Live</span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-blue-500/20 space-y-1">
+              <span className="text-[11px] font-semibold text-blue-400 uppercase tracking-wider block">
+                Active Requesters
+              </span>
+              <p className="text-2xl font-black text-blue-400">
+                {registeredUsers.filter((u) => (u.requestsCount || 0) > 0).length}
+              </p>
+              <span className="text-[10px] text-zinc-500 block">Requested Media</span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-rose-500/20 space-y-1">
+              <span className="text-[11px] font-semibold text-rose-400 uppercase tracking-wider block">
+                Defective Reporters
+              </span>
+              <p className="text-2xl font-black text-rose-400">
+                {registeredUsers.filter((u) => (u.reportsCount || 0) > 0).length}
+              </p>
+              <span className="text-[10px] text-zinc-500 block">Reported Issues</span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-emerald-500/20 space-y-1">
+              <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">
+                Active Admin Session
+              </span>
+              <p className="text-sm font-bold text-emerald-400 truncate">
+                {userProfile?.displayName || userProfile?.email?.split('@')[0] || 'Shyam'}
+              </p>
+              <span className="text-[10px] text-zinc-500 block truncate">
+                {userProfile?.email || 'admin@cinefuel.app'}
+              </span>
+            </div>
+          </div>
+
+          {/* Search & Category Filter Controls */}
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                placeholder="Search users by name, email, UID, or requested title (e.g. Ballerina)..."
+                className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/60"
+              />
+              {userSearchQuery && (
+                <button
+                  onClick={() => setUserSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 shrink-0">
+              <button
+                onClick={() => setUserFilterCategory('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  userFilterCategory === 'all'
+                    ? 'bg-amber-500 text-black shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                All ({registeredUsers.length})
+              </button>
+              <button
+                onClick={() => setUserFilterCategory('requesters')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  userFilterCategory === 'requesters'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Requesters ({registeredUsers.filter((u) => (u.requestsCount || 0) > 0).length})
+              </button>
+              <button
+                onClick={() => setUserFilterCategory('reporters')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  userFilterCategory === 'reporters'
+                    ? 'bg-rose-500 text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Reporters ({registeredUsers.filter((u) => (u.reportsCount || 0) > 0).length})
+              </button>
+            </div>
+          </div>
+
+          {/* User Directory Cards Grid */}
+          {isLoadingUsers && registeredUsers.length === 0 ? (
+            <div className="py-16 text-center space-y-3">
+              <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mx-auto" />
+              <p className="text-sm font-bold text-white">Fetching user directory & accounts...</p>
+              <p className="text-xs text-zinc-500">Querying central database and activity registry</p>
+            </div>
+          ) : filteredRegisteredUsers.length === 0 ? (
+            <div className="py-16 text-center rounded-2xl bg-zinc-900/40 border border-zinc-800/80 space-y-3 p-6">
+              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center mx-auto text-zinc-500">
+                <Users className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-white">
+                {userSearchQuery || userFilterCategory !== 'all'
+                  ? 'No matching users found'
+                  : 'No registered user accounts yet'}
+              </h4>
+              <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                {userSearchQuery || userFilterCategory !== 'all'
+                  ? 'Try clearing your search query or switching filters.'
+                  : 'When visitors sign in with Google or Email/Password, or submit movie requests, their accounts will appear here automatically.'}
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={() => {
+                    setUserSearchQuery('');
+                    setUserFilterCategory('all');
+                    fetchAdminUsers();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white inline-flex items-center gap-2 transition-all"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Reset & Fetch Users
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredRegisteredUsers.map((user) => {
+                const initial = (user.displayName || user.email || 'U')[0].toUpperCase();
+                const providerLabel =
+                  user.provider === 'google'
+                    ? 'Google Auth'
+                    : user.provider === 'password'
+                    ? 'Password'
+                    : user.provider === 'request_submitter'
+                    ? 'Request Submitter'
+                    : user.provider === 'report_submitter'
+                    ? 'Report Submitter'
+                    : 'Registered User';
+
+                return (
+                  <div
+                    key={user.uid}
+                    className="p-5 rounded-2xl bg-zinc-900/75 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-all space-y-4 flex flex-col justify-between group shadow-sm"
+                  >
+                    <div className="space-y-3.5">
+                      {/* User Identity Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-base shrink-0 shadow-md">
+                            {initial}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-bold text-white truncate flex items-center gap-1.5">
+                              <span className="truncate">{user.displayName || 'Cinema Explorer'}</span>
+                            </h4>
+                            <span className="text-xs text-zinc-400 truncate block font-mono">
+                              {user.email || 'No email registered'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Provider Pill */}
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 border ${
+                            user.provider === 'google'
+                              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              : user.provider === 'password'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}
+                        >
+                          {providerLabel}
+                        </span>
+                      </div>
+
+                      {/* UID & Date Info */}
+                      <div className="grid grid-cols-1 gap-1 text-[11px] text-zinc-400 font-mono bg-black/40 p-2.5 rounded-xl border border-zinc-800/80">
+                        <div className="flex items-center justify-between text-zinc-400">
+                          <span className="text-zinc-500">UID:</span>
+                          <span className="truncate max-w-[190px] text-zinc-300" title={user.uid}>
+                            {user.uid}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-zinc-400">
+                          <span className="text-zinc-500">Joined:</span>
+                          <span className="text-zinc-300">
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Active Session'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Activity Badges */}
+                      <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                        <div className="p-2 rounded-xl bg-blue-500/5 border border-blue-500/20">
+                          <span className="text-blue-400/80 block text-[10px] font-semibold uppercase">Requests</span>
+                          <span className="font-black text-blue-400 text-sm">{user.requestsCount || 0}</span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-rose-500/5 border border-rose-500/20">
+                          <span className="text-rose-400/80 block text-[10px] font-semibold uppercase">Reports</span>
+                          <span className="font-black text-rose-400 text-sm">{user.reportsCount || 0}</span>
+                        </div>
+                      </div>
+
+                      {/* Requested Titles Pills */}
+                      {user.recentRequests && user.recentRequests.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                            Requested Titles:
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {user.recentRequests.map((title, i) => (
+                              <button
+                                key={i}
+                                onClick={() => {
+                                  setActiveTab('requests');
+                                  setRequestsSearchQuery(title);
+                                }}
+                                className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 flex items-center gap-1 transition-colors"
+                                title={`Jump to requests for "${title}"`}
+                              >
+                                <Film className="w-3 h-3 text-amber-400 shrink-0" />
+                                <span className="truncate max-w-[180px]">{title}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => {
+                          setActiveTab('requests');
+                          setRequestsSearchQuery(user.email || user.displayName || '');
+                        }}
+                        className="flex-1 py-1.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <Inbox className="w-3.5 h-3.5 text-amber-400" />
+                        <span>View Requests</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteUser(user.uid, user.email)}
+                        className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                        title="Delete user account"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

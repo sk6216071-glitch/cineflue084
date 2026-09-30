@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllRequests, saveNewRequest, updateRequestStatus, deleteRequest } from '@/lib/requestsDb';
+import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase } from '@/lib/redisDb';
 import { UserRequest, CustomLink } from '@/types';
 
@@ -82,6 +83,21 @@ export async function POST(req: NextRequest) {
     };
 
     await saveNewRequest(newRequest);
+
+    // Auto-register / update user account in Central Users Directory
+    try {
+      const email = (userEmail || userContact || '').trim();
+      if (email && email.includes('@')) {
+        await saveUserToDatabase({
+          uid: userId.trim(),
+          email,
+          displayName: (userName || email.split('@')[0] || 'Cinephile').trim(),
+          provider: 'request_submitter',
+        });
+      }
+    } catch (uErr) {
+      console.warn('Failed to auto-sync user to usersDb from request:', uErr);
+    }
 
     return NextResponse.json({
       success: true,

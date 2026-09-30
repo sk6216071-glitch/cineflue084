@@ -239,6 +239,19 @@ export interface UserProfile {
   isGuest?: boolean;
 }
 
+export interface RegisteredUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string | null;
+  createdAt: string;
+  lastLoginAt?: string;
+  requestsCount?: number;
+  reportsCount?: number;
+  recentRequests?: string[];
+  provider?: string;
+}
+
 export interface RecommendationItem {
   item: TitleDetails;
   reason: string;
