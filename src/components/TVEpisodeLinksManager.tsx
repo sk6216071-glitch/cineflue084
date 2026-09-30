@@ -38,6 +38,7 @@ import {
   parseFullMediaTitle,
   detectShowPlatform,
   stripWatermarks,
+  extractEpisodeTitle,
 } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import RequestLinkModal from './RequestLinkModal';
@@ -447,6 +448,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [releaseFormat, setReleaseFormat] = useState<'episodes' | 'pack'>('episodes');
   const [selectedEpisode, setSelectedEpisode] = useState<number>(1);
+  const [selectedQualityFilter, setSelectedQualityFilter] = useState<'ALL' | '2160p' | '1080p' | '720p'>('ALL');
 
   // Dynamically calculate all seasons in ascending order (Season 1, Season 2, Season 3...) matching screenshot
   const seasonsList = useMemo(() => {
@@ -704,6 +706,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       resolution: string;
       source: string;
       title: string;
+      episodeName: string;
+      codec?: string;
+      dynamicRange?: string;
       audioLanguages: string;
       links: EnrichedLink[];
       size: string;
@@ -723,11 +728,17 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             fmt.resolution,
             fmt.source
           );
+          const epName = extractEpisodeTitle(first.title) || extractEpisodeTitle(epFormattedTitle);
+          const prof = extractReleaseProfile(first.title || epFormattedTitle, first.quality, titleDetails);
+
           results.push({
             optionId: opt.id,
             resolution: fmt.resolution,
             source: fmt.source,
             title: epFormattedTitle,
+            episodeName: epName,
+            codec: prof.codec,
+            dynamicRange: prof.dynamicRange,
             audioLanguages: opt.audioLanguages,
             links: epLinks,
             size: detectedSz,
@@ -747,6 +758,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       resolution: string;
       source: string;
       title: string;
+      codec?: string;
+      dynamicRange?: string;
       audioLanguages: string;
       packs: EnrichedLink[];
       size: string;
@@ -757,11 +770,16 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         if (opt.packs.length > 0) {
           const first = opt.packs[0];
           const detectedSz = first.size || detectSize(first.title) || '';
+          const cleanPackTitle = stripWatermarks(first.title || opt.title);
+          const prof = extractReleaseProfile(cleanPackTitle, first.quality, titleDetails);
+
           results.push({
             optionId: opt.id,
             resolution: fmt.resolution,
             source: fmt.source,
-            title: first.title || opt.title,
+            title: cleanPackTitle || opt.title,
+            codec: prof.codec,
+            dynamicRange: prof.dynamicRange,
             audioLanguages: opt.audioLanguages,
             packs: opt.packs,
             size: detectedSz,
@@ -771,7 +789,42 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     });
 
     return results;
-  }, [selectedSeason, seasonGroupsMap]);
+  }, [selectedSeason, seasonGroupsMap, titleDetails]);
+
+  // Filter releases by selected quality (ALL, 2160P, 1080P, 720P)
+  const filteredEpisodeReleases = useMemo(() => {
+    if (selectedQualityFilter === 'ALL') return activeEpisodeReleases;
+    return activeEpisodeReleases.filter((rel) => {
+      const q = `${rel.resolution} ${rel.title}`.toLowerCase();
+      if (selectedQualityFilter === '2160p') {
+        return q.includes('2160') || q.includes('4k') || q.includes('uhd');
+      }
+      if (selectedQualityFilter === '1080p') {
+        return q.includes('1080') || q.includes('fhd');
+      }
+      if (selectedQualityFilter === '720p') {
+        return q.includes('720') || q.includes('hd');
+      }
+      return true;
+    });
+  }, [activeEpisodeReleases, selectedQualityFilter]);
+
+  const filteredSeasonPacks = useMemo(() => {
+    if (selectedQualityFilter === 'ALL') return activeSeasonPacks;
+    return activeSeasonPacks.filter((packRel) => {
+      const q = `${packRel.resolution} ${packRel.title}`.toLowerCase();
+      if (selectedQualityFilter === '2160p') {
+        return q.includes('2160') || q.includes('4k') || q.includes('uhd');
+      }
+      if (selectedQualityFilter === '1080p') {
+        return q.includes('1080') || q.includes('fhd');
+      }
+      if (selectedQualityFilter === '720p') {
+        return q.includes('720') || q.includes('hd');
+      }
+      return true;
+    });
+  }, [activeSeasonPacks, selectedQualityFilter]);
 
   const handleStartEdit = (link: CustomLink) => {
     setEditingLink(link);
@@ -946,40 +999,69 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             </div>
           </div>
         )}
+
+        {/* Section 4: FILTER BY QUALITY (Screenshot 3 reference design) */}
+        <div className="space-y-2.5 pt-2 border-t border-white/5">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-bold tracking-wider text-zinc-400 uppercase block">
+              Filter By Quality
+            </label>
+            {selectedQualityFilter !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => setSelectedQualityFilter('ALL')}
+                className="text-[11px] font-bold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+              >
+                Reset Filter
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            {(['ALL', '2160p', '1080p', '720p'] as const).map((qKey) => {
+              const isActive = selectedQualityFilter === qKey;
+              const displayLabel = qKey === 'ALL' ? 'ALL' : qKey.toUpperCase();
+              return (
+                <button
+                  key={qKey}
+                  type="button"
+                  onClick={() => setSelectedQualityFilter(qKey)}
+                  className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm tracking-wider uppercase transition-all cursor-pointer select-none ${
+                    isActive
+                      ? 'bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 text-white shadow-[0_4px_20px_rgba(59,130,246,0.55)] border border-blue-400/30 scale-[1.02]'
+                      : 'bg-[#181921] hover:bg-[#222430] text-zinc-300 hover:text-white border border-white/5'
+                  }`}
+                >
+                  {displayLabel}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Active Releases Display */}
       <div className="space-y-4">
         {releaseFormat === 'episodes' ? (
-          activeEpisodeReleases.length > 0 ? (
-            activeEpisodeReleases.map((rel) => (
+          filteredEpisodeReleases.length > 0 ? (
+            filteredEpisodeReleases.map((rel) => (
               <div
                 key={rel.optionId}
                 className="rounded-2xl bg-[#0c0d13] border border-white/5 hover:border-blue-500/30 transition-all p-5 sm:p-6 space-y-4 shadow-xl"
               >
-                {/* Header Row: Badges, Title, Audio & Size */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/5 pb-3.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={getResolutionBadgeStyle(rel.resolution)}>
-                      {rel.resolution}
-                    </span>
-                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
-                      {rel.source}
-                    </span>
-                    {rel.size && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-[#181921] text-zinc-300 border border-white/5">
-                        {rel.size}
-                      </span>
-                    )}
-                    {rel.audioLanguages && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        {rel.audioLanguages}
-                      </span>
-                    )}
+                {/* Header Row: Episode Title matching Screenshot 1 & 3 */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-white/5 pb-3.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                      <FileVideo className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-base sm:text-lg font-bold text-white tracking-wide truncate">
+                      Episode {selectedEpisode}
+                      {rel.episodeName ? ` : ${rel.episodeName}` : ''}
+                    </h4>
                   </div>
 
                   {isEffectiveAdmin && (
-                    <div className="flex items-center gap-1.5 self-start md:self-auto">
+                    <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0">
                       <button
                         type="button"
                         onClick={() =>
@@ -991,6 +1073,36 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         <span>Manage ({rel.links.length})</span>
                       </button>
                     </div>
+                  )}
+                </div>
+
+                {/* Badges Row: Resolution, Source, Codec, Dynamic Range, Size & Audio */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={getResolutionBadgeStyle(rel.resolution)}>
+                    {rel.resolution}
+                  </span>
+                  <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                    {rel.source}
+                  </span>
+                  {rel.codec && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-sm">
+                      {rel.codec}
+                    </span>
+                  )}
+                  {rel.dynamicRange && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm">
+                      {rel.dynamicRange}
+                    </span>
+                  )}
+                  {rel.size && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-[#181921] text-zinc-300 border border-white/5">
+                      {rel.size}
+                    </span>
+                  )}
+                  {rel.audioLanguages && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      {rel.audioLanguages}
+                    </span>
                   )}
                 </div>
 
@@ -1006,14 +1118,14 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       navigator.clipboard.writeText(rel.title);
                       alert('Release title copied to clipboard!');
                     }}
-                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1"
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1 cursor-pointer"
                     title="Copy release name"
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                {/* Direct Download Server Mirrors */}
+                {/* Direct Download Server Mirrors matching Screenshot 1 & 3 */}
                 <div className="space-y-2">
                   <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                     <Download className="w-3.5 h-3.5 text-blue-400" />
@@ -1027,8 +1139,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       ).length;
                       const serverLabel =
                         sameServerCount > 1
-                          ? `${server.name || 'Server'} ${idx + 1}`
-                          : server.name || `Server ${idx + 1}`;
+                          ? `Download ${server.name || 'Server'} ${idx + 1}`
+                          : `Download ${server.name || 'Server'}`;
 
                       return (
                         <div key={link.id || idx} className="flex items-center gap-1.5">
@@ -1124,20 +1236,34 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 <FileVideo className="w-6 h-6" />
               </div>
               <h4 className="text-white font-bold text-base sm:text-lg">
-                No Links Uploaded Yet for Season {selectedSeason} Episode {selectedEpisode}
+                {selectedQualityFilter !== 'ALL'
+                  ? `No ${selectedQualityFilter.toUpperCase()} Links for Season ${selectedSeason} Episode ${selectedEpisode}`
+                  : `No Links Uploaded Yet for Season ${selectedSeason} Episode ${selectedEpisode}`}
               </h4>
               <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto">
-                We don&apos;t have download links uploaded for Episode {selectedEpisode} yet. Request it below and our team will add it!
+                {selectedQualityFilter !== 'ALL'
+                  ? `No releases match the ${selectedQualityFilter.toUpperCase()} filter. Reset to ALL to view available formats or request below.`
+                  : `We don't have download links uploaded for Episode ${selectedEpisode} yet. Request it below and our team will add it!`}
               </p>
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsRequestModalOpen(true)}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Request Episode {selectedEpisode} Links</span>
-                </button>
+                {selectedQualityFilter !== 'ALL' ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedQualityFilter('ALL')}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg transition-all cursor-pointer"
+                  >
+                    <span>Show All Qualities</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsRequestModalOpen(true)}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Request Episode {selectedEpisode} Links</span>
+                  </button>
+                )}
                 {isEffectiveAdmin && (
                   <a
                     href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
@@ -1150,38 +1276,25 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             </div>
           )
         ) : (
-          activeSeasonPacks.length > 0 ? (
-            activeSeasonPacks.map((packRel) => (
+          filteredSeasonPacks.length > 0 ? (
+            filteredSeasonPacks.map((packRel) => (
               <div
                 key={packRel.optionId}
                 className="rounded-2xl bg-[#0c0d13] border border-white/5 hover:border-amber-500/30 transition-all p-5 sm:p-6 space-y-4 shadow-xl"
               >
-                {/* Header Row: Badges, Title, Audio & Size */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/5 pb-3.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={getResolutionBadgeStyle(packRel.resolution)}>
-                      {packRel.resolution}
-                    </span>
-                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
-                      {packRel.source}
-                    </span>
-                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm flex items-center gap-1">
-                      <Layers className="w-3 h-3" /> Season Pack
-                    </span>
-                    {packRel.size && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-[#181921] text-zinc-300 border border-white/5">
-                        {packRel.size}
-                      </span>
-                    )}
-                    {packRel.audioLanguages && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        {packRel.audioLanguages}
-                      </span>
-                    )}
+                {/* Header Row: Complete Season Pack Title */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-white/5 pb-3.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-base sm:text-lg font-bold text-white tracking-wide truncate">
+                      Complete Season {selectedSeason} Pack
+                    </h4>
                   </div>
 
                   {isEffectiveAdmin && (
-                    <div className="flex items-center gap-1.5 self-start md:self-auto">
+                    <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0">
                       <button
                         type="button"
                         onClick={() =>
@@ -1198,6 +1311,39 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                   )}
                 </div>
 
+                {/* Badges Row: Resolution, Source, Season Pack, Codec, Dynamic Range, Size & Audio */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={getResolutionBadgeStyle(packRel.resolution)}>
+                    {packRel.resolution}
+                  </span>
+                  <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                    {packRel.source}
+                  </span>
+                  <span className="px-3 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm flex items-center gap-1">
+                    <Layers className="w-3 h-3" /> Season Pack
+                  </span>
+                  {packRel.codec && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-sm">
+                      {packRel.codec}
+                    </span>
+                  )}
+                  {packRel.dynamicRange && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm">
+                      {packRel.dynamicRange}
+                    </span>
+                  )}
+                  {packRel.size && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-[#181921] text-zinc-300 border border-white/5">
+                      {packRel.size}
+                    </span>
+                  )}
+                  {packRel.audioLanguages && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      {packRel.audioLanguages}
+                    </span>
+                  )}
+                </div>
+
                 {/* Pack Filename */}
                 <div className="font-mono text-xs sm:text-sm text-zinc-200 font-semibold break-all bg-[#121319] p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -1210,7 +1356,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       navigator.clipboard.writeText(packRel.title);
                       alert('Pack title copied to clipboard!');
                     }}
-                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1"
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1 cursor-pointer"
                     title="Copy pack name"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -1231,8 +1377,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       ).length;
                       const serverLabel =
                         sameServerCount > 1
-                          ? `${server.name || 'Zip Server'} ${idx + 1}`
-                          : server.name || `Zip Server ${idx + 1}`;
+                          ? `Download ${server.name || 'Zip Server'} ${idx + 1}`
+                          : `Download ${server.name || 'Zip Server'}`;
 
                       return (
                         <div key={pack.id || idx} className="flex items-center gap-1.5">
@@ -1328,20 +1474,34 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 <Layers className="w-6 h-6" />
               </div>
               <h4 className="text-white font-bold text-base sm:text-lg">
-                No Complete Season Packs Uploaded Yet for Season {selectedSeason}
+                {selectedQualityFilter !== 'ALL'
+                  ? `No ${selectedQualityFilter.toUpperCase()} Complete Season Packs for Season ${selectedSeason}`
+                  : `No Complete Season Packs Uploaded Yet for Season ${selectedSeason}`}
               </h4>
               <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto">
-                Single episodes may be available under the <strong>EPISODES</strong> tab! You can also request a complete season pack zip archive.
+                {selectedQualityFilter !== 'ALL'
+                  ? `No complete season packs match the ${selectedQualityFilter.toUpperCase()} filter. Reset to ALL to view available packages or request below.`
+                  : `Single episodes may be available under the EPISODES tab! You can also request a complete season pack zip archive.`}
               </p>
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsRequestModalOpen(true)}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-amber-600/30 transition-all cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Request Season {selectedSeason} Pack</span>
-                </button>
+                {selectedQualityFilter !== 'ALL' ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedQualityFilter('ALL')}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg transition-all cursor-pointer"
+                  >
+                    <span>Show All Qualities</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsRequestModalOpen(true)}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-amber-600/30 transition-all cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Request Season {selectedSeason} Pack</span>
+                  </button>
+                )}
                 {isEffectiveAdmin && (
                   <a
                     href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}

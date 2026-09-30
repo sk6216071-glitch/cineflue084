@@ -179,20 +179,68 @@ export function detectLinkType(link: { title?: string; linkType?: string; catego
 export function stripWatermarks(text: string): string {
   if (!text) return '';
   return text
+    // 0. Remove leading prefix noise like "Name : ", "1. Name : ", "Title: "
+    .replace(/^\s*(?:\d+[\.\)]\s*)?(?:Name|Title|Movie|Download|Link|File)\s*[:=-]+\s*/i, '')
     // 1. Remove bracketed / parenthesized domains (e.g. (TSS-4kHdHub.com), [4kHdHub.org], (UHDmovies.vip))
-    .replace(/[\(\[]\s*[-a-z0-9_.]*(?:4k|uhd|hd|movie|flix|hub|luxe|kat|mod|dot|vega|sky|desire)[a-z0-9-_.]*(?:\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link|cloud|live))[^\)\]]*[\)\]]/gi, ' ')
+    .replace(/[\(\[]\s*[-a-z0-9_]*(?:4k|uhd|hd|movie|flix|hub|luxe|kat|mod|dot|vega|sky|desire)[-a-z0-9_]*(?:\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link|cloud|live))[^\)\]]*[\)\]]/gi, ' ')
     // 2. Remove any other parenthesized/bracketed domain name ending with a common TLD
-    .replace(/[\(\[]\s*[-a-z0-9_.]+\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link)\s*[\)\]]/gi, ' ')
-    // 3. Remove raw domain names containing 4k, uhd, or known movie site names
-    .replace(/(?:[-_.\s\(\[]*)?(?:tss[-_.]*)?[a-z0-9-_.]*(?:4k|uhd|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies|desiremovies|moviesmod|dotmovies)[a-z0-9-_.]*(?:\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link|cloud|live))[^\s\(\)\[\]]*/gi, ' ')
+    .replace(/[\(\[]\s*[-a-z0-9_]+\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link)\s*[\)\]]/gi, ' ')
+    // 3. Remove raw domain names containing known site prefixes/suffixes without consuming preceding dots
+    .replace(/(?:[-_ \(\[]+)?(?:tss[-_]*)?(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies|desiremovies|moviesmod|dotmovies)[-a-z0-9_]*(?:\.(?:com|org|net|in|cx|to|nl|app|site|vip|cc|me|xyz|top|online|co|link|cloud|live))/gi, '')
     // 4. Remove standalone site brandings
-    .replace(/\b(?:tss[-_.]*)?(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies|desiremovies|moviesmod|dotmovies)[a-z0-9-_.]*/gi, ' ')
+    .replace(/(?:[-_ \(\[]+)?\b(?:tss[-_]*)?(?:4khdhub|vegamovies|bollyflix|hdhub4u|katmoviehd|cinemaluxe|skymovieshd|uhdmovies|desiremovies|moviesmod|dotmovies)[-a-z0-9_]*/gi, '')
     // 5. Remove trailing HubCloud / noise
-    .replace(/HUBCLOUD\s*=?\s*$/gi, '')
-    .replace(/HUBCLOUD\s*=?\s*/gi, ' ')
+    .replace(/\s*HUBCLOUD\s*=?\s*$/gi, '')
+    .replace(/\s*HUBCLOUD\s*=?\s*/gi, ' ')
     .replace(/\s+\./g, '.')
+    .replace(/\.+/g, '.')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Extract friendly episode title from scene release filename (e.g., 'The End of the Road')
+ */
+export function extractEpisodeTitle(filename: string): string {
+  if (!filename) return '';
+  const cleaned = stripWatermarks(filename);
+
+  // Find S\d+E\d+ or E\d+
+  const match = cleaned.match(/(?:S\d{1,2}[\s._-]*E\d{1,3}|\bE\d{1,3}\b)[\s._-]+(.*)/i);
+  if (!match || !match[1]) return '';
+
+  const remainder = match[1];
+
+  // Stop at the first quality/resolution, source, codec, audio, or metadata tag
+  const stopKeywords = [
+    '2160p', '1080p', '720p', '480p', '2160i', '1080i', '720i', '480i',
+    'uhd', 'fhd', 'hd', 'sd', '4k',
+    'web-dl', 'webdl', 'webrip', 'web', 'bluray', 'blu-ray', 'remux', 'hdtv',
+    'nf', 'amzn', 'dsnp', 'atvp', 'max', 'hulu', 'zee5', 'sonyliv', 'jio',
+    'hevc', 'x265', 'h.265', 'x264', 'h.264', 'avc',
+    'ddp5.1', 'ddp5', 'ddp', 'dd5.1', 'aac2.0', 'aac', 'ac3', 'atmos',
+    'multi', 'dual', 'hindi', 'english', 'esub', 'subs'
+  ];
+
+  const tokens = remainder.split(/[\s._-]+/);
+  const titleTokens: string[] = [];
+
+  for (const token of tokens) {
+    const tLower = token.toLowerCase();
+    if (
+      stopKeywords.includes(tLower) ||
+      /^\d{3,4}p$/i.test(token) ||
+      /^(?:mkv|mp4|avi)$/i.test(token)
+    ) {
+      break;
+    }
+    titleTokens.push(token);
+  }
+
+  if (titleTokens.length > 0) {
+    return titleTokens.join(' ').trim();
+  }
+  return '';
 }
 
 /**
