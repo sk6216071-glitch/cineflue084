@@ -579,22 +579,24 @@ export const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv', details?:
   const isExplicitBollywood = /(?:bollywood|hindi\s*movie|desiremovies|bollyflix|vegamovies|katmoviehd)/i.test(`${titleCombined} ${docAudio}`);
   const isIndianLang = origLang === 'hi' || (origCountry.includes('IN') && (origLang === 'hi' || !origLang));
 
-  if (isIndianLang && !isHollywoodTitle) {
-    category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
+  if (mType === 'tv') {
+    category = 'TV SERIES';
+  } else if (isIndianLang && !isHollywoodTitle) {
+    category = 'BOLLYWOOD';
   } else if (['te', 'ta', 'ml', 'kn'].includes(origLang) && !isHollywoodTitle) {
-    category = mType === 'tv' ? 'SOUTH TV SHOWS' : 'SOUTH INDIAN';
+    category = 'SOUTH INDIAN';
   } else if (origLang === 'ja') {
     category = 'ANIME';
   } else if (origLang === 'ko') {
-    category = mType === 'tv' ? 'K-DRAMA' : 'KOREAN';
+    category = 'KOREAN';
   } else if (origLang === 'en' || origCountry.some((c: string) => ['US', 'GB', 'CA', 'AU', 'NZ'].includes(c))) {
-    category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    category = 'HOLLYWOOD';
   } else if (isHollywoodTitle || hasEnglishOrDual) {
-    category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    category = 'HOLLYWOOD';
   } else if (isExplicitBollywood) {
-    category = mType === 'tv' ? 'HINDI TV SHOWS' : 'BOLLYWOOD';
+    category = 'BOLLYWOOD';
   } else {
-    category = mType === 'tv' ? 'ENGLISH TV SERIES' : 'HOLLYWOOD';
+    category = 'HOLLYWOOD';
   }
 
   const sizeMatch = docItem?.size || docTitle.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i)?.[1]?.toUpperCase();
