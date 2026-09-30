@@ -3,10 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Film, Search, Bookmark, Sparkles, Settings, RefreshCw, Flame, Menu, X, User as UserIcon, Layers, Compass, Shield, ChevronDown } from 'lucide-react';
-import { useWatchlist } from '@/context/WatchlistContext';
+import { Film, Search, Sparkles, RefreshCw, Flame, Menu, X, User as UserIcon, Layers, Compass, Shield, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import SettingsModal from './SettingsModal';
 import AuthModal from './AuthModal';
 
 interface NavDropdownItem {
@@ -67,9 +65,7 @@ const NAVIGATION_ITEMS: NavItem[] = [
 export const Header: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
-  const { stats, isMounted } = useWatchlist();
   const { userProfile, isLoggedIn } = useAuth();
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -267,26 +263,6 @@ export const Header: React.FC = () => {
               <Search className="w-4 h-4" />
             </Link>
 
-            {/* Watchlist Quick Button */}
-            <Link
-              href="/watchlist"
-              className={`p-2 rounded-lg transition-colors border relative ${
-                pathname === '/watchlist'
-                  ? 'bg-amber-500 text-black border-amber-400'
-                  : 'bg-zinc-800/70 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border-zinc-700/60'
-              }`}
-              title="My Watchlist"
-              aria-label="Watchlist"
-              suppressHydrationWarning
-            >
-              <Bookmark className="w-4 h-4" />
-              {isMounted && stats.totalItems > 0 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-amber-500 text-black shadow-sm">
-                  {stats.totalItems}
-                </span>
-              )}
-            </Link>
-
             {/* Admin Panel Button */}
             <Link
               href="/admin"
@@ -301,17 +277,6 @@ export const Header: React.FC = () => {
             >
               <Shield className="w-4 h-4" />
             </Link>
-
-            {/* Settings Modal Button */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-lg bg-zinc-800/70 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-700/60 transition-colors"
-              title="Settings & API Keys"
-              aria-label="Settings"
-              suppressHydrationWarning
-            >
-              <Settings className="w-4 h-4" />
-            </button>
 
             {/* User Profile / Auth Button */}
             <Link
@@ -398,21 +363,6 @@ export const Header: React.FC = () => {
 
             <div className="pt-2 border-t border-zinc-800/80 space-y-1">
               <Link
-                href="/watchlist"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-              >
-                <span className="flex items-center gap-2">
-                  <Bookmark className="w-4 h-4 text-amber-400" /> My Watchlist
-                </span>
-                {isMounted && stats.totalItems > 0 && (
-                  <span className="px-2 py-0.5 text-[10px] rounded-full bg-amber-500 text-black font-bold">
-                    {stats.totalItems}
-                  </span>
-                )}
-              </Link>
-
-              <Link
                 href="/admin"
                 onClick={() => setMobileMenuOpen(false)}
                 className={`block px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 ${
@@ -425,9 +375,6 @@ export const Header: React.FC = () => {
           </div>
         )}
       </header>
-
-      {/* Settings Modal */}
-      {isSettingsOpen && <SettingsModal onClose={() => setIsSettingsOpen(false)} />}
 
       {/* Auth Modal */}
       {isAuthOpen && <AuthModal onClose={() => setIsAuthOpen(false)} />}

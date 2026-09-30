@@ -3,10 +3,9 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Star, Plus, Check, Eye, Heart, Film, Tv, Play, Clock } from 'lucide-react';
+import { Star, Film, Tv, Play, Clock } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { getImageURL } from '@/lib/tmdb';
-import { useWatchlist } from '@/context/WatchlistContext';
 import { detectShowPlatform } from '@/lib/seasonParser';
 
 interface MovieCardProps {
@@ -38,8 +37,6 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   priority = false,
   aspect = 'portrait',
 }) => {
-  const { watchlist, addToWatchlist, removeFromWatchlist, toggleStatus, toggleFavorite, isMounted } = useWatchlist();
-
   const mediaType = item.media_type || (item.name ? 'tv' : 'movie');
   const title = item.title || item.name || 'Untitled';
   const releaseDate = item.release_date || item.first_air_date || '';
@@ -49,40 +46,6 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   const posterUrl = isLandscape
     ? getImageURL(item.backdrop_path || item.poster_path, 'w780')
     : getImageURL(item.poster_path, 'w500');
-
-  const existing = isMounted ? watchlist.find((w) => w.id === item.id) : undefined;
-  const isInWatchlist = !!existing;
-  const isWatched = existing?.status === 'watched';
-  const isFavorite = existing?.isFavorite || false;
-
-  const handleWatchlistClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isInWatchlist && !isWatched) {
-      removeFromWatchlist(item.id);
-    } else {
-      addToWatchlist(item, 'watchlist');
-    }
-  };
-
-  const handleWatchedClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isWatched) {
-      toggleStatus(item.id, 'watchlist');
-    } else {
-      addToWatchlist(item, 'watched');
-    }
-  };
-
-  const handleFavoriteClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isInWatchlist) {
-      addToWatchlist(item, 'watchlist');
-    }
-    toggleFavorite(item.id);
-  };
 
   // Upload metadata sensing (DV, 4K, Platform, Category, Size)
   const uploadMeta = item.uploadMeta || {};
@@ -252,25 +215,6 @@ export const MovieCard: React.FC<MovieCardProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons on Hover */}
-          <div className="absolute top-2.5 right-14 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30 pointer-events-auto">
-            <button
-              onClick={handleWatchlistClick}
-              title={isInWatchlist && !isWatched ? 'Remove from Watchlist' : 'Add to Watchlist'}
-              className="p-1.5 rounded-lg bg-black/80 hover:bg-amber-500 text-white hover:text-black border border-white/20 transition-all"
-              suppressHydrationWarning
-            >
-              {isInWatchlist && !isWatched ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Plus className="w-3.5 h-3.5" />}
-            </button>
-            <button
-              onClick={handleFavoriteClick}
-              title={isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
-              className="p-1.5 rounded-lg bg-black/80 hover:bg-rose-500 text-white border border-white/20 transition-all"
-              suppressHydrationWarning
-            >
-              <Heart className={`w-3.5 h-3.5 ${isFavorite ? 'fill-current text-white' : ''}`} />
-            </button>
-          </div>
         </Link>
 
         {/* Info Section Below Poster */}
@@ -366,49 +310,6 @@ export const MovieCard: React.FC<MovieCardProps> = ({
           </div>
         </div>
 
-        {/* Bottom Quick-Action Buttons */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-3 group-hover:translate-y-0 z-30 pointer-events-auto">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleWatchlistClick}
-              title={isInWatchlist && !isWatched ? 'Remove from Watchlist' : 'Add to Watchlist'}
-              className={`p-2 rounded-xl backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 ${
-                isInWatchlist && !isWatched
-                  ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/40 border border-amber-400'
-                  : 'bg-black/80 text-white hover:bg-amber-500 hover:text-black border border-white/20'
-              }`}
-              suppressHydrationWarning
-            >
-              {isInWatchlist && !isWatched ? <Check className="w-4 h-4 stroke-[3]" /> : <Plus className="w-4 h-4" />}
-            </button>
-
-            <button
-              onClick={handleWatchedClick}
-              title={isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
-              className={`p-2 rounded-xl backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 ${
-                isWatched
-                  ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/40 border border-emerald-400'
-                  : 'bg-black/80 text-white hover:bg-emerald-500 hover:text-black border border-white/20'
-              }`}
-              suppressHydrationWarning
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button
-            onClick={handleFavoriteClick}
-            title={isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
-            className={`p-2 rounded-xl backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 ${
-              isFavorite
-                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 border border-rose-400'
-                : 'bg-black/80 text-white hover:bg-rose-500 hover:text-white border border-white/20'
-            }`}
-            suppressHydrationWarning
-          >
-            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current text-white' : ''}`} />
-          </button>
-        </div>
       </Link>
 
       {/* Info Section Below Poster */}
@@ -420,11 +321,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         </Link>
         <div className="flex items-center justify-between text-xs text-zinc-400 mt-1.5 font-medium">
           <span className="text-zinc-400 group-hover:text-zinc-300 transition-colors">{year || 'TBA'}</span>
-          {isMounted && existing?.personalRating ? (
-            <span className="flex items-center gap-0.5 text-amber-400 text-[11px] font-black">
-              ★ {existing.personalRating}/10
-            </span>
-          ) : (item as any).qualities && (item as any).qualities.length > 0 ? (
+          {(item as any).qualities && (item as any).qualities.length > 0 ? (
             <span className="text-[10px] text-amber-400 font-bold tracking-wider">
               {(item as any).qualities.slice(0, 2).join(' • ')}
             </span>

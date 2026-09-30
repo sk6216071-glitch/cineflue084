@@ -3,10 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Play, Plus, Check, Star, Info, ChevronLeft, ChevronRight, Tv, Film } from 'lucide-react';
+import { Play, Star, Info, ChevronLeft, ChevronRight, Tv, Film } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import { getBackdropURL } from '@/lib/tmdb';
-import { useWatchlist } from '@/context/WatchlistContext';
 import TrailerModal from './TrailerModal';
 
 interface HeroBannerProps {
@@ -16,7 +15,6 @@ interface HeroBannerProps {
 export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
-  const { watchlist, addToWatchlist, removeFromWatchlist } = useWatchlist();
 
   const currentItem = items[currentIndex] || items[0];
 
@@ -35,20 +33,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
   const releaseYear = (currentItem.release_date || currentItem.first_air_date || '').split('-')[0];
   const backdropUrl = getBackdropURL(currentItem.backdrop_path, 'original');
 
-  const existing = watchlist.find((w) => w.id === currentItem.id);
-  const isInWatchlist = !!existing;
-
   const trailer = currentItem.videos?.results?.find(
     (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
   );
-
-  const handleWatchlistClick = () => {
-    if (isInWatchlist) {
-      removeFromWatchlist(currentItem.id);
-    } else {
-      addToWatchlist(currentItem, 'watchlist');
-    }
-  };
 
   return (
     <div className="relative w-full h-[75vh] min-h-[580px] max-h-[820px] overflow-hidden bg-black select-none">
@@ -138,18 +125,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
               </button>
             )}
 
-            <button
-              onClick={handleWatchlistClick}
-              className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all border ${
-                isInWatchlist
-                  ? 'bg-emerald-600/90 border-emerald-500 text-white shadow-lg shadow-emerald-600/20'
-                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-white border-zinc-700'
-              }`}
-              suppressHydrationWarning
-            >
-              {isInWatchlist ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              {isInWatchlist ? 'In Watchlist' : 'Add to Watchlist'}
-            </button>
+            {/* More Details Button */}
 
             <Link
               href={`/${mediaType}/${currentItem.id}`}

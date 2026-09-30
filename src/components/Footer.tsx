@@ -20,7 +20,7 @@ export const Footer: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-zinc-500 leading-relaxed">
-              Your all-in-one cinema command center. Discover movies and TV shows, check India streaming availability, and track your watchlist.
+              Your premier destination for high-speed direct downloads in 4K UHD, 1080p, REMUX, and HDR with multi-audio.
             </p>
           </div>
 
@@ -28,22 +28,21 @@ export const Footer: React.FC = () => {
           <div>
             <h4 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider mb-3">Discover</h4>
             <ul className="space-y-2 text-xs">
-              <li><Link href="/" className="hover:text-amber-400 transition-colors">Trending Today</Link></li>
-              <li><Link href="/movies" className="hover:text-amber-400 transition-colors">Popular Movies</Link></li>
-              <li><Link href="/tv" className="hover:text-amber-400 transition-colors">Top TV Shows</Link></li>
-              <li><Link href="/search" className="hover:text-amber-400 transition-colors">Search & Filter</Link></li>
+              <li><Link href="/" className="hover:text-amber-400 transition-colors">Latest Uploads</Link></li>
+              <li><Link href="/explore" className="hover:text-amber-400 transition-colors">Explore All</Link></li>
+              <li><Link href="/movies" className="hover:text-amber-400 transition-colors">Feature Movies</Link></li>
+              <li><Link href="/tv" className="hover:text-amber-400 transition-colors">Web Series & Shows</Link></li>
             </ul>
           </div>
 
-          {/* Watch & Track */}
+          {/* Catalog & Portal */}
           <div>
-            <h4 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider mb-3">Tracking & Sync</h4>
+            <h4 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider mb-3">Catalog & Portal</h4>
             <ul className="space-y-2 text-xs">
-              <li><Link href="/watchlist" className="hover:text-amber-400 transition-colors">My Watchlist</Link></li>
-              <li><Link href="/watchlist?tab=watched" className="hover:text-amber-400 transition-colors">Watched History</Link></li>
-              <li><Link href="/watchlist?tab=favorites" className="hover:text-amber-400 transition-colors">Favorites & Ratings</Link></li>
-              <li><Link href="/mdblist" className="hover:text-emerald-400 transition-colors">MDBList Ratings</Link></li>
-              <li><Link href="/admin" className="hover:text-amber-400 transition-colors font-semibold text-amber-500/90">🛡️ Admin Panel</Link></li>
+              <li><Link href="/search" className="hover:text-amber-400 transition-colors">Advanced Search</Link></li>
+              <li><Link href="/movies?quality=4k" className="hover:text-amber-400 transition-colors">4K Ultra HD Movies</Link></li>
+              <li><Link href="/tv?category=zippack" className="hover:text-amber-400 transition-colors">Season Zip Packs</Link></li>
+              <li><Link href="/admin" className="hover:text-amber-400 transition-colors font-semibold text-amber-500/90">🛡️ Admin Portal</Link></li>
             </ul>
           </div>
 
