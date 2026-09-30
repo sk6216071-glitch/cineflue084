@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Link2,
   ExternalLink,
@@ -16,6 +16,9 @@ import {
   Info,
   AlertTriangle,
   Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Copy,
 } from 'lucide-react';
 import { TitleDetails, CustomLink } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -25,7 +28,7 @@ import {
   deleteGlobalCustomLink,
   getDeletedLinkIds,
 } from '@/lib/curatedLinks';
-import { parseFullMediaTitle, detectSize, stripWatermarks } from '@/lib/seasonParser';
+import { parseFullMediaTitle, detectSize, stripWatermarks, getQualityWeight } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
@@ -62,6 +65,172 @@ function detectResolution(quality?: string, title?: string): string {
   if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(cleanQuality)) return '2160p';
 
   return '1080p';
+}
+
+interface MovieReleaseOption {
+  id: string;
+  displayTitle: string;
+  rawSceneTitle: string;
+  size: string;
+  audioLanguages: string;
+  source: string;
+  resolution: string;
+  links: CustomLink[];
+}
+
+interface MovieFormatGroup {
+  id: string;
+  resolution: string;
+  source: string;
+  options: MovieReleaseOption[];
+}
+
+function detectSource(title?: string, quality?: string): string {
+  const combined = `${title || ''} ${quality || ''}`.toLowerCase();
+  if (/remux/i.test(combined)) return 'BluRay';
+  if (/bluray|blu-ray|bdrip/i.test(combined)) return 'BluRay';
+  if (/web-dl|webdl|webrip|web/i.test(combined)) return 'WEB-DL';
+  if (/hdtv/i.test(combined)) return 'HDTV';
+  if (/dvd|dvdrip/i.test(combined)) return 'DVD';
+  return 'WEB-DL';
+}
+
+function getResolutionBadgeStyle(resolution: string): string {
+  if (resolution.includes('2160p') || resolution.includes('4K') || resolution.includes('4k')) {
+    return 'bg-[#f59e0b] text-black font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+  }
+  if (resolution.includes('1080p')) {
+    return 'bg-[#14223d] text-blue-400 border border-[#1e3a6a] font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+  }
+  if (resolution.includes('720p')) {
+    return 'bg-[#221838] text-purple-400 border border-[#3b2960] font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+  }
+  return 'bg-zinc-800 text-zinc-300 border border-zinc-700 font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
+}
+
+function formatAudioLanguages(audio?: string, title?: string): string {
+  const combined = `${audio || ''} ${title || ''}`.toLowerCase();
+  const list: string[] = [];
+  if (combined.includes('hindi') || combined.includes('hin')) list.push('Hindi');
+  if (combined.includes('tamil') || combined.includes('tam')) list.push('Tamil');
+  if (combined.includes('telugu') || combined.includes('tel')) list.push('Telugu');
+  if (combined.includes('malayalam') || combined.includes('mal')) list.push('Malayalam');
+  if (combined.includes('kannada') || combined.includes('kan')) list.push('Kannada');
+  if (combined.includes('bengali') || combined.includes('ben')) list.push('Bengali');
+  if (combined.includes('marathi') || combined.includes('mar')) list.push('Marathi');
+  if (combined.includes('english') || combined.includes('eng')) list.push('English');
+  if (combined.includes('japanese') || combined.includes('jap')) list.push('Japanese');
+  if (combined.includes('korean') || combined.includes('kor')) list.push('Korean');
+  if (combined.includes('spanish') || combined.includes('spa')) list.push('Spanish');
+  if (combined.includes('french') || combined.includes('fre')) list.push('French');
+  if (combined.includes('german') || combined.includes('ger')) list.push('German');
+
+  // DUAL audio on Indian streaming scene indicates Hindi + English
+  if (combined.includes('dual')) {
+    if (!list.includes('Hindi')) list.unshift('Hindi');
+    if (!list.includes('English')) list.push('English');
+  }
+
+  if (list.length > 0) {
+    return list.join(', ');
+  }
+
+  if (audio && audio !== 'Original' && audio !== 'English') {
+    return audio.replace(/\s*•\s*/g, ', ').replace(/\s*\+\s*/g, ', ');
+  }
+
+  return 'Hindi, English';
+}
+
+function formatMovieReleaseOptionTitle(
+  rawTitle: string,
+  titleDetails: TitleDetails,
+  resolution: string,
+  source: string,
+  qualityHint?: string
+): string {
+  const movieName = titleDetails.title || titleDetails.name || 'Movie';
+  const cleanTitle = stripWatermarks(rawTitle || '');
+  const titleLower = cleanTitle.toLowerCase();
+  const qLower = (qualityHint || '').toLowerCase();
+  const combined = `${titleLower} ${qLower}`;
+
+  // Check special edition tags: IMAX, PLAY, EXTENDED, UNRATED, DIRECTORS CUT
+  let editionTag = '';
+  if (/\bimax\b/i.test(cleanTitle)) editionTag = 'IMAX';
+  else if (/\bplay\b/i.test(cleanTitle)) editionTag = 'PLAY';
+  else if (/\bextended\b/i.test(cleanTitle)) editionTag = 'EXTENDED';
+  else if (/\bunrated\b/i.test(cleanTitle)) editionTag = 'UNRATED';
+  else if (/director'?s\s*cut/i.test(cleanTitle)) editionTag = 'DIRECTORS CUT';
+
+  // Resolution tag
+  const resTag = resolution.includes('2160') || resolution.includes('4K')
+    ? '2160p'
+    : resolution.includes('1080')
+    ? '1080p'
+    : resolution.includes('720')
+    ? '720p'
+    : resolution.includes('480')
+    ? '480p'
+    : resolution;
+
+  // Source tag
+  let srcTag = source;
+  if (!srcTag || srcTag === 'HD') {
+    if (/remux/i.test(combined)) srcTag = 'BluRay';
+    else if (/bluray|blu-ray|bdrip/i.test(combined)) srcTag = 'BluRay';
+    else if (/web-dl|webdl|webrip|web/i.test(combined)) srcTag = 'WEB-DL';
+    else if (/hdtv/i.test(combined)) srcTag = 'HDTV';
+    else srcTag = 'WEB-DL';
+  }
+
+  // Dynamic Range tag
+  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(combined);
+  const hasHDR10Plus = /(?:^|[\s._\-[\]()])hdr10\+(?:[\s._\-[\]()]|$)/i.test(combined);
+  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
+  const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(combined);
+
+  let dynTag = '';
+  if (hasHDR10Plus && hasDV) {
+    dynTag = 'HDR10+ DV';
+  } else if (hasHDR && hasDV) {
+    dynTag = 'HDR DV';
+  } else if (hasDV) {
+    dynTag = 'DV';
+  } else if (hasHDR10Plus) {
+    dynTag = 'HDR10+';
+  } else if (hasHDR) {
+    dynTag = 'HDR';
+  } else if (hasSDR) {
+    dynTag = 'SDR';
+  } else if (resTag === '2160p' && !hasHDR && !hasDV) {
+    dynTag = 'SDR';
+  }
+
+  // Codec tag
+  let codecTag = 'HEVC';
+  if (/hevc|x265|h\.?265|10bit/i.test(combined)) {
+    codecTag = 'HEVC';
+  } else if (/x264|h\.?264|avc/i.test(combined)) {
+    codecTag = 'AVC';
+  } else {
+    codecTag = resTag === '2160p' ? 'HEVC' : 'AVC';
+  }
+
+  // Remux tag (appears at the end if REMUX)
+  const isRemux = /remux/i.test(combined);
+  const remuxTag = isRemux ? 'REMUX' : '';
+
+  const innerParts = [
+    editionTag,
+    resTag,
+    srcTag,
+    dynTag,
+    codecTag,
+    remuxTag,
+  ].filter(Boolean);
+
+  return `${movieName} (${innerParts.join(' ')})`;
 }
 
 function formatReleaseTitle(custom: CustomLink, titleDetails: TitleDetails): string {
@@ -236,6 +405,119 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     });
     return counts;
   }, [filteredCustomLinks]);
+
+  // Track open state for release options (e.g. opt_xyz: true)
+  const [expandedOptions, setExpandedOptions] = useState<Record<string, boolean>>({});
+
+  const toggleOption = (optId: string) => {
+    setExpandedOptions((prev) => ({
+      ...prev,
+      [optId]: !prev[optId],
+    }));
+  };
+
+  // Group movie/saved links into Format Groups (2160p / 4K + BluRay, etc.) & Release Options
+  const movieFormatGroups: MovieFormatGroup[] = useMemo(() => {
+    if (filteredCustomLinks.length === 0) return [];
+
+    const formatMap = new Map<string, { resolution: string; source: string; links: CustomLink[] }>();
+
+    filteredCustomLinks.forEach((link) => {
+      const rawRes = detectResolution(link.quality, link.title);
+      const resolution = rawRes === '2160p' ? '2160p / 4K' : rawRes;
+      const source = detectSource(link.title, link.quality);
+      const key = `${resolution}_${source}`;
+
+      if (!formatMap.has(key)) {
+        formatMap.set(key, {
+          resolution,
+          source,
+          links: [],
+        });
+      }
+      formatMap.get(key)!.links.push(link);
+    });
+
+    const groups: MovieFormatGroup[] = [];
+
+    formatMap.forEach((fmtVal, fmtKey) => {
+      const optionsMap = new Map<string, MovieReleaseOption>();
+
+      fmtVal.links.forEach((link) => {
+        const displayTitle = formatMovieReleaseOptionTitle(
+          link.title,
+          titleDetails,
+          fmtVal.resolution,
+          fmtVal.source,
+          link.quality
+        );
+        const detectedSize = link.size || detectSize(link.title) || detectSize(link.url) || '';
+        const audioLanguages = formatAudioLanguages(link.audioLanguage, link.title);
+
+        const optKey = `${displayTitle}_${detectedSize || 'std'}`;
+
+        if (!optionsMap.has(optKey)) {
+          optionsMap.set(optKey, {
+            id: `opt_${link.id || Math.random().toString(36).slice(2, 7)}`,
+            displayTitle,
+            rawSceneTitle: link.title,
+            size: detectedSize,
+            audioLanguages,
+            source: fmtVal.source,
+            resolution: fmtVal.resolution,
+            links: [],
+          });
+        }
+
+        optionsMap.get(optKey)!.links.push(link);
+      });
+
+      const options = Array.from(optionsMap.values());
+
+      options.sort((a, b) => {
+        const isRemuxA = a.displayTitle.includes('REMUX') ? 1 : 0;
+        const isRemuxB = b.displayTitle.includes('REMUX') ? 1 : 0;
+        if (isRemuxA !== isRemuxB) return isRemuxB - isRemuxA;
+
+        const szA = parseFloat(a.size) || 0;
+        const szB = parseFloat(b.size) || 0;
+        return szB - szA;
+      });
+
+      groups.push({
+        id: fmtKey,
+        resolution: fmtVal.resolution,
+        source: fmtVal.source,
+        options,
+      });
+    });
+
+    groups.sort((a, b) => {
+      const wA = getQualityWeight(a.resolution);
+      const wB = getQualityWeight(b.resolution);
+      if (wB !== wA) return wB - wA;
+      if (a.source === 'BluRay' && b.source !== 'BluRay') return -1;
+      if (b.source === 'BluRay' && a.source !== 'BluRay') return 1;
+      return 0;
+    });
+
+    return groups;
+  }, [filteredCustomLinks, titleDetails]);
+
+  // Auto-expand the first option of each format group on initial load
+  useEffect(() => {
+    if (movieFormatGroups.length > 0) {
+      setExpandedOptions((prev) => {
+        const next = { ...prev };
+        movieFormatGroups.forEach((grp) => {
+          if (grp.options.length > 0 && next[grp.options[0].id] === undefined) {
+            next[grp.options[0].id] = true;
+          }
+        });
+        return next;
+      });
+    }
+  }, [movieFormatGroups]);
 
   const existing = isMounted ? watchlist.find((w) => w.id === titleDetails.id) : undefined;
   const imdbId = titleDetails.external_ids?.imdb_id;
@@ -425,116 +707,215 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             )}
           </div>
 
-        {filteredCustomLinks.length > 0 ? (
-          <div className="rounded-2xl bg-[#141124] border border-[#27213d] divide-y divide-[#221c36] overflow-hidden shadow-2xl">
-            {filteredCustomLinks.map((custom) => {
-              const res = detectResolution(custom.quality, custom.title);
-              const fullTitle = formatReleaseTitle(custom, titleDetails);
-              const displaySize = custom.size || detectSize(custom.title) || '';
-              const server = detectServer(custom.url);
+        {movieFormatGroups.length > 0 ? (
+          <div className="space-y-6">
+            {movieFormatGroups.map((group) => (
+              <div key={group.id} className="space-y-3">
+                {/* Format Header Bar with Orange Left Accent (matching first screenshot) */}
+                <div className="flex items-center justify-between p-3.5 sm:p-4 rounded-xl bg-[#0f0d18] border border-[#211d33] relative overflow-hidden pl-4 shadow-md">
+                  <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500 rounded-l-xl" />
 
-              return (
-                <div
-                  key={custom.id}
-                  className="flex flex-col md:flex-row md:items-center justify-between p-4 sm:p-4.5 gap-3 md:gap-5 hover:bg-[#1c1633] transition-colors group"
-                >
-                  {/* Left: Resolution Badge (1080p, 2160p, 4K, 720p) */}
-                  <div className="flex items-center shrink-0">
-                    <span className="font-extrabold text-white text-base sm:text-lg tracking-tight font-mono min-w-[70px] sm:min-w-[80px]">
-                      {res}
+                  <div className="flex items-center gap-2 pl-1">
+                    <span className={getResolutionBadgeStyle(group.resolution)}>
+                      {group.resolution}
+                    </span>
+                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                      {group.source}
                     </span>
                   </div>
 
-                  {/* Middle: Full Scene Release Title in Monospace */}
-                  <div className="flex-1 min-w-0 pr-2">
-                    <a
-                      href={custom.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs sm:text-[13px] text-zinc-300 group-hover:text-white font-medium leading-relaxed block hover:underline transition-colors break-words select-text"
-                      title={fullTitle}
-                    >
-                      {fullTitle}
-                    </a>
-
-                    {/* Metadata & Server Mirror Tag */}
-                    <div className="flex items-center flex-wrap gap-2 mt-1.5 text-[10px] text-zinc-500">
-                      <span className={`px-1.5 py-0.5 rounded font-bold border ${server.badgeClass}`}>
-                        {server.badge}
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-semibold border border-amber-500/20">
-                        {custom.category}
-                      </span>
-                      <span>•</span>
-                      <span>{formatRelativeTime(custom.createdAt)}</span>
-                    </div>
-                  </div>
-
-                  {/* Right: File Size & Get Button & Action Controls */}
-                  <div className="flex items-center justify-between md:justify-end gap-3 sm:gap-4 shrink-0 pt-2 md:pt-0 border-t border-zinc-800/40 md:border-t-0">
-                    {displaySize && (
-                      <span className="font-mono text-xs sm:text-sm text-zinc-400 font-semibold whitespace-nowrap min-w-[65px] text-right">
-                        {displaySize}
-                      </span>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={custom.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-5 py-1.5 rounded-full border border-purple-400/40 text-purple-200 hover:bg-purple-600 hover:text-white hover:border-purple-500 text-xs sm:text-sm font-bold transition-all shadow-md active:scale-95 flex items-center justify-center min-w-[64px]"
-                      >
-                        Get
-                      </a>
-
-                      {/* Report Broken Link Button */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setReportingLink({
-                            linkId: custom.id,
-                            movieId: titleDetails.id,
-                            mediaTitle: titleDetails.title || titleDetails.name || 'Untitled Title',
-                            mediaType: mediaType === 'tv' ? 'tv' : 'movie',
-                            posterPath: titleDetails.poster_path,
-                            linkTitle: fullTitle,
-                            reportedUrl: custom.url,
-                            quality: custom.quality || res,
-                            server: server.name || server.badge,
-                          })
-                        }
-                        className="p-1.5 rounded-lg text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-700/60 hover:border-amber-500/40 transition-colors"
-                        title="Report broken or defective link"
-                      >
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                      </button>
-
-                      {isAdmin && (
-                        <>
-                          <button
-                            onClick={() => handleStartEdit(custom)}
-                            className="p-1.5 rounded-lg text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
-                            title="Admin: Edit link"
-                            suppressHydrationWarning
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(custom.id)}
-                            className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                            title="Admin: Delete link permanently"
-                            suppressHydrationWarning
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d]">
+                    {group.options.length} {group.options.length === 1 ? 'option' : 'options'}
+                  </span>
                 </div>
-              );
-            })}
+
+                {/* Release Options List */}
+                <div className="space-y-2.5">
+                  {group.options.map((option) => {
+                    const isExpanded = !!expandedOptions[option.id];
+
+                    return (
+                      <div
+                        key={option.id}
+                        className="rounded-xl bg-[#12101e] border border-[#221f33] hover:border-[#383353] transition-all p-4 sm:p-4.5 space-y-3 shadow-sm"
+                      >
+                        {/* Header Row: Title & Badges on Left, Chevron on Right */}
+                        <div
+                          onClick={() => toggleOption(option.id)}
+                          className="flex items-start sm:items-center justify-between gap-3 cursor-pointer select-none group"
+                        >
+                          <div className="space-y-2 flex-1 min-w-0">
+                            {/* Clean Display Title matching screenshot 1 */}
+                            <h5 className="text-white font-bold text-sm sm:text-base tracking-tight font-sans group-hover:text-amber-300 transition-colors break-words">
+                              {option.displayTitle}
+                            </h5>
+
+                            {/* Badges Row: Size (Orange), Languages (Teal), Source (Green) */}
+                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                              {option.size && (
+                                <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
+                                  {option.size}
+                                </span>
+                              )}
+                              {option.audioLanguages && (
+                                <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#0c2a2a] text-[#2dd4bf] border border-[#144f4f] shadow-sm">
+                                  {option.audioLanguages}
+                                </span>
+                              )}
+                              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                                {option.source}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Chevron Icon */}
+                          <button
+                            type="button"
+                            className="w-8 h-8 rounded-full bg-[#1c1a27] border border-[#2d2a3d] flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors shrink-0 mt-1 sm:mt-0 cursor-pointer"
+                            title={isExpanded ? 'Collapse mirrors' : 'Expand mirrors'}
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform duration-200 ${
+                                isExpanded ? 'rotate-180' : ''
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Expanded State: Scene filename + Download Mirrors */}
+                        {isExpanded && (
+                          <div className="pt-3 border-t border-white/5 space-y-3 animate-fadeIn">
+                            {/* Raw Scene Filename with Copy Icon */}
+                            {option.rawSceneTitle && (
+                              <div className="bg-[#0b0914] p-3 rounded-xl border border-white/5 font-mono text-xs text-zinc-300 flex items-center justify-between gap-2 break-all">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  <span className="truncate">{option.rawSceneTitle}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(option.rawSceneTitle);
+                                    alert('Filename copied to clipboard!');
+                                  }}
+                                  className="text-zinc-500 hover:text-zinc-300 transition-colors p-1 shrink-0 cursor-pointer"
+                                  title="Copy filename"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Available Download Mirrors */}
+                            <div className="space-y-2">
+                              <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <Download className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Available Download Mirrors</span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                                {option.links.map((link, idx) => {
+                                  const server = detectServer(link.url);
+                                  const sameServerCount = option.links.filter(
+                                    (l) => detectServer(l.url).name === server.name
+                                  ).length;
+                                  const serverLabel =
+                                    sameServerCount > 1
+                                      ? `${server.name || 'Server'} ${idx + 1}`
+                                      : server.name || `Server ${idx + 1}`;
+
+                                  return (
+                                    <div key={link.id || idx} className="flex items-center gap-1.5">
+                                      <a
+                                        href={link.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-600/25 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                                        title={`Download from ${serverLabel}`}
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                        <span>{serverLabel}</span>
+                                        <ExternalLink className="w-3 h-3 opacity-70" />
+                                      </a>
+
+                                      {/* Copy Link URL */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigator.clipboard.writeText(link.url);
+                                          alert('Download link copied to clipboard!');
+                                        }}
+                                        className="p-2 rounded-xl bg-[#1c1a27] hover:bg-[#282637] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                                        title="Copy download link"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {/* Report Link */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setReportingLink({
+                                            linkId: link.id,
+                                            movieId: titleDetails.id,
+                                            mediaTitle: titleDetails.title || titleDetails.name || 'Movie',
+                                            mediaType: mediaType === 'tv' ? 'tv' : 'movie',
+                                            posterPath: titleDetails.poster_path,
+                                            linkTitle: option.displayTitle,
+                                            reportedUrl: link.url,
+                                            quality: link.quality,
+                                            server: server.name,
+                                          });
+                                        }}
+                                        className="p-2 rounded-xl bg-[#1c1a27] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
+                                        title="Report broken or defective link"
+                                      >
+                                        <AlertTriangle className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {/* Admin controls */}
+                                      {isAdmin && (
+                                        <div className="flex items-center gap-1 pl-1 border-l border-zinc-800">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleStartEdit(link);
+                                            }}
+                                            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                                            title="Admin: Edit link"
+                                          >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDelete(link.id);
+                                            }}
+                                            className="p-2 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                                            title="Admin: Delete link"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1.5">
