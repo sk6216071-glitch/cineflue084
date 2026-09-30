@@ -40,48 +40,83 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       {/* Clickable Accordion Header */}
       <div
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`w-full flex items-center justify-between p-4 sm:p-5 sm:px-6 cursor-pointer select-none hover:bg-zinc-900/40 transition-colors ${
+        className={`w-full p-4 sm:p-5 sm:px-6 cursor-pointer select-none hover:bg-zinc-900/40 transition-colors ${
           isOpen ? 'border-b border-zinc-800/80' : ''
         } ${headerClassName}`}
       >
-        {/* Left Side: Icon, Title, Subtitle */}
-        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 pr-2">
-          {icon && <div className="shrink-0 text-amber-400">{icon}</div>}
-          <div className="min-w-0">
-            <div className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              {title}
+        <div className="flex flex-col gap-2.5">
+          {/* Main Header Row: Title & Icon on Left; Controls on Right */}
+          <div className="flex items-center justify-between gap-3 min-w-0">
+            {/* Left Side: Icon, Title, Subtitle */}
+            <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1">
+              {icon && <div className="shrink-0 text-amber-400">{icon}</div>}
+              <div className="min-w-0 flex-1">
+                <div className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2 break-words">
+                  {title}
+                </div>
+                {subtitle && isOpen && (
+                  <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2 sm:line-clamp-1">{subtitle}</p>
+                )}
+              </div>
             </div>
-            {subtitle && isOpen && (
-              <p className="text-xs text-zinc-400 mt-0.5 line-clamp-1">{subtitle}</p>
-            )}
-          </div>
-        </div>
 
-        {/* Right Side: Optional Actions, Optional Badge & Circular Chevron Toggle */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {action && <div onClick={(e) => e.stopPropagation()}>{action}</div>}
-          {badge && (
-            <span className="px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-700/80 text-zinc-300 text-xs font-semibold pointer-events-none">
-              {badge}
-            </span>
+            {/* Desktop Right Side: Action, Badge, Chevron */}
+            <div className="hidden sm:flex items-center gap-3 shrink-0">
+              {action && <div onClick={(e) => e.stopPropagation()}>{action}</div>}
+              {badge && (
+                <span className="px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-700/80 text-zinc-300 text-xs font-semibold pointer-events-none">
+                  {badge}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOpen((prev) => !prev);
+                }}
+                className="w-8 h-8 rounded-full border border-amber-500/50 bg-[#161922] text-amber-400 flex items-center justify-center hover:bg-amber-500/20 hover:border-amber-400 transition-all shadow-md active:scale-95 cursor-pointer"
+                aria-label={isOpen ? 'Collapse section' : 'Expand section'}
+              >
+                {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Mobile Top Right: Badge & Chevron */}
+            <div className="flex sm:hidden items-center gap-2 shrink-0">
+              {badge && (
+                <span className="px-2.5 py-0.5 rounded-full bg-zinc-900/90 border border-zinc-700/80 text-zinc-300 text-xs font-semibold pointer-events-none">
+                  {badge}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOpen((prev) => !prev);
+                }}
+                className="w-8 h-8 rounded-full border border-amber-500/50 bg-[#161922] text-amber-400 flex items-center justify-center hover:bg-amber-500/20 hover:border-amber-400 transition-all shadow-md active:scale-95 cursor-pointer"
+                aria-label={isOpen ? 'Collapse section' : 'Expand section'}
+              >
+                {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile Action Row: Dedicated line below Title, with zero overlap */}
+          {action && (
+            <div
+              className="sm:hidden w-full pt-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {action}
+            </div>
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsOpen((prev) => !prev);
-            }}
-            className="w-8 h-8 rounded-full border border-amber-500/50 bg-[#161922] text-amber-400 flex items-center justify-center hover:bg-amber-500/20 hover:border-amber-400 transition-all shadow-md active:scale-95 cursor-pointer"
-            aria-label={isOpen ? 'Collapse section' : 'Expand section'}
-          >
-            {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
         </div>
       </div>
 
       {/* Expandable Content Body */}
       {isOpen && (
-        <div className={`p-5 sm:p-6 space-y-4 animate-in fade-in-50 duration-200 ${contentClassName}`}>
+        <div className={`p-4 sm:p-6 space-y-4 animate-in fade-in-50 duration-200 ${contentClassName}`}>
           {children}
         </div>
       )}

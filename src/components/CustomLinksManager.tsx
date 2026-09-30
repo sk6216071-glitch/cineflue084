@@ -630,7 +630,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             e.stopPropagation();
             setIsRequestModalOpen(true);
           }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 hover:border-amber-400 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all shadow-sm cursor-pointer group"
+          className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-3.5 py-2 sm:py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 hover:border-amber-400 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all shadow-sm cursor-pointer group"
           title="Request Download / Streaming Links"
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
@@ -712,10 +712,10 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             {movieFormatGroups.map((group) => (
               <div key={group.id} className="space-y-3">
                 {/* Format Header Bar with Orange Left Accent (matching first screenshot) */}
-                <div className="flex items-center justify-between p-3.5 sm:p-4 rounded-xl bg-[#0f0d18] border border-[#211d33] relative overflow-hidden pl-4 shadow-md">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 rounded-xl bg-[#0f0d18] border border-[#211d33] relative overflow-hidden pl-4 shadow-md">
                   <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500 rounded-l-xl" />
 
-                  <div className="flex items-center gap-2 pl-1">
+                  <div className="flex flex-wrap items-center gap-2 pl-1">
                     <span className={getResolutionBadgeStyle(group.resolution)}>
                       {group.resolution}
                     </span>
@@ -724,7 +724,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                     </span>
                   </div>
 
-                  <span className="px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d]">
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d] shrink-0">
                     {group.options.length} {group.options.length === 1 ? 'option' : 'options'}
                   </span>
                 </div>
