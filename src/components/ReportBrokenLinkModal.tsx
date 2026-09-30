@@ -14,8 +14,13 @@ import {
   Gauge,
   HelpCircle,
   ExternalLink,
+  Lock,
+  LogIn,
+  UserCheck,
 } from 'lucide-react';
 import { DefectiveLinkIssueType } from '@/types';
+import { useAuth } from '@/context/AuthContext';
+import AuthModal from './AuthModal';
 
 export interface ReportModalData {
   linkId?: string;
@@ -92,13 +97,16 @@ export const ReportBrokenLinkModal: React.FC<ReportBrokenLinkModalProps> = ({
   data,
   onReportSubmitted,
 }) => {
+  const { userProfile, isLoggedIn } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
   const [selectedIssue, setSelectedIssue] = useState<DefectiveLinkIssueType>('dead_link');
   const [quality, setQuality] = useState(data?.quality || '');
   const [server, setServer] = useState(data?.server || '');
   const [releaseName, setReleaseName] = useState(data?.linkTitle || '');
   const [reportedUrl, setReportedUrl] = useState(data?.reportedUrl || '');
   const [notes, setNotes] = useState('');
-  const [userEmail, setUserEmail] = useState('');
+  const [userEmail, setUserEmail] = useState(userProfile?.email || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -112,16 +120,21 @@ export const ReportBrokenLinkModal: React.FC<ReportBrokenLinkModalProps> = ({
       setReportedUrl(data.reportedUrl || '');
       setSelectedIssue('dead_link');
       setNotes('');
-      setUserEmail('');
+      setUserEmail(userProfile?.email || '');
       setIsSuccess(false);
       setErrorMessage('');
     }
-  }, [data]);
+  }, [data, userProfile]);
 
   if (!isOpen || !data) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isLoggedIn) {
+      setErrorMessage('Sign-in required: Please sign in to submit a defective link report.');
+      setShowAuthModal(true);
+      return;
+    }
     if (!reportedUrl.trim()) {
       setErrorMessage('Reported URL cannot be empty.');
       return;
@@ -146,7 +159,9 @@ export const ReportBrokenLinkModal: React.FC<ReportBrokenLinkModalProps> = ({
         quality: quality.trim(),
         server: server.trim(),
         additionalNotes: notes.trim(),
-        userEmail: userEmail.trim(),
+        userEmail: userEmail.trim() || userProfile.email || '',
+        userId: userProfile.uid,
+        userName: userProfile.displayName,
       };
 
       const res = await fetch('/api/reports', {
@@ -222,8 +237,65 @@ export const ReportBrokenLinkModal: React.FC<ReportBrokenLinkModalProps> = ({
               for immediate verification and replacement.
             </p>
           </div>
+        ) : !isLoggedIn ? (
+          <div className="py-6 sm:py-8 text-center space-y-5 animate-fade-in">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-xl shadow-amber-500/10">
+              <Lock className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2 max-w-md mx-auto">
+              <span className="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-zinc-800 text-zinc-400 border border-zinc-700">
+                Sign-In Required
+              </span>
+              <h3 className="text-xl font-black text-white tracking-tight">
+                Please Sign In to Report Broken Links
+              </h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                To report dead links, wrong episodes, or broken download files, you must sign in with an active account. Our administrators verify all reports and require authenticated users to prevent abuse and notify you once fixed.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between text-xs max-w-sm mx-auto">
+              <span className="text-zinc-400">Current Status:</span>
+              <span className="px-2.5 py-0.5 rounded-full bg-zinc-800 text-amber-400 font-bold text-[11px] border border-zinc-700 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Guest Mode (Not Signed In)
+              </span>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(true)}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Sign In / Create Account</span>
+              </button>
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Signed-in user badge */}
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 truncate">
+                <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-zinc-300 truncate">
+                  Reporting as: <strong className="text-white font-bold">{userProfile.displayName || 'Cinephile'}</strong> ({userProfile.email})
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-500/20 px-2 py-0.5 rounded shrink-0">
+                Verified
+              </span>
+            </div>
+
             {/* 1. Problem Selector Grid */}
             <div className="space-y-2">
               <label className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider block">
@@ -408,6 +480,8 @@ export const ReportBrokenLinkModal: React.FC<ReportBrokenLinkModalProps> = ({
           </form>
         )}
       </div>
+
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
     </div>
   );
 };

@@ -44,7 +44,18 @@ export async function POST(req: NextRequest) {
       audioLanguage = 'Hindi + English Dual Audio',
       notes = '',
       userContact = '',
+      userId,
+      userName,
+      userEmail,
     } = body;
+
+    // Authentication Guard: Ensure user is authenticated (not guest)
+    if (!userId || userId === 'guest-user-default' || (!userEmail && !userContact)) {
+      return NextResponse.json(
+        { error: 'Sign in required. You must be signed in with an active account to submit movie or TV requests.' },
+        { status: 401 }
+      );
+    }
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
@@ -52,6 +63,9 @@ export async function POST(req: NextRequest) {
 
     const newRequest: UserRequest = {
       id: `req-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      userId: userId.trim(),
+      userName: userName ? userName.trim() : undefined,
+      userEmail: userEmail ? userEmail.trim() : (userContact ? userContact.trim() : undefined),
       title: title.trim(),
       mediaType: mediaType === 'tv' ? 'tv' : 'movie',
       tmdbId: tmdbId ? Number(tmdbId) : undefined,
@@ -62,7 +76,7 @@ export async function POST(req: NextRequest) {
       quality: quality.trim(),
       audioLanguage: audioLanguage.trim(),
       notes: notes.trim(),
-      userContact: userContact.trim(),
+      userContact: (userContact || userEmail || '').trim(),
       status: 'pending',
       createdAt: new Date().toISOString(),
     };

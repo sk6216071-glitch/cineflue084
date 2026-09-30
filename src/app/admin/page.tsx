@@ -4498,9 +4498,13 @@ export default function AdminPage() {
                                   &ldquo;{req.notes}&rdquo;
                                 </p>
                               )}
-                              {req.userContact && (
-                                <span className="text-[11px] text-blue-400 font-mono flex items-center gap-1">
-                                  <span>User: {req.userContact}</span>
+                              {(req.userName || req.userEmail || req.userContact) && (
+                                <span className="text-[11px] text-blue-400 font-mono flex items-center gap-1.5 bg-blue-500/10 px-2.5 py-0.5 rounded-lg border border-blue-500/20">
+                                  <UserCheck className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>
+                                    {req.userName ? `${req.userName} • ` : ''}
+                                    {req.userEmail || req.userContact}
+                                  </span>
                                 </span>
                               )}
                             </div>
@@ -4914,9 +4918,10 @@ export default function AdminPage() {
                             <span className="text-zinc-500 font-mono">
                               Reported {formatRelativeTime(report.createdAt)}
                             </span>
-                            {report.userEmail && (
-                              <span className="text-zinc-400 font-mono">
-                                • By: {report.userEmail}
+                            {(report.userName || report.userEmail) && (
+                              <span className="text-zinc-300 font-mono flex items-center gap-1 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                                <UserCheck className="w-3 h-3 text-emerald-400" />
+                                <span>{report.userName ? `${report.userName} (${report.userEmail})` : report.userEmail}</span>
                               </span>
                             )}
                           </div>

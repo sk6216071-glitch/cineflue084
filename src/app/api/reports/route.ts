@@ -46,7 +46,17 @@ export async function POST(req: NextRequest) {
       server = '',
       additionalNotes = '',
       userEmail = '',
+      userId,
+      userName,
     } = body;
+
+    // Authentication Guard: Ensure user is authenticated (not guest)
+    if (!userId || userId === 'guest-user-default' || !userEmail) {
+      return NextResponse.json(
+        { error: 'Sign in required. You must be signed in with an active account to report defective or broken links.' },
+        { status: 401 }
+      );
+    }
 
     if (!reportedUrl || !reportedUrl.trim()) {
       return NextResponse.json({ error: 'Reported URL is required' }, { status: 400 });
@@ -54,6 +64,8 @@ export async function POST(req: NextRequest) {
 
     const newReport: DefectiveLinkReport = {
       id: `rep-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      userId: userId.trim(),
+      userName: userName ? userName.trim() : undefined,
       linkId: linkId ? String(linkId) : undefined,
       movieId: Number(movieId) || 0,
       mediaTitle: (mediaTitle || 'Untitled Movie / Series').trim(),

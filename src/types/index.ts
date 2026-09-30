@@ -264,6 +264,9 @@ export interface AppSettings {
 
 export interface UserRequest {
   id: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
   title: string;
   mediaType: 'movie' | 'tv';
   tmdbId?: number;
@@ -294,6 +297,8 @@ export type DefectiveLinkIssueType =
 
 export interface DefectiveLinkReport {
   id: string;
+  userId?: string;
+  userName?: string;
   linkId?: string;
   movieId: number;
   mediaTitle: string;
