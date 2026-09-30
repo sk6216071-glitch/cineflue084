@@ -174,7 +174,6 @@ export default function AdminPage() {
 
   // API Form States
   const [tmdbKey, setTmdbKey] = useState('');
-  const [mdblistKey, setMdblistKey] = useState('');
   const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
   const [isTestingTmdb, setIsTestingTmdb] = useState(false);
   const [tmdbTestResult, setTmdbTestResult] = useState<{ success: boolean; msg: string } | null>(null);
@@ -432,8 +431,6 @@ export default function AdminPage() {
           // ignore
         }
       }
-
-      if (mdblistConfig?.apiKey) setMdblistKey(mdblistConfig.apiKey);
 
       setDeletedCuratedLinkIds(getDeletedLinkIds());
 
@@ -1656,10 +1653,6 @@ export default function AdminPage() {
       } catch {
         localStorage.setItem('cinefuel_settings', JSON.stringify({ tmdbApiKey: tmdbKey.trim() }));
       }
-    }
-
-    if (mdblistKey.trim()) {
-      updateMdblistConfig({ apiKey: mdblistKey.trim() });
     }
 
     setApiSaveSuccess(true);
@@ -5098,10 +5091,10 @@ export default function AdminPage() {
         <div className="p-6 sm:p-8 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-6">
           <div className="space-y-1">
             <h3 className="text-base font-black text-white flex items-center gap-2">
-              <Key className="w-5 h-5 text-amber-400" /> API Keys & Multi-Engine Configuration
+              <Key className="w-5 h-5 text-amber-400" /> API Keys & Configuration
             </h3>
             <p className="text-xs text-zinc-400">
-              Configure and test live connection credentials for all external movie APIs.
+              Configure and test live connection credentials for TMDB movie & TV database.
             </p>
           </div>
 
@@ -5137,25 +5130,11 @@ export default function AdminPage() {
               )}
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
-                <span>MDBList API Key</span>
-                <span className="text-[10px] text-amber-400 font-normal">mdblist.com/preferences</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Enter MDBList API Key"
-                value={mdblistKey}
-                onChange={(e) => setMdblistKey(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
             <button
               type="submit"
               className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
             >
-              <Check className="w-4 h-4" /> Save All API Configurations
+              <Check className="w-4 h-4" /> Save API Configuration
             </button>
 
             {apiSaveSuccess && (

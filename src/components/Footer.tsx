@@ -67,7 +67,7 @@ export const Footer: React.FC = () => {
         <div className="border-t border-zinc-800/60 mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-3">
           <p suppressHydrationWarning>© {new Date().getFullYear()} CineFuel. Built for cinema lovers.</p>
           <div className="flex items-center gap-4 text-xs">
-            <span>Data from TMDB, IMDb & MDBList</span>
+            <span>Data from TMDB & IMDb</span>
           </div>
         </div>
       </div>

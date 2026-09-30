@@ -12,23 +12,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const {
     settings,
     updateSettings,
-    mdblistConfig,
-    updateMdblistConfig,
     watchlist,
   } = useWatchlist();
   const [tmdbKey, setTmdbKey] = useState(settings.tmdbApiKey);
   const [region, setRegion] = useState(settings.defaultRegion);
-  const [mdblistApiKey, setMdblistApiKey] = useState(mdblistConfig.apiKey);
   const [savedMessage, setSavedMessage] = useState('');
 
   const handleSave = () => {
     updateSettings({
       tmdbApiKey: tmdbKey.trim(),
-      mdblistApiKey: mdblistApiKey.trim(),
       defaultRegion: region,
-    });
-    updateMdblistConfig({
-      apiKey: mdblistApiKey.trim(),
     });
     setSavedMessage('Settings saved successfully!');
     setTimeout(() => setSavedMessage(''), 3000);
@@ -127,25 +120,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             </select>
           </div>
 
-          {/* MDBList API Key */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 font-medium text-zinc-200">
-              <span className="w-4 h-4 rounded bg-emerald-500 text-[10px] text-black font-black flex items-center justify-center">
-                M
-              </span>
-              MDBList API Key (Optional)
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. k9f8e7d6c5... (mdblist.com/preferences)"
-              value={mdblistApiKey}
-              onChange={(e) => setMdblistApiKey(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500 font-mono text-xs"
-            />
-            <p className="text-[11px] text-zinc-400">
-              Enables multi-source aggregated ratings from Rotten Tomatoes, Metacritic, Letterboxd, IMDb, and AniList.
-            </p>
-          </div>
 
           {/* Data Backup & Export */}
           <div className="pt-4 border-t border-zinc-800 space-y-3">
