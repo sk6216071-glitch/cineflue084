@@ -14,6 +14,12 @@ import {
   Sparkles,
   Info,
   FileArchive,
+  FileVideo,
+  Layers,
+  Film,
+  ExternalLink,
+  Copy,
+  Flag,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -305,6 +311,46 @@ function parseOptionTitleAndTags(
   };
 }
 
+function formatEpisodeTitle(
+  ep: EnrichedLink,
+  option: ReleaseOption,
+  titleDetails: TitleDetails,
+  seasonNum: number,
+  groupRes: string,
+  groupSource: string
+): string {
+  const epNumStr = String(ep.episodeNumber || 1).padStart(2, '0');
+  const sTag = `S${String(seasonNum).padStart(2, '0')}E${epNumStr}`;
+
+  // If ep.title is already an authentic scene release filename:
+  const raw = (ep.title || '').trim();
+  if (/(?:s\d{1,2}e\d{1,2}|e\d{1,2})/i.test(raw) && raw.includes('.')) {
+    let clean = stripWatermarks(raw);
+    const plat = detectShowPlatform(clean, titleDetails);
+    if (plat === 'DSNP') {
+      clean = clean
+        .replace(/(?:^|\.)(?:NF|AMZN|ATVP|MAX)(?:\.(?:REMUX|BluRay|BDRip|WEB-DL|WEBRip))?(?=\.|$)/gi, '.DSNP.WEB-DL')
+        .replace(/(?:^|\.)DSNP\.(?:REMUX|BluRay|BDRip)(?=\.|$)/gi, '.DSNP.WEB-DL');
+    }
+    return clean;
+  }
+
+  const { baseTitle } = parseOptionTitleAndTags(
+    option,
+    titleDetails,
+    seasonNum,
+    groupRes,
+    groupSource
+  );
+
+  const sMatch = baseTitle.match(/S\d{2}/i);
+  if (sMatch) {
+    return `${baseTitle.replace(sMatch[0], sTag)}.mkv`;
+  }
+
+  return `${baseTitle}.${sTag}.mkv`;
+}
+
 function getResolutionBadgeStyle(resolution: string): string {
   if (resolution.includes('2160p') || resolution.includes('4K') || resolution.includes('4k')) {
     return 'bg-[#f59e0b] text-black font-bold px-3 py-1 rounded-lg text-xs shadow-sm';
@@ -397,7 +443,12 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [editAudio, setEditAudio] = useState<string>('');
   const [editSize, setEditSize] = useState<string>('');
 
-  // Dynamically calculate all seasons in descending order (e.g. Season 5, Season 4, Season 3...)
+  // User Selection States matching reference design (media_1790752115635.png)
+  const [selectedSeason, setSelectedSeason] = useState<number>(1);
+  const [releaseFormat, setReleaseFormat] = useState<'episodes' | 'pack'>('episodes');
+  const [selectedEpisode, setSelectedEpisode] = useState<number>(1);
+
+  // Dynamically calculate all seasons in ascending order (Season 1, Season 2, Season 3...) matching screenshot
   const seasonsList = useMemo(() => {
     const detectedSeasons = new Set<number>();
     const tmdbSeasons = titleDetails.number_of_seasons || 1;
@@ -410,8 +461,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       if (s > 0) detectedSeasons.add(s);
     });
 
-    // Sort descending (Season 5, Season 4, Season 3...) matching screenshot
-    return Array.from(detectedSeasons).sort((a, b) => b - a);
+    // Sort ascending (Season 1, Season 2, Season 3...) matching reference screenshot
+    return Array.from(detectedSeasons).sort((a, b) => a - b);
   }, [titleDetails.number_of_seasons, customLinks]);
 
   // Enrich each custom link with smart auto-detected metadata
@@ -601,25 +652,126 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     return map;
   }, [seasonsList, enrichedLinks, titleDetails]);
 
-  // Auto-expand the newest season with links on initial load
+  // Auto-select season with links on initial load or default to seasonsList[0]
   useEffect(() => {
-    if (Object.keys(openSeasons).length === 0 && seasonsList.length > 0) {
+    if (seasonsList.length > 0 && !seasonsList.includes(selectedSeason)) {
       const firstSeasonWithLinks =
         seasonsList.find((s) => {
           const fmts = seasonGroupsMap.get(s);
           return fmts && fmts.length > 0;
         }) || seasonsList[0];
-
-      setOpenSeasons({ [firstSeasonWithLinks]: true });
+      setSelectedSeason(firstSeasonWithLinks);
     }
-  }, [seasonsList, seasonGroupsMap, openSeasons]);
+  }, [seasonsList, seasonGroupsMap, selectedSeason]);
 
-  const toggleSeason = (seasonNum: number) => {
-    setOpenSeasons((prev) => ({
-      ...prev,
-      [seasonNum]: !prev[seasonNum],
-    }));
-  };
+  // Compute available episodes for selectedSeason
+  const availableEpisodes = useMemo(() => {
+    const formats = seasonGroupsMap.get(selectedSeason) || [];
+    const eps = new Set<number>();
+    formats.forEach((fmt) => {
+      fmt.options.forEach((opt) => {
+        opt.episodes.forEach((ep) => {
+          if (ep.episodeNumber && ep.episodeNumber > 0) {
+            eps.add(ep.episodeNumber);
+          }
+        });
+      });
+    });
+
+    if (eps.size === 0) {
+      const tmdbSeason = titleDetails.seasons?.find((s) => s.season_number === selectedSeason);
+      const totalCount = tmdbSeason?.episode_count || (selectedSeason === 1 ? (titleDetails.number_of_episodes || 8) : 8);
+      for (let i = 1; i <= Math.min(totalCount, 24); i++) {
+        eps.add(i);
+      }
+    }
+
+    return Array.from(eps).sort((a, b) => a - b);
+  }, [selectedSeason, seasonGroupsMap, titleDetails]);
+
+  // Ensure selectedEpisode stays valid when season changes
+  useEffect(() => {
+    if (availableEpisodes.length > 0 && !availableEpisodes.includes(selectedEpisode)) {
+      setSelectedEpisode(availableEpisodes[0]);
+    }
+  }, [availableEpisodes, selectedEpisode]);
+
+  // Active episode releases for selectedSeason and selectedEpisode
+  const activeEpisodeReleases = useMemo(() => {
+    const formats = seasonGroupsMap.get(selectedSeason) || [];
+    const results: Array<{
+      optionId: string;
+      resolution: string;
+      source: string;
+      title: string;
+      audioLanguages: string;
+      links: EnrichedLink[];
+      size: string;
+    }> = [];
+
+    formats.forEach((fmt) => {
+      fmt.options.forEach((opt) => {
+        const epLinks = opt.episodes.filter((e) => e.episodeNumber === selectedEpisode);
+        if (epLinks.length > 0) {
+          const first = epLinks[0];
+          const detectedSz = first.size || detectSize(first.title) || '';
+          const epFormattedTitle = formatEpisodeTitle(
+            first,
+            opt,
+            titleDetails,
+            selectedSeason,
+            fmt.resolution,
+            fmt.source
+          );
+          results.push({
+            optionId: opt.id,
+            resolution: fmt.resolution,
+            source: fmt.source,
+            title: epFormattedTitle,
+            audioLanguages: opt.audioLanguages,
+            links: epLinks,
+            size: detectedSz,
+          });
+        }
+      });
+    });
+
+    return results;
+  }, [selectedSeason, selectedEpisode, seasonGroupsMap, titleDetails]);
+
+  // Active season packs for selectedSeason
+  const activeSeasonPacks = useMemo(() => {
+    const formats = seasonGroupsMap.get(selectedSeason) || [];
+    const results: Array<{
+      optionId: string;
+      resolution: string;
+      source: string;
+      title: string;
+      audioLanguages: string;
+      packs: EnrichedLink[];
+      size: string;
+    }> = [];
+
+    formats.forEach((fmt) => {
+      fmt.options.forEach((opt) => {
+        if (opt.packs.length > 0) {
+          const first = opt.packs[0];
+          const detectedSz = first.size || detectSize(first.title) || '';
+          results.push({
+            optionId: opt.id,
+            resolution: fmt.resolution,
+            source: fmt.source,
+            title: first.title || opt.title,
+            audioLanguages: opt.audioLanguages,
+            packs: opt.packs,
+            size: detectedSz,
+          });
+        }
+      });
+    });
+
+    return results;
+  }, [selectedSeason, seasonGroupsMap]);
 
   const handleStartEdit = (link: CustomLink) => {
     setEditingLink(link);
@@ -706,365 +858,502 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         </div>
       </div>
 
-      {/* Season Container Accordions (Descending Season 5, Season 4, etc.) */}
-      <div className="space-y-5">
-        {seasonsList.map((s) => {
-          const formatGroups = seasonGroupsMap.get(s) || [];
-          const isSeasonOpen = !!openSeasons[s];
+      {/* Interactive Vault Controls (media_1790752115635.png reference design) */}
+      <div className="rounded-3xl bg-[#0c0d13] border border-white/5 p-5 sm:p-6 shadow-2xl space-y-6">
+        {/* Section 1: SELECT SEASON */}
+        <div className="space-y-2.5">
+          <label className="text-[11px] font-bold tracking-wider text-zinc-400 uppercase block">
+            Select Season
+          </label>
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+            {seasonsList.map((s) => {
+              const isActive = selectedSeason === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSelectedSeason(s)}
+                  className={`px-5 py-2.5 sm:px-6 sm:py-3 rounded-2xl font-bold text-xs sm:text-sm tracking-wide transition-all cursor-pointer select-none ${
+                    isActive
+                      ? 'bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 text-white shadow-[0_4px_24px_rgba(59,130,246,0.55)] border border-blue-400/30'
+                      : 'bg-[#181921] hover:bg-[#222430] text-zinc-300 hover:text-white border border-white/5'
+                  }`}
+                >
+                  SEASON {s}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          return (
-            <div
-              key={s}
-              className="rounded-2xl bg-[#0f0d16] border border-[#211f2c] overflow-hidden p-4 sm:p-5 transition-all shadow-lg"
+        {/* Section 2: RELEASE FORMAT */}
+        <div className="space-y-2.5">
+          <label className="text-[11px] font-bold tracking-wider text-zinc-400 uppercase block">
+            Release Format
+          </label>
+          <div className="inline-flex items-center gap-1.5 p-1.5 rounded-2xl bg-[#121319] border border-white/5">
+            <button
+              type="button"
+              onClick={() => setReleaseFormat('episodes')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer select-none ${
+                releaseFormat === 'episodes'
+                  ? 'bg-[#272832] text-white shadow-md'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
             >
-              {/* Season Header Bar */}
-              <div className="flex items-center justify-between">
-                <h3 className="text-white font-bold text-base sm:text-lg tracking-tight">
-                  Season {s}
-                </h3>
-                <div className="flex items-center gap-2.5">
-                  <span className="px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d]">
-                    {formatGroups.length} {formatGroups.length === 1 ? 'format' : 'formats'}
-                  </span>
+              <FileVideo className="w-4 h-4" />
+              <span>EPISODES</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReleaseFormat('pack')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer select-none ${
+                releaseFormat === 'pack'
+                  ? 'bg-[#272832] text-white shadow-md'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>PACK</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Section 3: SELECT EPISODE (when EPISODES is selected) */}
+        {releaseFormat === 'episodes' && (
+          <div className="space-y-2.5 animate-fadeIn">
+            <label className="text-[11px] font-bold tracking-wider text-zinc-400 uppercase block">
+              Select Episode
+            </label>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 max-h-56 overflow-y-auto pr-1">
+              {availableEpisodes.map((epNum) => {
+                const isActive = selectedEpisode === epNum;
+                return (
                   <button
+                    key={epNum}
                     type="button"
-                    onClick={() => toggleSeason(s)}
-                    className="w-7 h-7 rounded-full bg-[#1c1a27] border border-[#2d2a3d] flex items-center justify-center text-zinc-300 hover:text-white hover:bg-[#252333] transition-colors cursor-pointer"
-                    title={isSeasonOpen ? 'Collapse Season' : 'Expand Season'}
+                    onClick={() => setSelectedEpisode(epNum)}
+                    className={`min-w-[44px] h-[44px] px-3.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center transition-all cursor-pointer select-none ${
+                      isActive
+                        ? 'bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 text-white shadow-[0_4px_20px_rgba(59,130,246,0.55)] border border-blue-400/30'
+                        : 'bg-[#181921] hover:bg-[#222430] text-zinc-300 hover:text-white border border-white/5'
+                    }`}
                   >
-                    {isSeasonOpen ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4" />
-                    )}
+                    E{epNum}
                   </button>
-                </div>
-              </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
-              {/* Inside Season (When Expanded) */}
-              {isSeasonOpen && (
-                <div className="mt-4 space-y-4 animate-fadeIn">
-                  {formatGroups.length > 0 ? (
-                    formatGroups.map((group) => (
-                      <div
-                        key={group.id}
-                        className="rounded-xl bg-[#14121e] border border-[#222030] p-3 sm:p-4 space-y-3 relative shadow-inner"
+      {/* Active Releases Display */}
+      <div className="space-y-4">
+        {releaseFormat === 'episodes' ? (
+          activeEpisodeReleases.length > 0 ? (
+            activeEpisodeReleases.map((rel) => (
+              <div
+                key={rel.optionId}
+                className="rounded-2xl bg-[#0c0d13] border border-white/5 hover:border-blue-500/30 transition-all p-5 sm:p-6 space-y-4 shadow-xl"
+              >
+                {/* Header Row: Badges, Title, Audio & Size */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/5 pb-3.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={getResolutionBadgeStyle(rel.resolution)}>
+                      {rel.resolution}
+                    </span>
+                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                      {rel.source}
+                    </span>
+                    {rel.size && (
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-[#181921] text-zinc-300 border border-white/5">
+                        {rel.size}
+                      </span>
+                    )}
+                    {rel.audioLanguages && (
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        {rel.audioLanguages}
+                      </span>
+                    )}
+                  </div>
+
+                  {isEffectiveAdmin && (
+                    <div className="flex items-center gap-1.5 self-start md:self-auto">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setManagingOptionId(managingOptionId === rel.optionId ? null : rel.optionId)
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-bold border border-zinc-700 transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
-                        {/* Format Bar with Left Orange Accent */}
-                        <div className="flex items-center justify-between pl-3 relative before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3.5px] before:bg-amber-500 before:rounded-full">
-                          <div className="flex items-center gap-2">
-                            {/* Resolution Badge (Solid amber for 4K, blue for 1080p, purple for 720p) */}
-                            <span className={getResolutionBadgeStyle(group.resolution)}>
-                              {group.resolution}
-                            </span>
-                            <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
-                              {group.source}
-                            </span>
-                          </div>
-                          <span className="px-3 py-1 rounded-full text-xs font-medium text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d]">
-                            {group.options.length} {group.options.length === 1 ? 'option' : 'options'}
-                          </span>
-                        </div>
-
-                        {/* Release Options List (e.g. 4K DV HDR vs 4K SDR vs 1080p H.264) */}
-                        <div className="space-y-3">
-                          {group.options.map((option) => {
-                            const { baseTitle, partTag, epSize, zipSize } = parseOptionTitleAndTags(
-                              option,
-                              titleDetails,
-                              s,
-                              group.resolution,
-                              group.source
-                            );
-
-                            // Group individual episodes by episodeNumber so mirrors appear as side-by-side buttons
-                            const groupedEpisodesMap = new Map<number, GroupedEpisode>();
-                            option.episodes.forEach((ep) => {
-                              const num = ep.episodeNumber || 1;
-                              if (!groupedEpisodesMap.has(num)) {
-                                const epNumStr = String(num).padStart(2, '0');
-                                const epPlat = detectShowPlatform(ep.title || option.title, titleDetails);
-                                let displayTitle = ep.title;
-                                if (epPlat === 'DSNP') {
-                                  displayTitle = displayTitle
-                                    .replace(/(?:^|\.)(?:NF|AMZN|ATVP|MAX)(?:\.(?:REMUX|BluRay|BDRip|WEB-DL|WEBRip))?(?=\.|$)/gi, '.DSNP.WEB-DL')
-                                    .replace(/(?:^|\.)DSNP\.(?:REMUX|BluRay|BDRip)(?=\.|$)/gi, '.DSNP.WEB-DL');
-                                } else if (epPlat) {
-                                  displayTitle = displayTitle.replace(/(?:^|\.)NF(?=\.|$)/gi, `.${epPlat}`);
-                                }
-                                if (!displayTitle.includes('.')) {
-                                  const effSource = epPlat === 'DSNP' ? 'WEB-DL' : group.source;
-                                  const platSeg = epPlat ? `.${epPlat}` : '';
-                                  displayTitle = `${(titleDetails.name || titleDetails.title || 'Series').replace(/\s+/g, '.')}.S${String(s).padStart(2, '0')}E${epNumStr}.${group.resolution.replace(/\s*\/\s*/g, '.')}${platSeg}.${effSource}.Multi.mkv`;
-                                }
-                                const detectedSz = ep.size || detectSize(ep.title) || '';
-                                groupedEpisodesMap.set(num, {
-                                  episodeNumber: num,
-                                  title: displayTitle,
-                                  size: detectedSz,
-                                  links: [],
-                                });
-                              }
-                              const g = groupedEpisodesMap.get(num)!;
-                              g.links.push(ep);
-                              if (ep.size) g.size = ep.size;
-                              else if (!g.size && detectSize(ep.title)) g.size = detectSize(ep.title)!;
-                            });
-
-                            const groupedEpisodes = Array.from(groupedEpisodesMap.values()).sort(
-                              (a, b) => a.episodeNumber - b.episodeNumber
-                            );
-
-                            return (
-                              <div
-                                key={option.id}
-                                className="rounded-xl bg-[#0c0a13] border border-[#211f30] hover:border-[#35324b] transition-all p-4 sm:p-5 space-y-3.5 shadow-sm"
-                              >
-                                {/* Title Row with Colored Brackets matching reference screenshot */}
-                                <div className="text-zinc-100 font-bold text-xs sm:text-sm md:text-[15px] leading-snug break-words font-sans">
-                                  <span>{baseTitle}</span>
-                                  {partTag && <span className="text-blue-500 font-bold ml-1.5">[{partTag}]</span>}
-                                  {epSize && (
-                                    <span className="font-bold ml-1.5">
-                                      <span className="text-blue-500">[</span>
-                                      <span className="text-red-500">{epSize}</span>
-                                      <span className="text-blue-500">/E]</span>
-                                    </span>
-                                  )}
-                                  {zipSize && (
-                                    <span className="text-blue-500 font-bold ml-1.5">
-                                      [{zipSize} Zip]
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Buttons Row: Episode 1..N (Red) and Zip / Pack (Gold/Amber) */}
-                                <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 pt-1">
-                                  {/* Single Episodes: Red buttons with Black border */}
-                                  {groupedEpisodes.map((epGroup) => {
-                                    const isSingleServer = epGroup.links.length === 1;
-                                    const primaryLink = epGroup.links[0];
-                                    const menuKey = `${option.id}_ep_${epGroup.episodeNumber}`;
-                                    const isMenuOpen = openMirrorMenu === menuKey;
-
-                                    return (
-                                      <div key={`ep_${epGroup.episodeNumber}`} className="relative inline-block mirror-menu-container">
-                                        {isSingleServer ? (
-                                          <a
-                                            href={primaryLink?.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="bg-[#cb2020] hover:bg-[#b01a1a] text-white font-bold text-xs sm:text-sm px-4 py-2 sm:px-5 sm:py-2.5 rounded-md border-2 border-black shadow-sm transition-all hover:scale-105 active:scale-95 inline-flex items-center justify-center cursor-pointer select-none"
-                                            title={`${epGroup.title} (${epGroup.size})`}
-                                          >
-                                            Episode {epGroup.episodeNumber}
-                                          </a>
-                                        ) : (
-                                          <div>
-                                            <button
-                                              type="button"
-                                              onClick={() => setOpenMirrorMenu(isMenuOpen ? null : menuKey)}
-                                              className="bg-[#cb2020] hover:bg-[#b01a1a] text-white font-bold text-xs sm:text-sm px-4 py-2 sm:px-5 sm:py-2.5 rounded-md border-2 border-black shadow-sm transition-all hover:scale-105 active:scale-95 inline-flex items-center justify-center cursor-pointer select-none gap-1.5"
-                                              title={`${epGroup.title} (${epGroup.links.length} mirrors available)`}
-                                            >
-                                              <span>Episode {epGroup.episodeNumber}</span>
-                                              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isMenuOpen ? 'rotate-180' : ''}`} />
-                                            </button>
-
-                                            {/* Mirror Selection Dropdown */}
-                                            {isMenuOpen && (
-                                              <div className="absolute top-full left-0 mt-2 z-50 min-w-[200px] bg-[#141122] border-2 border-black rounded-lg shadow-2xl p-2 space-y-1.5 animate-fadeIn">
-                                                <div className="text-[10px] text-zinc-400 font-bold px-2 py-0.5 border-b border-zinc-800 flex items-center justify-between uppercase tracking-wider">
-                                                  <span>Select Server:</span>
-                                                  {epGroup.size && <span className="text-amber-400 font-mono">{epGroup.size}</span>}
-                                                </div>
-                                                {epGroup.links.map((link, idx) => {
-                                                  const server = detectServer(link.url);
-                                                  const sameServerCount = epGroup.links.filter(
-                                                    (l) => detectServer(l.url).name === server.name
-                                                  ).length;
-                                                  const serverLabel =
-                                                    sameServerCount > 1
-                                                      ? `${server.name || 'Server'} ${idx + 1}`
-                                                      : server.name || `Server ${idx + 1}`;
-
-                                                  return (
-                                                    <a
-                                                      key={link.id || idx}
-                                                      href={link.url}
-                                                      target="_blank"
-                                                      rel="noopener noreferrer"
-                                                      className="flex items-center justify-between px-3 py-2 rounded bg-[#201b33] hover:bg-[#cb2020] text-zinc-200 hover:text-white text-xs font-bold transition-colors group"
-                                                    >
-                                                      <span className="flex items-center gap-1.5">
-                                                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                                        <span>{serverLabel}</span>
-                                                      </span>
-                                                      <Download className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 group-hover:translate-y-0.5 transition-all" />
-                                                    </a>
-                                                  );
-                                                })}
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-
-                                  {/* Zip / Pack: Gold / Amber button with Black border */}
-                                  {option.packs.length > 0 && (
-                                    option.packs.length === 1 ? (
-                                      <a
-                                        href={option.packs[0].url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="bg-[#d4973b] hover:bg-[#bf842f] text-white font-bold text-xs sm:text-sm px-4 py-2 sm:px-5 sm:py-2.5 rounded-md border-2 border-black shadow-sm transition-all hover:scale-105 active:scale-95 inline-flex items-center justify-center cursor-pointer select-none"
-                                        title={option.packs[0].title}
-                                      >
-                                        Zip / Pack
-                                      </a>
-                                    ) : (
-                                      <div className="relative inline-block mirror-menu-container">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const zipKey = `${option.id}_zip`;
-                                            setOpenMirrorMenu(openMirrorMenu === zipKey ? null : zipKey);
-                                          }}
-                                          className="bg-[#d4973b] hover:bg-[#bf842f] text-white font-bold text-xs sm:text-sm px-4 py-2 sm:px-5 sm:py-2.5 rounded-md border-2 border-black shadow-sm transition-all hover:scale-105 active:scale-95 inline-flex items-center justify-center cursor-pointer select-none gap-1.5"
-                                        >
-                                          <span>Zip / Pack</span>
-                                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openMirrorMenu === `${option.id}_zip` ? 'rotate-180' : ''}`} />
-                                        </button>
-
-                                        {openMirrorMenu === `${option.id}_zip` && (
-                                          <div className="absolute top-full left-0 mt-2 z-50 min-w-[210px] bg-[#141122] border-2 border-black rounded-lg shadow-2xl p-2 space-y-1.5 animate-fadeIn">
-                                            <div className="text-[10px] text-zinc-400 font-bold px-2 py-0.5 border-b border-zinc-800 flex items-center justify-between uppercase tracking-wider">
-                                              <span>Select Zip Server:</span>
-                                              {zipSize && <span className="text-amber-400 font-mono">{zipSize}</span>}
-                                            </div>
-                                            {option.packs.map((pack, pIdx) => {
-                                              const server = detectServer(pack.url);
-                                              const sameServerCount = option.packs.filter(
-                                                (p) => detectServer(p.url).name === server.name
-                                              ).length;
-                                              const serverLabel =
-                                                sameServerCount > 1
-                                                  ? `${server.name || 'Zip Server'} ${pIdx + 1}`
-                                                  : server.name || `Zip Server ${pIdx + 1}`;
-
-                                              return (
-                                                <a
-                                                  key={pack.id || pIdx}
-                                                  href={pack.url}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="flex items-center justify-between px-3 py-2 rounded bg-[#201b33] hover:bg-[#d4973b] text-zinc-200 hover:text-white text-xs font-bold transition-colors group"
-                                                >
-                                                  <span className="flex items-center gap-1.5">
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                                    <span>{serverLabel}</span>
-                                                  </span>
-                                                  <Download className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 group-hover:translate-y-0.5 transition-all" />
-                                                </a>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-
-                                {/* Admin Management Section (Visible only when Admin logged in) */}
-                                {isEffectiveAdmin && (
-                                  <div className="pt-2 border-t border-zinc-800/60 flex flex-wrap items-center justify-between gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setManagingOptionId(managingOptionId === option.id ? null : option.id)}
-                                      className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-bold border border-zinc-700 transition-colors flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                      <span>{managingOptionId === option.id ? 'Hide Admin Manager' : `Admin Manage (${option.episodes.length + option.packs.length} links)`}</span>
-                                    </button>
-
-                                    {managingOptionId === option.id && (
-                                      <div className="w-full mt-2 space-y-2 p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-                                        <div className="text-xs font-bold text-zinc-300">All Links in this Option:</div>
-                                        <div className="divide-y divide-zinc-800/70 max-h-60 overflow-y-auto">
-                                          {[...option.packs, ...option.episodes].map((lnk) => (
-                                            <div key={lnk.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
-                                              <div className="truncate flex-1 font-mono text-zinc-300">
-                                                <span className="text-amber-400 font-bold mr-1">
-                                                  {lnk.linkType === 'zip_pack' ? 'ZIP' : `E${lnk.episodeNumber || 1}`}:
-                                                </span>
-                                                {lnk.title}
-                                              </div>
-                                              <div className="flex items-center gap-1 shrink-0">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => handleStartEdit(lnk)}
-                                                  className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-400"
-                                                  title="Edit Link"
-                                                >
-                                                  <Pencil className="w-3 h-3" />
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => handleDelete(lnk.id)}
-                                                  className="p-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-400"
-                                                  title="Delete Link"
-                                                >
-                                                  <Trash2 className="w-3 h-3" />
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-3">
-                      <p className="text-xs sm:text-sm text-zinc-300 font-medium">
-                        No formats or download links uploaded yet for Season {s}.
-                      </p>
-                      <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-                        Need 4K HDR, 1080p, or batch zip downloads for Season {s}? Request it below!
-                      </p>
-                      <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setIsRequestModalOpen(true)}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 hover:scale-105 transition-all cursor-pointer"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 fill-black" />
-                          <span>Request Season {s} Links</span>
-                        </button>
-                        {isEffectiveAdmin && (
-                          <a
-                            href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-bold transition-colors"
-                          >
-                            <Plus className="w-3.5 h-3.5" /> Upload in Admin ↗
-                          </a>
-                        )}
-                      </div>
+                        <Pencil className="w-3 h-3" />
+                        <span>Manage ({rel.links.length})</span>
+                      </button>
                     </div>
                   )}
                 </div>
-              )}
+
+                {/* Release Scene Filename */}
+                <div className="font-mono text-xs sm:text-sm text-zinc-200 font-semibold break-all bg-[#121319] p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Film className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span className="truncate">{rel.title}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(rel.title);
+                      alert('Release title copied to clipboard!');
+                    }}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1"
+                    title="Copy release name"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Direct Download Server Mirrors */}
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Download className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Download Mirrors</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    {rel.links.map((link, idx) => {
+                      const server = detectServer(link.url);
+                      const sameServerCount = rel.links.filter(
+                        (l) => detectServer(l.url).name === server.name
+                      ).length;
+                      const serverLabel =
+                        sameServerCount > 1
+                          ? `${server.name || 'Server'} ${idx + 1}`
+                          : server.name || `Server ${idx + 1}`;
+
+                      return (
+                        <div key={link.id || idx} className="flex items-center gap-1.5">
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-600/25 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                            title={`Download from ${serverLabel}`}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{serverLabel}</span>
+                            <ExternalLink className="w-3 h-3 opacity-70" />
+                          </a>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(link.url);
+                              alert('Download link copied to clipboard!');
+                            }}
+                            className="p-2 rounded-xl bg-[#181921] hover:bg-[#222430] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                            title="Copy download link"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReportingLink({
+                                linkId: link.id,
+                                movieId: titleDetails.id,
+                                mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                                mediaType: 'tv',
+                                posterPath: titleDetails.poster_path,
+                                linkTitle: link.title,
+                                reportedUrl: link.url,
+                                quality: link.quality,
+                                server: server.name,
+                              })
+                            }
+                            className="p-2 rounded-xl bg-[#181921] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
+                            title="Report broken mirror"
+                          >
+                            <Flag className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Admin Management Section */}
+                {isEffectiveAdmin && managingOptionId === rel.optionId && (
+                  <div className="w-full mt-3 space-y-2 p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+                    <div className="text-xs font-bold text-zinc-300">Admin Link Manager:</div>
+                    <div className="divide-y divide-zinc-800 max-h-48 overflow-y-auto">
+                      {rel.links.map((lnk) => (
+                        <div key={lnk.id} className="py-2 flex items-center justify-between gap-2 text-xs">
+                          <div className="truncate flex-1 font-mono text-zinc-300">
+                            <span className="text-blue-400 font-bold mr-1">E{selectedEpisode}:</span>
+                            {lnk.title}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(lnk)}
+                              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400"
+                              title="Edit Link"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(lnk.id)}
+                              className="p-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-400"
+                              title="Delete Link"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="p-8 rounded-3xl bg-[#0c0d13] border border-white/5 text-center space-y-3.5 shadow-xl">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto text-blue-400">
+                <FileVideo className="w-6 h-6" />
+              </div>
+              <h4 className="text-white font-bold text-base sm:text-lg">
+                No Links Uploaded Yet for Season {selectedSeason} Episode {selectedEpisode}
+              </h4>
+              <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto">
+                We don&apos;t have download links uploaded for Episode {selectedEpisode} yet. Request it below and our team will add it!
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRequestModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Request Episode {selectedEpisode} Links</span>
+                </button>
+                {isEffectiveAdmin && (
+                  <a
+                    href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-bold transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Upload in Admin ↗
+                  </a>
+                )}
+              </div>
             </div>
-          );
-        })}
+          )
+        ) : (
+          activeSeasonPacks.length > 0 ? (
+            activeSeasonPacks.map((packRel) => (
+              <div
+                key={packRel.optionId}
+                className="rounded-2xl bg-[#0c0d13] border border-white/5 hover:border-amber-500/30 transition-all p-5 sm:p-6 space-y-4 shadow-xl"
+              >
+                {/* Header Row: Badges, Title, Audio & Size */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/5 pb-3.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={getResolutionBadgeStyle(packRel.resolution)}>
+                      {packRel.resolution}
+                    </span>
+                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
+                      {packRel.source}
+                    </span>
+                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm flex items-center gap-1">
+                      <Layers className="w-3 h-3" /> Season Pack
+                    </span>
+                    {packRel.size && (
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-[#181921] text-zinc-300 border border-white/5">
+                        {packRel.size}
+                      </span>
+                    )}
+                    {packRel.audioLanguages && (
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        {packRel.audioLanguages}
+                      </span>
+                    )}
+                  </div>
+
+                  {isEffectiveAdmin && (
+                    <div className="flex items-center gap-1.5 self-start md:self-auto">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setManagingOptionId(
+                            managingOptionId === packRel.optionId ? null : packRel.optionId
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-bold border border-zinc-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        <span>Manage ({packRel.packs.length})</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Pack Filename */}
+                <div className="font-mono text-xs sm:text-sm text-zinc-200 font-semibold break-all bg-[#121319] p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Layers className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="truncate">{packRel.title}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(packRel.title);
+                      alert('Pack title copied to clipboard!');
+                    }}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1"
+                    title="Copy pack name"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Direct Download Mirrors for Pack */}
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Complete Season Pack Downloads</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    {packRel.packs.map((pack, idx) => {
+                      const server = detectServer(pack.url);
+                      const sameServerCount = packRel.packs.filter(
+                        (p) => detectServer(p.url).name === server.name
+                      ).length;
+                      const serverLabel =
+                        sameServerCount > 1
+                          ? `${server.name || 'Zip Server'} ${idx + 1}`
+                          : server.name || `Zip Server ${idx + 1}`;
+
+                      return (
+                        <div key={pack.id || idx} className="flex items-center gap-1.5">
+                          <a
+                            href={pack.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md shadow-amber-600/25 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                            title={`Download complete season pack from ${serverLabel}`}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{serverLabel}</span>
+                            <ExternalLink className="w-3 h-3 opacity-70" />
+                          </a>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(pack.url);
+                              alert('Zip pack link copied to clipboard!');
+                            }}
+                            className="p-2 rounded-xl bg-[#181921] hover:bg-[#222430] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                            title="Copy zip pack link"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReportingLink({
+                                linkId: pack.id,
+                                movieId: titleDetails.id,
+                                mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                                mediaType: 'tv',
+                                posterPath: titleDetails.poster_path,
+                                linkTitle: pack.title,
+                                reportedUrl: pack.url,
+                                quality: pack.quality,
+                                server: server.name,
+                              })
+                            }
+                            className="p-2 rounded-xl bg-[#181921] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
+                            title="Report broken pack link"
+                          >
+                            <Flag className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Admin Management Section */}
+                {isEffectiveAdmin && managingOptionId === packRel.optionId && (
+                  <div className="w-full mt-3 space-y-2 p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+                    <div className="text-xs font-bold text-zinc-300">Admin Pack Manager:</div>
+                    <div className="divide-y divide-zinc-800 max-h-48 overflow-y-auto">
+                      {packRel.packs.map((lnk) => (
+                        <div key={lnk.id} className="py-2 flex items-center justify-between gap-2 text-xs">
+                          <div className="truncate flex-1 font-mono text-zinc-300">
+                            <span className="text-amber-400 font-bold mr-1">ZIP:</span>
+                            {lnk.title}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(lnk)}
+                              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400"
+                              title="Edit Link"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(lnk.id)}
+                              className="p-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-400"
+                              title="Delete Link"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="p-8 rounded-3xl bg-[#0c0d13] border border-white/5 text-center space-y-3.5 shadow-xl">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto text-amber-400">
+                <Layers className="w-6 h-6" />
+              </div>
+              <h4 className="text-white font-bold text-base sm:text-lg">
+                No Complete Season Packs Uploaded Yet for Season {selectedSeason}
+              </h4>
+              <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto">
+                Single episodes may be available under the <strong>EPISODES</strong> tab! You can also request a complete season pack zip archive.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRequestModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-amber-600/30 transition-all cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Request Season {selectedSeason} Pack</span>
+                </button>
+                {isEffectiveAdmin && (
+                  <a
+                    href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-bold transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Upload in Admin ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          )
+        )}
       </div>
 
       {/* Bottom Request Custom Quality Card */}

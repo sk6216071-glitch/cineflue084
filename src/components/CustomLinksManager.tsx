@@ -355,7 +355,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           <span>Request Link</span>
         </button>
       }
-      defaultOpen={false}
+      defaultOpen={mediaType === 'tv'}
     >
       {/* TV Series Season & Episode Vault */}
       {mediaType === 'tv' && (
