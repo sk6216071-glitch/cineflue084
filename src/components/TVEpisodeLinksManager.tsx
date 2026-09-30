@@ -889,17 +889,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setIsRequestModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 w-full sm:w-auto flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-200 font-bold text-xs transition-all shadow-sm cursor-pointer group"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-            <span>Request Link</span>
-          </button>
-
-          {isEffectiveAdmin && (
+        {isEffectiveAdmin && (
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto w-full sm:w-auto">
             <a
               href={`/admin?title=${encodeURIComponent(titleDetails.name || titleDetails.title || '')}&id=${titleDetails.id}`}
               className="flex items-center justify-center gap-1.5 w-full sm:w-auto flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all hover:bg-zinc-800 shadow-sm"
@@ -907,8 +898,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               <Zap className="w-3.5 h-3.5 fill-amber-400" />
               <span>Admin File Uploader ↗</span>
             </a>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Interactive Vault Controls (media_1790752115635.png reference design) */}
