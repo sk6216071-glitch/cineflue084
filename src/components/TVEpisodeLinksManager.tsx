@@ -140,28 +140,32 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
   else if (qHintLower.includes('bluray')) source = 'BluRay';
 
   // 4. Dynamic Range sensing (Sense DV HDR vs HDR vs SDR / simple H.265)
-  // First analyze the filename/title directly:
-  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(titleLower);
-  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
-  const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(titleLower);
+  // Check if filename has scene release properties (dots, extension, release tags):
+  const isSceneFilename =
+    titleLower.includes('.mkv') ||
+    titleLower.includes('.mp4') ||
+    titleLower.includes('web-dl') ||
+    titleLower.includes('webdl') ||
+    titleLower.includes('bluray') ||
+    titleLower.includes('remux');
+
+  const hasDVInTitle = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(titleLower);
+  const hasHDRInTitle = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
+  const hasSDRInTitle = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(titleLower);
+
+  const hasDVInHint = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
+  const hasHDRInHint = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
+  const hasSDRInHint = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(qHintLower);
 
   let dynamicRange = '';
-  if (hasDV && hasHDR) {
+  if (hasDVInTitle || (!isSceneFilename && hasDVInHint)) {
     dynamicRange = 'DV HDR';
-  } else if (hasDV) {
-    dynamicRange = 'DV HDR';
-  } else if (hasHDR) {
+  } else if (hasHDRInTitle || (!isSceneFilename && hasHDRInHint)) {
     dynamicRange = 'HDR';
-  } else if (hasSDR) {
+  } else if (hasSDRInTitle || hasSDRInHint) {
     dynamicRange = 'SDR';
   } else if (resTag === '2160p') {
-    // In 4K / 2160p: if it has NO DV and NO HDR, it is simple H.265 SDR!
-    dynamicRange = 'SDR';
-  } else if (qHintLower.includes('dv hdr') || qHintLower.includes('dolby vision')) {
-    dynamicRange = 'DV HDR';
-  } else if (qHintLower.includes('hdr')) {
-    dynamicRange = 'HDR';
-  } else if (qHintLower.includes('sdr')) {
+    // In 4K / 2160p: if it has NO DV and NO HDR, it is strictly 2160p SDR!
     dynamicRange = 'SDR';
   }
 
@@ -473,7 +477,10 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const detectedSeason = detectSeasonNumber(l);
       const detectedEp = detectEpisodeNumber({ ...l, episodeNumber: l.episodeNumber, url: l.url });
       const detectedType = detectLinkType({ ...l, episodeNumber: detectedEp, url: l.url });
-      const detectedQ = l.quality && l.quality !== 'HD' ? l.quality : detectQuality(l.title, l.quality);
+      const isSceneRelease = /(?:s\d{1,2}e\d{1,2}|2160p|1080p|720p|480p|\.mkv|\.mp4|web-dl|webdl|bluray)/i.test(l.title || '');
+      const detectedQ = (isSceneRelease || !l.quality || l.quality === 'HD')
+        ? detectQuality(l.title, l.quality)
+        : l.quality;
       const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
       const detectedSz = l.size || detectSize(l.title) || detectSize(l.url);
       const prof = extractReleaseProfile(l.title, detectedQ, titleDetails);
@@ -490,9 +497,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         source: prof.source,
       };
     });
-  }, [customLinks]);
+  }, [customLinks, titleDetails]);
 
-  // Group enriched links by Season -> Format Groups (2160p / 4K, 1080p...) -> Release Options (DV HDR, SDR...)
+  // Group enriched links by Season -> Format Groups (2160p / 4K DV HDR, 2160p / 4K SDR, 1080p...) -> Release Options
   const seasonGroupsMap = useMemo(() => {
     const map = new Map<number, FormatGroup[]>();
     const showName = titleDetails.name || titleDetails.title || 'Series';
@@ -504,11 +511,13 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         return;
       }
 
-      // Group by format key: resolution + source (e.g. "2160p / 4K_WEB-DL", "1080p_WEB-DL")
+      // Group by format key: resolution + source + dynamicRange (e.g. "2160p / 4K_WEB-DL_DV_HDR", "2160p / 4K_WEB-DL_SDR", "1080p_WEB-DL")
       const formatMap = new Map<string, { resolution: string; source: string; links: EnrichedLink[] }>();
 
       currentSeasonLinks.forEach((link) => {
-        const key = `${link.resolution}_${link.source}`;
+        const prof = extractReleaseProfile(link.title, link.quality, titleDetails);
+        const dynSuffix = prof.dynamicRange ? `_${prof.dynamicRange.replace(/\s+/g, '_')}` : '';
+        const key = `${link.resolution}_${link.source}${dynSuffix}`;
         if (!formatMap.has(key)) {
           formatMap.set(key, {
             resolution: link.resolution,
@@ -839,31 +848,32 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
       // 3. Detect 10bit / HEVC
       const is10Bit = /10bit|10-bit/i.test(tLower);
-      const isHEVC = /hevc|x265|h\.?265/i.test(tLower) || codec === 'H.265';
+      const isHEVC = /hevc|x265|h\.?265/i.test(tLower) || codec === 'H.265' || resTag === '2160p';
 
       // 4. Construct Key & Title
       if (resTag === '2160p') {
+        const codecLabel = isHEVC ? ' H.265' : '';
         if (dyn === 'DV HDR' || dyn === 'DV') {
           return {
-            key: '2160p_dv_hdr',
-            title: `2160p 4K DV HDR ${src}`,
-            badge: '2160p DV HDR',
+            key: '2160p_dv_hdr_h265',
+            title: `2160p 4K DV HDR${codecLabel} ${src}`,
+            badge: `2160p DV HDR${codecLabel}`,
             resolution: '2160p / 4K',
             weight: 450,
           };
         } else if (dyn === 'HDR') {
           return {
-            key: '2160p_hdr',
-            title: `2160p 4K HDR ${src}`,
-            badge: '2160p HDR',
+            key: '2160p_hdr_h265',
+            title: `2160p 4K HDR${codecLabel} ${src}`,
+            badge: `2160p HDR${codecLabel}`,
             resolution: '2160p / 4K',
             weight: 440,
           };
         } else {
           return {
-            key: '2160p_sdr',
-            title: `2160p 4K SDR ${src}`,
-            badge: '2160p SDR',
+            key: '2160p_sdr_h265',
+            title: `2160p 4K SDR${codecLabel} ${src}`,
+            badge: `2160p SDR${codecLabel}`,
             resolution: '2160p / 4K',
             weight: 420,
           };

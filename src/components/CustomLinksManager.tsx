@@ -184,11 +184,12 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
   parts.push(resolution);
 
   if (resolution === '2160p') {
-    if (hasDV && hasHDR) parts.push('DV HDR');
-    else if (hasDV) parts.push('DV');
-    else if (hasHDR) parts.push('HDR');
-    else if (hasSDR) parts.push('SDR');
-    else parts.push('SDR');
+    const hevcTag = isHEVC ? ' H.265' : '';
+    if (hasDV && hasHDR) parts.push(`DV HDR${hevcTag}`);
+    else if (hasDV) parts.push(`DV${hevcTag}`);
+    else if (hasHDR) parts.push(`HDR${hevcTag}`);
+    else if (hasSDR) parts.push(`SDR${hevcTag}`);
+    else parts.push(`SDR${hevcTag}`);
 
     if (source && source !== 'WebDL') parts.push(source);
   } else if (resolution === '1080p') {
@@ -221,10 +222,10 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
   } else if (urlLower.includes('drive.google') || urlLower.includes('google')) {
     serverName = 'GDrive';
   } else if (urlLower.includes('gdtot')) {
-    serverName = 'GDTot';
+    serverName = 'HubCloud';
   }
 
-  if (!serverName || serverName === 'Cloud Server' || serverName === 'Direct Server') {
+  if (!serverName || serverName === 'Cloud Server' || serverName === 'Direct Server' || serverName === 'GDTot') {
     serverName = 'HubCloud';
   }
 
