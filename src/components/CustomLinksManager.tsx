@@ -660,62 +660,27 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                         <span>{buttonLabel}</span>
                       </a>
 
-                      {/* Quick Action Buttons: Copy, Flag/Report, Admin */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(link.url);
-                            alert('Download link copied to clipboard!');
-                          }}
-                          className="p-3 sm:p-3.5 rounded-2xl bg-[#141622] hover:bg-[#1f2336] text-zinc-400 hover:text-white border border-white/10 transition-colors cursor-pointer"
-                          title="Copy download link"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setReportingLink({
-                              linkId: link.id,
-                              movieId: titleDetails.id,
-                              mediaTitle: titleDetails.title || titleDetails.name || 'Movie',
-                              mediaType: mediaType === 'tv' ? 'tv' : 'movie',
-                              posterPath: titleDetails.poster_path,
-                              linkTitle: buttonLabel,
-                              reportedUrl: link.url,
-                              quality: link.quality,
-                              server: serverInfo.name,
-                            })
-                          }
-                          className="p-3 sm:p-3.5 rounded-2xl bg-[#141622] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/10 hover:border-rose-500/30 transition-colors cursor-pointer"
-                          title="Report broken or defective link"
-                        >
-                          <Flag className="w-4 h-4" />
-                        </button>
-
-                        {isAdmin && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(link)}
-                              className="p-3 sm:p-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
-                              title="Admin: Edit link"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(link.id)}
-                              className="p-3 sm:p-3.5 rounded-2xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
-                              title="Admin: Delete link"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {/* Admin Controls (Only visible to admin) */}
+                      {isAdmin && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(link)}
+                            className="p-3 sm:p-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                            title="Admin: Edit link"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(link.id)}
+                            className="p-3 sm:p-3.5 rounded-2xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                            title="Admin: Delete link"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Subtext: Scene title & audio language */}

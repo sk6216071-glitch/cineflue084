@@ -711,14 +711,22 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         if (opt.packs.length > 0) {
           const first = opt.packs[0];
           const detectedSz = first.size || detectSize(first.title) || detectSize(undefined, undefined, first.url) || '';
-          const cleanPackTitle = stripWatermarks(first.title || opt.title);
-          const prof = extractReleaseProfile(cleanPackTitle, first.quality, titleDetails, first.url);
+          const urlFn = extractFilenameFromUrl(first.url);
+          let rawPackTitle = first.title || opt.title || '';
+          if (urlFn && (/\.(?:zip|rar|7z|tar|mkv|mp4)$/i.test(urlFn) || /(?:2160p|1080p|720p|s\d{1,2}|season)/i.test(urlFn))) {
+            if (!rawPackTitle || rawPackTitle.length < 15 || !/(?:2160p|1080p|720p|web-dl|h\.?26[45])/i.test(rawPackTitle)) {
+              rawPackTitle = urlFn;
+            }
+          }
+          const cleanPackTitle = stripWatermarks(rawPackTitle);
+          const finalPackTitle = cleanPackTitle || rawPackTitle || opt.title;
+          const prof = extractReleaseProfile(finalPackTitle, first.quality, titleDetails, first.url);
 
           results.push({
             optionId: opt.id,
             resolution: fmt.resolution,
             source: fmt.source,
-            title: cleanPackTitle || opt.title,
+            title: finalPackTitle,
             codec: prof.codec,
             dynamicRange: prof.dynamicRange,
             audioLanguages: opt.audioLanguages,
@@ -1216,160 +1224,69 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           {openSlideId === 'zip' && (
             <div className="bg-[#090b10] p-4 sm:p-6 space-y-4 animate-fadeIn border-t border-rose-950/40">
               {activeSeasonPacks.length > 0 ? (
-                activeSeasonPacks.map((packRel) => (
-                  <div
-                    key={packRel.optionId}
-                    className="rounded-2xl bg-[#0e111a] border border-white/5 hover:border-blue-500/30 p-4 sm:p-5 space-y-3.5 transition-all shadow-xl"
-                  >
-                    {/* Header Row */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-white/5 pb-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
-                          <Layers className="w-4 h-4" />
-                        </div>
-                        <h4 className="text-sm sm:text-base font-bold text-white tracking-wide truncate">
-                          Complete Season {selectedSeason} Pack
-                        </h4>
-                      </div>
+                <div className="space-y-2.5">
+                  {activeSeasonPacks.map((packRel) => {
+                    const primaryPack = packRel.packs[0];
+                    const destinationUrl = primaryPack?.url || '#';
 
-                      {/* Badges */}
-                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        <span className={getResolutionBadgeStyle(packRel.resolution)}>
-                          {packRel.resolution}
-                        </span>
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634]">
-                          {packRel.source}
-                        </span>
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
-                          <Layers className="w-3 h-3" /> Season Pack
-                        </span>
-                        {packRel.size && (
-                          <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-zinc-900 text-zinc-300 border border-white/5">
-                            {packRel.size}
-                          </span>
-                        )}
-                        {packRel.audioLanguages && (
-                          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                            {packRel.audioLanguages}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Release Filename & Direct Link */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/40 hover:bg-black/60 p-3 sm:p-4 rounded-xl border border-white/5 hover:border-blue-500/40 transition-all">
-                      <a
-                        href={packRel.packs[0]?.url || '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2.5 min-w-0 flex-1 group/pack select-none cursor-pointer"
-                        title={`Click to download ${packRel.title}`}
+                    return (
+                      <div
+                        key={packRel.optionId}
+                        className="group relative rounded-2xl bg-[#0e111a] hover:bg-[#131724] border border-white/5 hover:border-blue-500/40 p-3.5 sm:p-4.5 transition-all shadow-md hover:shadow-blue-500/10 flex items-center justify-between gap-3"
                       >
-                        <Layers className="w-4 h-4 text-blue-400 shrink-0 group-hover/pack:scale-110 transition-transform" />
-                        <span className="font-mono text-xs sm:text-sm text-zinc-100 group-hover/pack:text-blue-400 group-hover/pack:underline font-semibold break-all line-clamp-2 sm:line-clamp-1 transition-colors">
-                          {packRel.title}
-                        </span>
-                        <ExternalLink className="w-3.5 h-3.5 text-blue-400/70 group-hover/pack:text-blue-300 shrink-0 opacity-0 group-hover/pack:opacity-100 transition-opacity" />
-                      </a>
+                        {/* Direct Clickable Release Filename redirecting directly to HubCloud / GDFlix */}
+                        <a
+                          href={destinationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 min-w-0 flex-1 select-none cursor-pointer"
+                          title={`Click to download ${packRel.title}`}
+                        >
+                          <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0 group-hover:scale-105 group-hover:bg-blue-500/20 transition-all">
+                            <Layers className="w-4 h-4" />
+                          </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
-                        {packRel.packs.length > 1 && (
-                          <div className="flex items-center gap-1.5 mr-1">
-                            {packRel.packs.map((p, idx) => {
-                              const s = detectServer(p.url);
-                              return (
-                                <a
-                                  key={p.id || idx}
-                                  href={p.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2.5 py-1 rounded-xl text-xs font-bold bg-[#141622] hover:bg-blue-600 text-zinc-300 hover:text-white border border-white/10 hover:border-blue-500 transition-all cursor-pointer"
-                                  title={`Download from ${s.name || `Mirror ${idx + 1}`}`}
-                                >
-                                  {s.name || `Mirror ${idx + 1}`} ↗
-                                </a>
-                              );
-                            })}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs sm:text-sm font-bold text-zinc-100 group-hover:text-blue-400 group-hover:underline transition-colors break-all">
+                                {packRel.title}
+                              </span>
+                              <ExternalLink className="w-3.5 h-3.5 text-blue-400/70 group-hover:text-blue-300 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                          </div>
+                        </a>
+
+                        {/* Admin Controls (Only visible to admin) */}
+                        {isEffectiveAdmin && primaryPack && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(primaryPack);
+                              }}
+                              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                              title="Admin: Edit link"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(primaryPack.id);
+                              }}
+                              className="p-2 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                              title="Admin: Delete link"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         )}
-
-                        {packRel.packs[0] && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(packRel.packs[0].url);
-                              alert('Zip pack link copied to clipboard!');
-                            }}
-                            className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
-                            title="Copy zip pack link"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-
-                        {packRel.packs[0] && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReportingLink({
-                                linkId: packRel.packs[0].id,
-                                movieId: titleDetails.id,
-                                mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
-                                mediaType: 'tv',
-                                posterPath: titleDetails.poster_path,
-                                linkTitle: packRel.title,
-                                reportedUrl: packRel.packs[0].url,
-                                quality: packRel.packs[0].quality,
-                                server: detectServer(packRel.packs[0].url).name || 'HubCloud',
-                              });
-                            }}
-                            className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
-                            title="Report broken pack link"
-                          >
-                            <Flag className="w-3.5 h-3.5" />
-                          </button>
-                        )}
                       </div>
-                    </div>
-
-                    {/* Admin Management Section */}
-                    {isEffectiveAdmin && managingOptionId === packRel.optionId && (
-                      <div className="w-full mt-3 space-y-2 p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
-                        <div className="text-xs font-bold text-zinc-300">Admin Pack Manager:</div>
-                        <div className="divide-y divide-zinc-800 max-h-48 overflow-y-auto">
-                          {packRel.packs.map((lnk) => (
-                            <div key={lnk.id} className="py-2 flex items-center justify-between gap-2 text-xs">
-                              <div className="truncate flex-1 font-mono text-zinc-300">
-                                <span className="text-amber-400 font-bold mr-1">ZIP:</span>
-                                {lnk.title}
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEdit(lnk)}
-                                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-400"
-                                  title="Edit Link"
-                                >
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDelete(lnk.id)}
-                                  className="p-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-400"
-                                  title="Delete Link"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
+                    );
+                  })}
+                </div>
               ) : (
                 <div className="p-8 rounded-2xl bg-[#0c0d13] border border-white/5 text-center space-y-3.5 shadow-xl">
                   <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto text-blue-400">
@@ -1528,98 +1445,33 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                               </div>
                             </a>
 
-                            {/* Action icons / Mirror servers if more than 1 server exists */}
-                            <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
-                              {/* If there are multiple mirrors, show each mirror server link */}
-                              {ep.links.length > 1 && (
-                                <div className="flex items-center gap-1.5 mr-1">
-                                  {ep.links.map((lnk, idx) => {
-                                    const srv = detectServer(lnk.url);
-                                    return (
-                                      <a
-                                        key={lnk.id || idx}
-                                        href={lnk.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-2.5 py-1 rounded-xl text-xs font-bold bg-[#141622] hover:bg-blue-600 text-zinc-300 hover:text-white border border-white/10 hover:border-blue-500 transition-all cursor-pointer"
-                                        title={`Download from ${srv.name || `Mirror ${idx + 1}`}`}
-                                      >
-                                        {srv.name || `Mirror ${idx + 1}`} ↗
-                                      </a>
-                                    );
-                                  })}
-                                </div>
-                              )}
-
-                              {/* Quick Copy Link */}
-                              {primaryLink && (
+                            {/* Admin Edit / Delete Actions (Only visible to admin) */}
+                            {(isEffectiveAdmin || isAdmin) && primaryLink && (
+                              <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigator.clipboard.writeText(primaryLink.url);
-                                    alert('Download link copied to clipboard!');
+                                    handleStartEdit(primaryLink);
                                   }}
-                                  className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
-                                  title="Copy download link"
+                                  className="p-2 sm:p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                                  title="Admin: Edit link"
                                 >
-                                  <Copy className="w-3.5 h-3.5" />
+                                  <Pencil className="w-3.5 h-3.5" />
                                 </button>
-                              )}
-
-                              {/* Flag / Report Broken Link */}
-                              {primaryLink && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setReportingLink({
-                                      linkId: primaryLink.id,
-                                      movieId: titleDetails.id,
-                                      mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
-                                      mediaType: 'tv',
-                                      posterPath: titleDetails.poster_path,
-                                      linkTitle: ep.title,
-                                      reportedUrl: primaryLink.url,
-                                      quality: primaryLink.quality,
-                                      server: serverName,
-                                    });
+                                    handleDelete(primaryLink.id);
                                   }}
-                                  className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
-                                  title="Report broken mirror"
+                                  className="p-2 sm:p-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                                  title="Admin: Delete link"
                                 >
-                                  <Flag className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
-                              )}
-
-                              {/* Admin Edit / Delete Actions */}
-                              {isAdmin && primaryLink && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleStartEdit(primaryLink);
-                                    }}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
-                                    title="Admin: Edit link"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDelete(primaryLink.id);
-                                    }}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
-                                    title="Admin: Delete link"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
