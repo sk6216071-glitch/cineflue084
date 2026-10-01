@@ -27,7 +27,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { uid, email, displayName, photoURL, provider } = body;
+    const { uid, email, displayName, photoURL, bio, favoriteGenres, provider } = body;
 
     if (!uid || !email) {
       return NextResponse.json(
@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
       email,
       displayName: displayName || email.split('@')[0],
       photoURL,
+      bio,
+      favoriteGenres,
       provider: provider || 'auth',
     });
 

@@ -1,7 +1,20 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Sparkles, Mail, Lock, User as UserIcon, CheckCircle2, ShieldCheck, LogIn } from 'lucide-react';
+import {
+  X,
+  Sparkles,
+  Mail,
+  Lock,
+  User as UserIcon,
+  CheckCircle2,
+  ShieldCheck,
+  LogIn,
+  AlertCircle,
+  Zap,
+  ArrowRight,
+  Loader2,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 interface AuthModalProps {
@@ -9,53 +22,91 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
-  const { loginWithGoogle, loginWithEmail, signupWithEmail, isLoggedIn, userProfile, logout } = useAuth();
+  const { loginWithGoogle, loginWithEmail, signupWithEmail, fastLogin, isLoggedIn, userProfile, logout } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isAccountNotFound, setIsAccountNotFound] = useState(false);
+  const [useFastLogin, setUseFastLogin] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
+    setIsAccountNotFound(false);
+
+    if (!email.trim() || !email.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
     setLoading(true);
 
+    if (useFastLogin) {
+      const res = await fastLogin(email.trim(), displayName.trim());
+      setLoading(false);
+      if (res.success) {
+        setSuccessMessage('Logged in successfully!');
+        setTimeout(onClose, 600);
+      } else {
+        setError(res.error || 'Failed to sign in.');
+      }
+      return;
+    }
+
     if (isSignUp) {
-      if (!email || !password || !displayName) {
-        setError('Please fill in all fields.');
+      if (!password || password.length < 4) {
+        setError('Password must be at least 4 characters.');
         setLoading(false);
         return;
       }
-      const res = await signupWithEmail(email, password, displayName);
+      const res = await signupWithEmail(email.trim(), password, displayName.trim());
+      setLoading(false);
       if (res.success) {
-        onClose();
+        setSuccessMessage('Account created and signed in successfully!');
+        setTimeout(onClose, 600);
       } else {
         setError(res.error || 'Failed to sign up.');
       }
     } else {
-      if (!email || !password) {
-        setError('Please enter your email and password.');
+      if (!password) {
+        setError('Please enter your password.');
         setLoading(false);
         return;
       }
-      const res = await loginWithEmail(email, password);
+      const res = await loginWithEmail(email.trim(), password);
+      setLoading(false);
       if (res.success) {
-        onClose();
+        setSuccessMessage('Signed in successfully!');
+        setTimeout(onClose, 600);
       } else {
+        if (res.notFound) {
+          setIsAccountNotFound(true);
+        }
         setError(res.error || 'Failed to sign in.');
       }
     }
-    setLoading(false);
   };
 
   const handleGoogleLogin = async () => {
+    setError('');
+    setSuccessMessage('');
+    setIsAccountNotFound(false);
     setLoading(true);
     const res = await loginWithGoogle();
     setLoading(false);
     if (res.success) {
-      onClose();
+      setSuccessMessage('Signed in with Google!');
+      setTimeout(onClose, 500);
+    } else {
+      setError(
+        res.error ||
+          'Google Sign-In is unavailable or blocked in this browser (e.g. Brave Shields / Adblock). Please sign in with your email below.'
+      );
     }
   };
 
@@ -67,7 +118,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-400" />
             <h2 className="text-base font-bold text-white">
-              {isLoggedIn ? 'Account Profile' : isSignUp ? 'Create CineFuel Account' : 'Welcome to CineFuel'}
+              {isLoggedIn
+                ? 'Account Profile'
+                : useFastLogin
+                ? 'Instant 1-Click Sign-In'
+                : isSignUp
+                ? 'Create CineFuel Account'
+                : 'Sign In to CineFuel'}
             </h2>
           </div>
           <button
@@ -79,7 +136,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5 text-sm">
+        <div className="p-6 space-y-4 text-sm">
           {isLoggedIn ? (
             <div className="space-y-4 text-center">
               <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-2xl mx-auto shadow-lg shadow-amber-500/20">
@@ -92,7 +149,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
 
               <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center justify-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Cloud Sync Active (Firebase & Firestore)</span>
+                <span>Account Active & Synced (MongoDB Atlas)</span>
               </div>
 
               <div className="pt-2 flex justify-center">
@@ -109,17 +166,80 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
             </div>
           ) : (
             <>
+              {/* Tab Selector: Sign In vs Create Account */}
+              <div className="flex bg-zinc-900/90 p-1 rounded-xl border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(false);
+                    setUseFastLogin(false);
+                    setError('');
+                    setIsAccountNotFound(false);
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    !isSignUp && !useFastLogin
+                      ? 'bg-amber-500 text-black shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(true);
+                    setUseFastLogin(false);
+                    setError('');
+                    setIsAccountNotFound(false);
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    isSignUp && !useFastLogin
+                      ? 'bg-amber-500 text-black shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Create Account
+                </button>
+              </div>
+
+              {/* Success Notification */}
+              {successMessage && (
+                <div className="p-3 bg-emerald-950/50 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-medium flex items-center gap-2 animate-fadeIn">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+
+              {/* Error Notification */}
               {error && (
-                <div className="p-3 bg-rose-950/40 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-medium">
-                  {error}
+                <div className="p-3 bg-rose-950/50 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-medium space-y-2 animate-fadeIn">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">{error}</p>
+                  </div>
+                  {isAccountNotFound && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSignUp(true);
+                        setError('');
+                        setIsAccountNotFound(false);
+                      }}
+                      className="text-amber-400 hover:underline font-bold text-xs flex items-center gap-1.5 pl-6"
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                      Create a new account with {email}
+                    </button>
+                  )}
                 </div>
               )}
 
               {/* Google 1-Click Login */}
               <button
+                type="button"
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-100 text-black font-bold text-xs transition-all shadow-md"
+                className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-100 text-black font-bold text-xs transition-all shadow-md active:scale-98 disabled:opacity-50"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path
@@ -142,24 +262,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
                 Continue with Google
               </button>
 
-              <div className="flex items-center gap-3 my-2">
+              <div className="flex items-center gap-3 my-1">
                 <div className="flex-1 h-px bg-zinc-800" />
-                <span className="text-[11px] text-zinc-500 uppercase">Or with email</span>
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                  {useFastLogin ? 'Instant Email Access' : 'Or with Email & Password'}
+                </span>
                 <div className="flex-1 h-px bg-zinc-800" />
               </div>
 
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-3">
-                {isSignUp && (
+                {(isSignUp || useFastLogin) && (
                   <div>
-                    <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Display Name</label>
+                    <label className="text-[11px] font-semibold text-zinc-300 block mb-1">
+                      Display Name {useFastLogin && <span className="text-zinc-500">(Optional)</span>}
+                    </label>
                     <div className="relative">
                       <input
                         type="text"
                         placeholder="Your Name or Nickname"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 transition-colors"
                       />
                       <UserIcon className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     </div>
@@ -171,47 +295,92 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
                   <div className="relative">
                     <input
                       type="email"
+                      required
                       placeholder="name@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 transition-colors"
                     />
                     <Mail className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Password</label>
-                  <div className="relative">
-                    <input
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                    />
-                    <Lock className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                {!useFastLogin && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-zinc-300 block">Password</label>
+                      {isSignUp && (
+                        <span className="text-[10px] text-zinc-500">Min 4 characters</span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 transition-colors"
+                      />
+                      <Lock className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-all shadow-lg shadow-amber-500/20"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                 >
-                  {isSignUp ? 'Create CineFuel Account' : 'Sign In'}
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Processing...</span>
+                    </>
+                  ) : useFastLogin ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Instant Sign In</span>
+                    </>
+                  ) : isSignUp ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Create CineFuel Account</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Sign In</span>
+                    </>
+                  )}
                 </button>
               </form>
 
-              <div className="text-center pt-1">
+              {/* Fast 1-Click Sign-In Alternate Switch */}
+              <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between text-xs">
                 <button
+                  type="button"
                   onClick={() => {
-                    setIsSignUp(!isSignUp);
+                    setUseFastLogin(!useFastLogin);
                     setError('');
                   }}
-                  className="text-xs text-amber-400 hover:underline font-medium"
+                  className="text-zinc-400 hover:text-amber-400 text-[11px] font-medium flex items-center gap-1 transition-colors"
                 >
-                  {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Create one"}
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  {useFastLogin ? 'Use password instead' : 'Quick sign-in without password'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(!isSignUp);
+                    setUseFastLogin(false);
+                    setError('');
+                    setIsAccountNotFound(false);
+                  }}
+                  className="text-amber-400 hover:underline font-semibold text-[11px]"
+                >
+                  {isSignUp ? 'Already registered? Sign In' : 'New user? Register'}
                 </button>
               </div>
             </>

@@ -250,6 +250,10 @@ export interface RegisteredUser {
   reportsCount?: number;
   recentRequests?: string[];
   provider?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
+  bio?: string;
+  favoriteGenres?: string[];
 }
 
 export interface RecommendationItem {

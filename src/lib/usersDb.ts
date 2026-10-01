@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { getDatabase } from '@/lib/mongodb';
 import { getAllRequests } from '@/lib/requestsDb';
 import { getAllReports } from '@/lib/reportsDb';
@@ -186,23 +187,95 @@ export async function getAllUsers(): Promise<{
 }
 
 /**
+ * Hashes a password using crypto.pbkdf2Sync
+ */
+export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
+  const userSalt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, userSalt, 1000, 64, 'sha512').toString('hex');
+  return { hash, salt: userSalt };
+}
+
+/**
+ * Verifies a password against a stored hash and salt
+ */
+export function verifyPassword(password: string, storedHash: string, salt: string): boolean {
+  try {
+    const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    return hash === storedHash;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finds a user by email across MongoDB, Redis, and local JSON
+ */
+export async function getUserByEmail(email: string): Promise<RegisteredUser | null> {
+  const cleanEmail = email.toLowerCase().trim();
+  if (!cleanEmail) return null;
+
+  // 1. Try MongoDB
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const doc = await db.collection('users').findOne({ email: cleanEmail });
+      if (doc) {
+        const { _id, ...rest } = doc;
+        return rest as RegisteredUser;
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB getUserByEmail warning:', err.message);
+  }
+
+  // 2. Try Redis
+  if (redisClient) {
+    try {
+      const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
+      const list = Array.isArray(redisData) ? redisData : (typeof redisData === 'string' ? JSON.parse(redisData) : []);
+      const found = list.find((u: RegisteredUser) => u.email.toLowerCase() === cleanEmail);
+      if (found) return found;
+    } catch (e) {}
+  }
+
+  // 3. Try Local JSON
+  try {
+    const local = getLocalFallbackUsers();
+    const found = local.find((u) => u.email.toLowerCase() === cleanEmail);
+    if (found) return found;
+  } catch (e) {}
+
+  return null;
+}
+
+/**
  * Saves or updates a registered user across persistence layers
  */
-export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid: string; email: string }): Promise<boolean> {
-  const newUser: RegisteredUser = {
-    uid: user.uid,
-    email: user.email.toLowerCase().trim(),
-    displayName: user.displayName || user.email.split('@')[0] || 'Cinephile User',
-    photoURL: user.photoURL || null,
-    createdAt: user.createdAt || new Date().toISOString(),
+export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?: string; email: string }): Promise<RegisteredUser> {
+  const cleanEmail = user.email.toLowerCase().trim();
+  const existing = await getUserByEmail(cleanEmail);
+
+  const finalUser: RegisteredUser = {
+    uid: user.uid || existing?.uid || `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    email: cleanEmail,
+    displayName: user.displayName || existing?.displayName || cleanEmail.split('@')[0] || 'Cinephile User',
+    photoURL: user.photoURL !== undefined ? user.photoURL : (existing?.photoURL || null),
+    bio: user.bio || existing?.bio || '',
+    favoriteGenres: user.favoriteGenres || existing?.favoriteGenres || [],
+    createdAt: user.createdAt || existing?.createdAt || new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
-    provider: user.provider || 'email_password',
+    provider: user.provider || existing?.provider || 'email_password',
+    passwordHash: user.passwordHash || existing?.passwordHash,
+    passwordSalt: user.passwordSalt || existing?.passwordSalt,
+    requestsCount: existing?.requestsCount || 0,
+    reportsCount: existing?.reportsCount || 0,
+    recentRequests: existing?.recentRequests || [],
   };
 
   // 1. Local JSON
   try {
     const local = getLocalFallbackUsers();
-    const updated = [newUser, ...local.filter((u) => u.uid !== newUser.uid && u.email !== newUser.email)];
+    const updated = [finalUser, ...local.filter((u) => u.uid !== finalUser.uid && u.email !== finalUser.email)];
     saveLocalFallbackUsers(updated);
   } catch (err: any) {
     console.error('Local user save failed:', err.message);
@@ -211,9 +284,9 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid: 
   // 2. Upstash Redis
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
-      const updated = [newUser, ...currentList.filter((u) => u.uid !== newUser.uid && u.email !== newUser.email)];
+      const existingRedis = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
+      const currentList = Array.isArray(existingRedis) ? existingRedis : [];
+      const updated = [finalUser, ...currentList.filter((u) => u.uid !== finalUser.uid && u.email !== finalUser.email)];
       await redisClient.set(REDIS_USERS_KEY, updated);
     } catch (err: any) {
       console.error('Upstash Redis user save error:', err.message);
@@ -225,8 +298,8 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid: 
     const db = await getDatabase();
     if (db) {
       await db.collection('users').updateOne(
-        { uid: newUser.uid },
-        { $set: { ...newUser, updatedAt: new Date() } },
+        { $or: [{ email: cleanEmail }, { uid: finalUser.uid }] },
+        { $set: { ...finalUser, updatedAt: new Date() } },
         { upsert: true }
       );
     }
@@ -234,7 +307,7 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid: 
     console.warn('MongoDB Atlas user save warning:', err.message);
   }
 
-  return true;
+  return finalUser;
 }
 
 /**

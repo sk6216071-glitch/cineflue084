@@ -31,6 +31,12 @@ export default function ProfilePage() {
   const [bio, setBio] = useState(userProfile.bio || '');
   const [showAuthModal, setShowAuthModal] = useState(false);
 
+  // Sync state whenever userProfile changes
+  React.useEffect(() => {
+    setDisplayName(userProfile.displayName || '');
+    setBio(userProfile.bio || '');
+  }, [userProfile]);
+
   // Compute Rating Distribution (1★ to 10★)
   const ratingDistribution = Array.from({ length: 10 }, (_, i) => i + 1).map((star) => {
     const count = watchlist.filter((item) => Math.round(item.personalRating || 0) === star).length;

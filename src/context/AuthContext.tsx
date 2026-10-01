@@ -6,14 +6,7 @@ import {
   auth,
   googleProvider,
   signInWithPopup,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
-  updateProfile as updateFirebaseProfile,
-  doc,
-  setDoc,
-  getDoc,
-  db,
 } from '@/lib/firebase';
 import { UserProfile, CustomList, WatchlistItem, TitleDetails } from '@/types';
 
@@ -59,8 +52,9 @@ interface AuthContextType {
   isLoading: boolean;
   isLoggedIn: boolean;
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
-  loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  signupWithEmail: (email: string, pass: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string; notFound?: boolean }>;
+  signupWithEmail: (email: string, pass: string, name: string) => Promise<{ success: boolean; error?: string; alreadyExists?: boolean }>;
+  fastLogin: (email: string, name?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfileData: (data: Partial<UserProfile>) => Promise<void>;
   customLists: CustomList[];
@@ -77,45 +71,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_GUEST_PROFILE);
   const [customLists, setCustomLists] = useState<CustomList[]>(INITIAL_CUSTOM_LISTS);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Load profile and lists from localStorage
+  // 1. Load profile and lists from localStorage safely on mount
   useEffect(() => {
     try {
-      const storedProfile = localStorage.getItem('cinefuel_user_profile');
-      if (storedProfile) {
-        setUserProfile(JSON.parse(storedProfile));
-      }
+      if (typeof window !== 'undefined') {
+        const storedProfile = localStorage.getItem('cinefuel_user_profile');
+        if (storedProfile) {
+          const parsed = JSON.parse(storedProfile);
+          if (parsed && parsed.email && !parsed.isGuest && parsed.uid !== 'guest-user-default') {
+            setUserProfile(parsed);
+            // Non-blocking background sync with server
+            fetch(`/api/users/auth?email=${encodeURIComponent(parsed.email)}`)
+              .then((res) => (res.ok ? res.json() : null))
+              .then((data) => {
+                if (data?.success && data.user) {
+                  setUserProfile((prev) => {
+                    const merged = { ...prev, ...data.user, isGuest: false };
+                    try {
+                      localStorage.setItem('cinefuel_user_profile', JSON.stringify(merged));
+                    } catch (e) {}
+                    return merged;
+                  });
+                }
+              })
+              .catch(() => {});
+          }
+        }
 
-      const storedLists = localStorage.getItem('cinefuel_custom_lists');
-      if (storedLists) {
-        setCustomLists(JSON.parse(storedLists));
-      } else {
-        localStorage.setItem('cinefuel_custom_lists', JSON.stringify(INITIAL_CUSTOM_LISTS));
+        const storedLists = localStorage.getItem('cinefuel_custom_lists');
+        if (storedLists) {
+          const parsedLists = JSON.parse(storedLists);
+          if (Array.isArray(parsedLists) && parsedLists.length > 0) {
+            setCustomLists(parsedLists);
+          }
+        } else {
+          localStorage.setItem('cinefuel_custom_lists', JSON.stringify(INITIAL_CUSTOM_LISTS));
+        }
       }
     } catch (e) {
-      console.error('Error loading local profile / lists:', e);
+      console.error('Error loading stored profile / lists:', e);
     } finally {
+      setIsInitialized(true);
       setIsLoading(false);
     }
   }, []);
 
-  // Save changes to localStorage
+  // 2. Save profile changes to localStorage ONLY after initialization (prevents mount wipe)
   useEffect(() => {
+    if (!isInitialized) return;
     try {
-      localStorage.setItem('cinefuel_user_profile', JSON.stringify(userProfile));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(userProfile));
+      }
     } catch (e) {
-      console.error('Failed to save profile:', e);
+      console.error('Failed to save profile to localStorage:', e);
     }
-  }, [userProfile]);
+  }, [userProfile, isInitialized]);
 
+  // 3. Save custom lists changes to localStorage ONLY after initialization
   useEffect(() => {
+    if (!isInitialized) return;
     try {
-      localStorage.setItem('cinefuel_custom_lists', JSON.stringify(customLists));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_custom_lists', JSON.stringify(customLists));
+      }
     } catch (e) {
       console.error('Failed to save custom lists:', e);
     }
-  }, [customLists]);
+  }, [customLists, isInitialized]);
 
   // Sync user profile to server DB
   const syncUserToServer = async (profile: UserProfile, provider = 'email_password') => {
@@ -129,6 +155,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: profile.email,
           displayName: profile.displayName || profile.email.split('@')[0],
           photoURL: profile.photoURL,
+          bio: profile.bio,
+          favoriteGenres: profile.favoriteGenres,
           provider,
         }),
       });
@@ -140,92 +168,222 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Auth Handlers
   const loginWithGoogle = async () => {
     try {
+      setIsLoading(true);
       const result = await signInWithPopup(auth, googleProvider);
       const fbUser = result.user;
       setUser(fbUser);
 
+      // Sync to backend DB
+      const res = await fetch('/api/users/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'google_sync',
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Cinephile',
+          photoURL: fbUser.photoURL,
+        }),
+      });
+      const data = await res.json();
+
       const updatedProfile: UserProfile = {
-        uid: fbUser.uid,
-        email: fbUser.email,
-        displayName: fbUser.displayName || 'Cinephile',
-        photoURL: fbUser.photoURL,
-        createdAt: new Date().toISOString(),
+        uid: data.user?.uid || fbUser.uid,
+        email: data.user?.email || fbUser.email,
+        displayName: data.user?.displayName || fbUser.displayName || 'Cinephile',
+        photoURL: data.user?.photoURL || fbUser.photoURL,
+        bio: data.user?.bio || '',
+        favoriteGenres: data.user?.favoriteGenres || [],
+        createdAt: data.user?.createdAt || new Date().toISOString(),
         isGuest: false,
       };
+
       setUserProfile(updatedProfile);
-      await syncUserToServer(updatedProfile, 'google');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(updatedProfile));
+      }
       return { success: true };
     } catch (error: any) {
-      console.warn('Google Sign-In fallback / error:', error);
+      console.warn('Google Sign-In note:', error?.message || error);
       return {
         success: false,
-        error: 'Google Sign-In is unavailable or was cancelled. Please sign in or register with your Name and Email below.',
+        error:
+          'Google Sign-In is unavailable or blocked in this browser (e.g. Brave Shields / Adblock). Please sign in with your Email and Password below (or Quick Sign-In).',
       };
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
     try {
-      const result = await signInWithEmailAndPassword(auth, email, pass);
-      const fbUser = result.user;
-      setUser(fbUser);
+      setIsLoading(true);
+      const res = await fetch('/api/users/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'login',
+          email: email.trim(),
+          password: pass,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || 'Failed to sign in. Please check your credentials.',
+          notFound: data.notFound || false,
+        };
+      }
+
       const profile: UserProfile = {
-        uid: fbUser.uid,
-        email: fbUser.email,
-        displayName: fbUser.displayName || email.split('@')[0],
-        photoURL: fbUser.photoURL,
-        createdAt: new Date().toISOString(),
+        uid: data.user.uid,
+        email: data.user.email,
+        displayName: data.user.displayName || email.split('@')[0],
+        photoURL: data.user.photoURL || null,
+        bio: data.user.bio || '',
+        favoriteGenres: data.user.favoriteGenres || [],
+        createdAt: data.user.createdAt || new Date().toISOString(),
         isGuest: false,
       };
+
       setUserProfile(profile);
-      await syncUserToServer(profile, 'email_password');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(profile));
+      }
       return { success: true };
     } catch (error: any) {
-      // Offline fallback login simulator with user's real entered email
-      const profile: UserProfile = {
-        uid: `user-${Date.now()}`,
-        email: email,
+      console.warn('loginWithEmail network fallback:', error);
+      const fallbackProfile: UserProfile = {
+        uid: `usr_${Date.now()}`,
+        email: email.trim(),
         displayName: email.split('@')[0],
         photoURL: null,
         createdAt: new Date().toISOString(),
         isGuest: false,
       };
-      setUserProfile(profile);
-      await syncUserToServer(profile, 'email_password');
+      setUserProfile(fallbackProfile);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(fallbackProfile));
+      }
       return { success: true };
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const signupWithEmail = async (email: string, pass: string, name: string) => {
     try {
-      const result = await createUserWithEmailAndPassword(auth, email, pass);
-      const fbUser = result.user;
-      await updateFirebaseProfile(fbUser, { displayName: name });
-      setUser(fbUser);
+      setIsLoading(true);
+      const res = await fetch('/api/users/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'register',
+          email: email.trim(),
+          password: pass,
+          displayName: name.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || 'Failed to create account.',
+          alreadyExists: data.alreadyExists || false,
+        };
+      }
+
       const profile: UserProfile = {
-        uid: fbUser.uid,
-        email: fbUser.email,
-        displayName: name,
-        photoURL: null,
-        createdAt: new Date().toISOString(),
+        uid: data.user.uid,
+        email: data.user.email,
+        displayName: data.user.displayName || name.trim(),
+        photoURL: data.user.photoURL || null,
+        bio: data.user.bio || '',
+        favoriteGenres: data.user.favoriteGenres || [],
+        createdAt: data.user.createdAt || new Date().toISOString(),
         isGuest: false,
       };
+
       setUserProfile(profile);
-      await syncUserToServer(profile, 'email_signup');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(profile));
+      }
       return { success: true };
     } catch (error: any) {
-      // Offline fallback with user's real entered name and email
-      const profile: UserProfile = {
-        uid: `user-${Date.now()}`,
-        email: email,
-        displayName: name || email.split('@')[0],
+      console.warn('signupWithEmail fallback:', error);
+      const fallbackProfile: UserProfile = {
+        uid: `usr_${Date.now()}`,
+        email: email.trim(),
+        displayName: name.trim() || email.split('@')[0],
         photoURL: null,
         createdAt: new Date().toISOString(),
         isGuest: false,
       };
-      setUserProfile(profile);
-      await syncUserToServer(profile, 'email_signup');
+      setUserProfile(fallbackProfile);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(fallbackProfile));
+      }
       return { success: true };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fastLogin = async (email: string, name?: string) => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/users/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'fast_login',
+          email: email.trim(),
+          displayName: (name || '').trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.user) {
+        const profile: UserProfile = {
+          uid: data.user.uid,
+          email: data.user.email,
+          displayName: data.user.displayName || email.split('@')[0],
+          photoURL: data.user.photoURL || null,
+          bio: data.user.bio || '',
+          favoriteGenres: data.user.favoriteGenres || [],
+          createdAt: data.user.createdAt || new Date().toISOString(),
+          isGuest: false,
+        };
+
+        setUserProfile(profile);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cinefuel_user_profile', JSON.stringify(profile));
+        }
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Fast login failed.' };
+    } catch (err: any) {
+      const fallbackProfile: UserProfile = {
+        uid: `usr_${Date.now()}`,
+        email: email.trim(),
+        displayName: name?.trim() || email.split('@')[0],
+        photoURL: null,
+        createdAt: new Date().toISOString(),
+        isGuest: false,
+      };
+      setUserProfile(fallbackProfile);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(fallbackProfile));
+      }
+      return { success: true };
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -237,10 +395,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setUser(null);
     setUserProfile(INITIAL_GUEST_PROFILE);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('cinefuel_user_profile');
+    }
   };
 
   const updateProfileData = async (data: Partial<UserProfile>) => {
-    setUserProfile((prev) => ({ ...prev, ...data }));
+    setUserProfile((prev) => {
+      const updated = { ...prev, ...data };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('cinefuel_user_profile', JSON.stringify(updated));
+      }
+      syncUserToServer(updated);
+      return updated;
+    });
   };
 
   // Custom List Operations
@@ -307,10 +475,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         userProfile,
         isLoading,
-        isLoggedIn: !userProfile.isGuest,
+        isLoggedIn: !userProfile.isGuest && userProfile.uid !== 'guest-user-default',
         loginWithGoogle,
         loginWithEmail,
         signupWithEmail,
+        fastLogin,
         logout,
         updateProfileData,
         customLists,
