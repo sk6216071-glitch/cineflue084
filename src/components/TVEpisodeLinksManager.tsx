@@ -446,7 +446,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   // User Selection States (Single Open Accordion Slide & Season Selection)
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
-  const [openSlideId, setOpenSlideId] = useState<string | null>('1080p');
+  const [openSlideId, setOpenSlideId] = useState<string | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<number>(1);
   const [episodeViewMode, setEpisodeViewMode] = useState<'single' | 'all'>('single');
 
@@ -791,26 +791,140 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     return results;
   }, [selectedSeason, seasonGroupsMap, titleDetails]);
 
-  // Group format releases by quality into dedicated quality slides (e.g. 2160p, 1080p, 720p, 480p)
+  // Group format releases by quality into dedicated quality slides (e.g. 2160p DV HDR, 2160p SDR, 1080p, 720p, 480p)
   const qualitySlides = useMemo(() => {
     const formats = seasonGroupsMap.get(selectedSeason) || [];
 
-    const getQualityKey = (res: string) => {
-      const r = (res || '').toLowerCase();
-      if (r.includes('2160') || r.includes('4k') || r.includes('uhd')) return '2160p';
-      if (r.includes('1080') || r.includes('fhd')) return '1080p';
-      if (r.includes('720') || r.includes('hd')) return '720p';
-      if (r.includes('480') || r.includes('sd')) return '480p';
-      return r.replace(/[^a-z0-9]/g, '') || '1080p';
-    };
-
-    const getQualityTitle = (key: string, source: string) => {
+    const getQualitySlideInfo = (
+      res: string,
+      source: string,
+      dynamicRange?: string,
+      codec?: string,
+      sampleTitle?: string
+    ) => {
+      const rLower = (res || '').toLowerCase();
+      const tLower = (sampleTitle || '').toLowerCase();
       const src = source && source !== 'Unknown' ? source.replace(/[^a-zA-Z0-9-]/g, '') : 'WebDL';
-      if (key === '2160p') return `2160p 4K ${src}`;
-      if (key === '1080p') return `1080p ${src}`;
-      if (key === '720p') return `720p ${src}`;
-      if (key === '480p') return `480p ${src}`;
-      return `${key.toUpperCase()} ${src}`;
+
+      // 1. Detect Resolution
+      let resTag = '1080p';
+      let baseWeight = 200;
+      if (rLower.includes('2160') || rLower.includes('4k') || rLower.includes('uhd')) {
+        resTag = '2160p';
+        baseWeight = 400;
+      } else if (rLower.includes('1080') || rLower.includes('fhd')) {
+        resTag = '1080p';
+        baseWeight = 300;
+      } else if (rLower.includes('720') || rLower.includes('hd')) {
+        resTag = '720p';
+        baseWeight = 200;
+      } else if (rLower.includes('480') || rLower.includes('sd')) {
+        resTag = '480p';
+        baseWeight = 100;
+      }
+
+      // 2. Detect Dynamic Range (DV HDR vs HDR vs SDR)
+      let dyn = (dynamicRange || '').trim();
+      if (!dyn) {
+        if (/(?:dv|dovi|dolby[.\s_-]*vision)/i.test(tLower)) {
+          dyn = 'DV HDR';
+        } else if (/(?:hdr10\+|hdr10|hdr)/i.test(tLower)) {
+          dyn = 'HDR';
+        } else if (/sdr/i.test(tLower)) {
+          dyn = 'SDR';
+        } else if (resTag === '2160p') {
+          dyn = 'SDR';
+        }
+      }
+
+      // 3. Detect 10bit / HEVC
+      const is10Bit = /10bit|10-bit/i.test(tLower);
+      const isHEVC = /hevc|x265|h\.?265/i.test(tLower) || codec === 'H.265';
+
+      // 4. Construct Key & Title
+      if (resTag === '2160p') {
+        if (dyn === 'DV HDR' || dyn === 'DV') {
+          return {
+            key: '2160p_dv_hdr',
+            title: `2160p 4K DV HDR ${src}`,
+            badge: '2160p DV HDR',
+            resolution: '2160p / 4K',
+            weight: 450,
+          };
+        } else if (dyn === 'HDR') {
+          return {
+            key: '2160p_hdr',
+            title: `2160p 4K HDR ${src}`,
+            badge: '2160p HDR',
+            resolution: '2160p / 4K',
+            weight: 440,
+          };
+        } else {
+          return {
+            key: '2160p_sdr',
+            title: `2160p 4K SDR ${src}`,
+            badge: '2160p SDR',
+            resolution: '2160p / 4K',
+            weight: 420,
+          };
+        }
+      }
+
+      if (resTag === '1080p') {
+        if (is10Bit && isHEVC) {
+          return {
+            key: '1080p_hevc_10bit',
+            title: `1080p 10bit HEVC ${src}`,
+            badge: '1080p HEVC 10bit',
+            resolution: '1080p',
+            weight: 350,
+          };
+        } else if (isHEVC) {
+          return {
+            key: '1080p_hevc',
+            title: `1080p HEVC ${src}`,
+            badge: '1080p HEVC',
+            resolution: '1080p',
+            weight: 340,
+          };
+        } else {
+          return {
+            key: '1080p_webdl',
+            title: `1080p ${src}`,
+            badge: '1080p',
+            resolution: '1080p',
+            weight: 300,
+          };
+        }
+      }
+
+      if (resTag === '720p') {
+        if (isHEVC) {
+          return {
+            key: '720p_hevc',
+            title: `720p HEVC ${src}`,
+            badge: '720p HEVC',
+            resolution: '720p',
+            weight: 240,
+          };
+        } else {
+          return {
+            key: '720p_webdl',
+            title: `720p ${src}`,
+            badge: '720p',
+            resolution: '720p',
+            weight: 200,
+          };
+        }
+      }
+
+      return {
+        key: '480p_webdl',
+        title: `480p ${src}`,
+        badge: '480p',
+        resolution: '480p',
+        weight: 100,
+      };
     };
 
     const slidesMap = new Map<
@@ -820,6 +934,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         title: string;
         resolution: string;
         source: string;
+        dynamicRange?: string;
+        weight: number;
         options: ReleaseOption[];
         episodes: Array<{
           episodeNumber: number;
@@ -835,18 +951,34 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     >();
 
     formats.forEach((fmt) => {
-      const qKey = getQualityKey(fmt.resolution);
-      if (!slidesMap.has(qKey)) {
-        slidesMap.set(qKey, {
-          key: qKey,
-          title: getQualityTitle(qKey, fmt.source || 'WebDL'),
-          resolution: fmt.resolution,
-          source: fmt.source || 'WEB-DL',
-          options: [],
-          episodes: [],
-        });
-      }
-      slidesMap.get(qKey)!.options.push(...fmt.options);
+      fmt.options.forEach((opt) => {
+        const sample = opt.episodes[0] || opt.packs[0];
+        const sampleTitle = sample?.title || opt.title;
+        const prof = extractReleaseProfile(sampleTitle, sample?.quality, titleDetails);
+
+        const info = getQualitySlideInfo(
+          fmt.resolution,
+          fmt.source,
+          prof.dynamicRange,
+          prof.codec,
+          sampleTitle
+        );
+
+        if (!slidesMap.has(info.key)) {
+          slidesMap.set(info.key, {
+            key: info.key,
+            title: info.title,
+            resolution: info.resolution,
+            source: fmt.source || 'WEB-DL',
+            dynamicRange: prof.dynamicRange,
+            weight: info.weight,
+            options: [],
+            episodes: [],
+          });
+        }
+
+        slidesMap.get(info.key)!.options.push(opt);
+      });
     });
 
     // Populate unique episodes per slide
@@ -888,7 +1020,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               size: detectedSz,
               audio: opt.audioLanguages,
               codec: prof.codec,
-              dynamicRange: prof.dynamicRange,
+              dynamicRange: prof.dynamicRange || slide.dynamicRange,
               links: [],
             });
           }
@@ -903,28 +1035,28 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     if (slidesMap.size === 0) {
       return [
         {
-          key: '1080p',
+          key: '1080p_webdl',
           title: '1080p WebDL',
           resolution: '1080p',
           source: 'WEB-DL',
+          weight: 300,
           options: [],
           episodes: [],
         },
         {
-          key: '720p',
+          key: '720p_webdl',
           title: '720p WebDL',
           resolution: '720p',
           source: 'WEB-DL',
+          weight: 200,
           options: [],
           episodes: [],
         },
       ];
     }
 
-    // Sort: 2160p > 1080p > 720p > 480p
-    return Array.from(slidesMap.values()).sort((a, b) => {
-      return getQualityWeight(b.resolution) - getQualityWeight(a.resolution);
-    });
+    // Sort: highest quality first (2160p DV HDR > 2160p HDR > 2160p SDR > 1080p HEVC > 1080p > 720p > 480p)
+    return Array.from(slidesMap.values()).sort((a, b) => b.weight - a.weight);
   }, [seasonGroupsMap, selectedSeason, titleDetails]);
 
   // Single-open accordion toggle: clicking an open slide closes it, clicking another opens it & closes all others
@@ -942,7 +1074,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     } else if (activeSeasonPacks.length > 0) {
       setOpenSlideId('zip');
     } else {
-      setOpenSlideId('1080p');
+      setOpenSlideId(qualitySlides[0]?.key || '1080p_webdl');
     }
   }, [selectedSeason, qualitySlides, activeSeasonPacks.length, openSlideId]);
 
