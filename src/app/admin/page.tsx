@@ -2382,6 +2382,13 @@ export default function AdminPage() {
       }
     });
 
+    // Sort all links newest first by default
+    list.sort((a, b) => {
+      const timeA = a.link.createdAt ? new Date(a.link.createdAt).getTime() : 0;
+      const timeB = b.link.createdAt ? new Date(b.link.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
     return list;
   }, [customLinksMap, deletedCuratedLinkIds, watchlist, resolveTitleInfo]);
 
@@ -2433,6 +2440,43 @@ export default function AdminPage() {
   // Memoized Filtered Links
   const filteredLinks = useMemo(() => {
     const q = linkSearchQuery.toLowerCase().trim();
+
+    // 1. If Recent Uploads filter is active:
+    if (linkCategoryFilter === 'Recent') {
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      let recents = allFlattenedLinks.filter((item) => {
+        if (item.link.category === 'Recent') return true;
+        if (!item.link.createdAt) return false;
+        const t = new Date(item.link.createdAt).getTime();
+        return !isNaN(t) && t >= sevenDaysAgo;
+      });
+
+      // If no links were uploaded in the last 7 days, fallback to the latest 100 uploaded links
+      if (recents.length === 0) {
+        recents = allFlattenedLinks
+          .filter((item) => item.link.createdAt && !isNaN(new Date(item.link.createdAt).getTime()))
+          .slice(0, 100);
+      }
+
+      // Sort by upload time (newest first)
+      recents = [...recents].sort((a, b) => {
+        const timeA = a.link.createdAt ? new Date(a.link.createdAt).getTime() : 0;
+        const timeB = b.link.createdAt ? new Date(b.link.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      if (!q) return recents;
+      return recents.filter((item) => {
+        return (
+          item.link.title?.toLowerCase().includes(q) ||
+          item.link.url?.toLowerCase().includes(q) ||
+          item.movieName?.toLowerCase().includes(q) ||
+          String(item.movieId).includes(q)
+        );
+      });
+    }
+
+    // 2. Standard Category & Search Filter
     if (!q && linkCategoryFilter === 'All') {
       return allFlattenedLinks;
     }
@@ -3936,7 +3980,9 @@ export default function AdminPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-amber-400" /> All Saved Custom Links ({filteredLinks.length.toLocaleString()})
+                  <Layers className="w-4 h-4 text-amber-400" />
+                  <span>{linkCategoryFilter === 'Recent' ? 'Recent Uploads' : 'All Saved Custom Links'}</span>
+                  <span>({filteredLinks.length.toLocaleString()})</span>
                 </h3>
                 <button
                   type="button"
@@ -3968,6 +4014,7 @@ export default function AdminPage() {
                   className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
                 >
                   <option value="All">All Categories</option>
+                  <option value="Recent">⚡ Recent Uploads</option>
                   <option value="Streaming">Streaming</option>
                   <option value="Download">Download</option>
                   <option value="ZipPack">ZipPack</option>
@@ -3976,7 +4023,6 @@ export default function AdminPage() {
                   <option value="Discussion">Discussion</option>
                   <option value="Review">Review</option>
                   <option value="Official">Official</option>
-                  <option value="Recent">Recent</option>
                 </select>
 
                 <select
@@ -4101,6 +4147,7 @@ export default function AdminPage() {
                       </th>
                       <th className="py-3 px-3">Target Title</th>
                       <th className="py-3 px-3">Link Name / Release</th>
+                      <th className="py-3 px-3">Uploaded</th>
                       <th className="py-3 px-3">Category</th>
                       <th className="py-3 px-3">URL</th>
                       <th className="py-3 px-3 text-right">Actions</th>
@@ -4143,6 +4190,15 @@ export default function AdminPage() {
                                 {item.link.quality} {item.link.audioLanguage ? `• ${item.link.audioLanguage}` : ''}
                               </div>
                             )}
+                          </td>
+                          <td className="py-3 px-3 text-[11px] text-zinc-400 whitespace-nowrap font-mono">
+                            <span
+                              className="flex items-center gap-1.5"
+                              title={item.link.createdAt ? new Date(item.link.createdAt).toLocaleString() : 'Recently'}
+                            >
+                              <Clock className="w-3 h-3 text-amber-400/80 shrink-0" />
+                              <span>{formatRelativeTime(item.link.createdAt)}</span>
+                            </span>
                           </td>
                           <td className="py-3 px-3">
                             <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-bold border border-amber-500/20 text-[10px]">
