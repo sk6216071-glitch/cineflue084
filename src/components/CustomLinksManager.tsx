@@ -243,6 +243,190 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
   return `${parts.join(' ')} [${serverName}]`;
 }
 
+interface MovieCardBadge {
+  label: string;
+  className: string;
+}
+
+interface MovieCardDetails {
+  title: string;
+  badges: MovieCardBadge[];
+  subtext: string;
+  accentBorder: string;
+}
+
+function formatMovieCardDetails(link: CustomLink, titleDetails: TitleDetails): MovieCardDetails {
+  const urlFn = extractFilenameFromUrl(link.url);
+  const combined = `${link.title || ''} ${link.quality || ''} ${urlFn}`.trim();
+  const lower = combined.toLowerCase();
+
+  // 1. Resolution
+  let resTag: '2160p' | '1080p' | '720p' | '480p' = '1080p';
+  if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)/i.test(lower)) resTag = '2160p';
+  else if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)/i.test(lower)) resTag = '1080p';
+  else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)/i.test(lower)) resTag = '720p';
+  else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)/i.test(lower)) resTag = '480p';
+
+  // 2. Dynamic Range / Codec / Bit Depth
+  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)/i.test(lower);
+  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)/i.test(lower);
+  const is10Bit = /10bit|10-bit/i.test(lower);
+  const isHEVC = /hevc|x265|h\.?265/i.test(lower);
+  const isX264 = /x264|h\.?264|avc/i.test(lower);
+  const has60fps = /60fps|60\s*fps/i.test(lower);
+  const hasHDR10Plus = /hdr10\+|hdr10plus/i.test(lower);
+
+  // 3. Source
+  let sourceTag = '';
+  const isIMAX = /imax/i.test(lower);
+  const isOrg = /org\b|original/i.test(lower);
+
+  if (/remux/i.test(lower)) {
+    sourceTag = isIMAX ? 'IMAX REMUX' : 'REMUX';
+  } else if (/bluray|blu-ray|bdrip/i.test(lower)) {
+    if (isIMAX) sourceTag = 'IMAX BluRay';
+    else if (isOrg) sourceTag = 'Org. BluRay';
+    else sourceTag = 'BluRay';
+  } else if (/uhd/i.test(lower)) {
+    sourceTag = isIMAX ? 'IMAX UHD' : 'UHD';
+  } else if (/web-dl|webdl|webrip|web/i.test(lower)) {
+    sourceTag = isIMAX ? 'IMAX WEB-DL' : 'WEB-DL';
+  } else if (/hdtv/i.test(lower)) {
+    sourceTag = 'HDTV';
+  } else {
+    sourceTag = resTag === '2160p' ? 'UHD BluRay' : 'WEB-DL';
+  }
+
+  const baseBadgeClass = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-black tracking-wider uppercase shadow-inner';
+  const badgeStyles = {
+    fhd: 'bg-[#0d2238] border border-cyan-500/40 text-cyan-300',
+    hd: 'bg-[#0d2238] border border-sky-500/40 text-sky-300',
+    tenBit: 'bg-[#121c2e] border border-blue-400/30 text-blue-300',
+    hdr4k: 'bg-[#24133b] border border-purple-500/40 text-purple-200',
+    dv4k: 'bg-[#2b123d] border border-purple-400/40 text-purple-200',
+    sdr4k: 'bg-[#151a29] border border-slate-600/40 text-slate-300',
+    sd: 'bg-zinc-800 border border-zinc-700 text-zinc-300',
+  };
+
+  const badges: MovieCardBadge[] = [];
+  let title = '';
+  let accentBorder = 'border-l-4 border-l-[#1e293b]';
+
+  if (resTag === '2160p') {
+    if (hasDV) {
+      title = '2160p Dolby Vision HDR';
+      badges.push({ label: '4K · DV HDR', className: `${baseBadgeClass} ${badgeStyles.dv4k}` });
+      accentBorder = 'border-l-4 border-l-violet-400';
+    } else if (hasHDR) {
+      title = isHEVC ? '2160p HDR H.265' : '2160p HDR';
+      badges.push({ label: '4K · HDR', className: `${baseBadgeClass} ${badgeStyles.hdr4k}` });
+      accentBorder = 'border-l-4 border-l-purple-500';
+    } else {
+      title = isHEVC ? '2160p SDR H.265' : '2160p SDR';
+      badges.push({ label: '4K · SDR', className: `${baseBadgeClass} ${badgeStyles.sdr4k}` });
+      accentBorder = 'border-l-4 border-l-blue-600';
+    }
+  } else if (resTag === '1080p') {
+    badges.push({ label: 'FULL HD', className: `${baseBadgeClass} ${badgeStyles.fhd}` });
+    if (is10Bit) {
+      badges.push({ label: '10-BIT', className: `${baseBadgeClass} ${badgeStyles.tenBit}` });
+    }
+
+    if (hasDV) {
+      title = '1080p Dolby Vision HDR';
+      accentBorder = 'border-l-4 border-l-violet-400';
+    } else if (hasHDR) {
+      title = isHEVC ? '1080p HDR H.265' : '1080p HDR';
+      accentBorder = 'border-l-4 border-l-purple-500';
+    } else if (is10Bit && isHEVC) {
+      title = '1080p 10-bit HEVC';
+      accentBorder = 'border-l-4 border-l-cyan-400';
+    } else if (isHEVC) {
+      title = '1080p SDR H.265';
+      accentBorder = 'border-l-4 border-l-blue-400';
+    } else if (sourceTag.includes('BluRay')) {
+      title = '1080p BluRay';
+      accentBorder = 'border-l-4 border-l-blue-500';
+    } else {
+      title = `1080p ${sourceTag}`;
+      accentBorder = 'border-l-4 border-l-sky-500';
+    }
+  } else if (resTag === '720p') {
+    badges.push({ label: 'HD', className: `${baseBadgeClass} ${badgeStyles.hd}` });
+    if (is10Bit) {
+      badges.push({ label: '10-BIT', className: `${baseBadgeClass} ${badgeStyles.tenBit}` });
+    }
+    if (is10Bit && isHEVC) title = '720p 10-bit HEVC';
+    else if (isHEVC) title = '720p HEVC';
+    else if (sourceTag.includes('BluRay')) title = '720p BluRay';
+    else title = `720p ${sourceTag}`;
+    accentBorder = 'border-l-4 border-l-cyan-400';
+  } else {
+    badges.push({ label: 'SD', className: `${baseBadgeClass} ${badgeStyles.sd}` });
+    title = `480p ${sourceTag}`;
+    accentBorder = 'border-l-4 border-l-zinc-500';
+  }
+
+  const subtextParts: string[] = [];
+  if (has60fps) {
+    subtextParts.push('60 FPS');
+  } else if (isHEVC && resTag === '1080p' && (is10Bit || lower.includes('efficient'))) {
+    subtextParts.push('Efficient encode');
+  } else if (is10Bit || resTag === '2160p' || hasHDR || hasDV) {
+    subtextParts.push('10-bit');
+  } else if (isX264 || lower.includes('8bit') || lower.includes('8-bit')) {
+    subtextParts.push('8-bit');
+  }
+
+  if (hasHDR10Plus) {
+    subtextParts.push('HDR10+');
+  } else if (isX264 && !title.toLowerCase().includes('x264')) {
+    subtextParts.push('x264');
+  }
+
+  if (sourceTag) {
+    if (title.toLowerCase().includes(sourceTag.toLowerCase())) {
+      // omit if already in title
+    } else {
+      if (sourceTag === 'BluRay' && lower.includes('x265')) {
+        subtextParts.push('BluRay x265');
+      } else {
+        subtextParts.push(sourceTag);
+      }
+    }
+  }
+
+  const audio = formatAudioLanguages(link.audioLanguage, combined);
+  if (audio) subtextParts.push(audio);
+
+  const server = detectServer(link.url);
+  let serverName = server.name || 'HubCloud';
+  const urlLower = (link.url || '').toLowerCase();
+  if (urlLower.includes('gdflix')) serverName = 'GDFlix';
+  else if (urlLower.includes('hubcloud')) serverName = 'HubCloud';
+  else if (urlLower.includes('hubdrive')) serverName = 'HubDrive';
+  else if (urlLower.includes('katdrive')) serverName = 'KatDrive';
+  else if (urlLower.includes('drivehub')) serverName = 'DriveHub';
+  else if (urlLower.includes('drive.google') || urlLower.includes('google')) serverName = 'GDrive';
+  else if (urlLower.includes('gdtot')) serverName = 'HubCloud';
+  if (!serverName || serverName === 'Cloud Server' || serverName === 'Direct Server' || serverName === 'GDTot') {
+    serverName = 'HubCloud';
+  }
+  subtextParts.push(serverName);
+
+  const size = link.size || detectSize(link.title) || detectSize(undefined, undefined, link.url);
+  if (size && !subtextParts.includes(size)) {
+    subtextParts.push(size);
+  }
+
+  return {
+    title,
+    badges,
+    subtext: subtextParts.join(' · '),
+    accentBorder,
+  };
+}
+
 function formatReleaseTitle(custom: CustomLink, titleDetails: TitleDetails): string {
   const urlFn = extractFilenameFromUrl(custom.url);
   const raw = (custom.title || urlFn || '').trim();
@@ -626,82 +810,93 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           </div>
 
         {sortedMovieLinks.length > 0 ? (
-          <div className="rounded-3xl bg-[#090b14] border border-white/5 p-4 sm:p-7 shadow-2xl space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/5">
-              <div className="space-y-0.5">
-                <h4 className="text-sm sm:text-base font-black text-white tracking-wide flex items-center gap-2">
-                  <Download className="w-4 h-4 text-blue-400" />
-                  <span>Direct Download Links ({sortedMovieLinks.length})</span>
-                </h4>
-                <p className="text-xs text-zinc-400">
-                  Select your preferred resolution and server below to download.
+          <div className="space-y-3.5">
+            {/* Movie Header Card matching media_1790874784319.png */}
+            <div className="rounded-2xl bg-[#0c1020]/95 border border-[#1e293b]/80 p-4 sm:p-5 flex items-center gap-3.5 shadow-xl">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-indigo-600 flex items-center justify-center text-white font-black text-xl sm:text-2xl shadow-lg shadow-blue-500/25 shrink-0">
+                {(titleDetails.title || titleDetails.name || 'M').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base sm:text-lg font-bold text-white tracking-wide truncate">
+                  {titleDetails.title || titleDetails.name || 'Movie'}
+                </h3>
+                <p className="text-xs sm:text-sm text-zinc-400 font-medium">
+                  Pick the best match for your screen
                 </p>
               </div>
             </div>
 
-            {/* Stack of Movie Download Buttons (Reference: media_1790851187635.jpg) */}
-            <div className="space-y-4 pt-2">
+            {/* Stack of Movie Download Cards (Reference: media_1790874784319.png) */}
+            <div className="space-y-3 pt-1">
               {sortedMovieLinks.map((link, idx) => {
-                const buttonLabel = formatMovieDownloadButtonTitle(link);
-                const audioInfo = formatAudioLanguages(link.audioLanguage, link.title);
-                const serverInfo = detectServer(link.url);
+                const card = formatMovieCardDetails(link, titleDetails);
 
                 return (
-                  <div key={link.id || idx} className="space-y-1.5 max-w-xl mx-auto w-full group">
-                    <div className="flex items-center gap-2 sm:gap-3 w-full">
-                      {/* Vibrant Blue Pill/Button with Neon Pink Border matching media_1790851187635.jpg */}
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 py-3.5 sm:py-4.5 px-4 sm:px-8 rounded-2xl bg-gradient-to-r from-[#0030eb] via-[#0038ff] to-[#0048ff] hover:from-[#0027c4] hover:to-[#0030eb] border-[2.5px] border-[#ff007f] shadow-[0_0_16px_rgba(255,0,127,0.35)] hover:shadow-[0_0_26px_rgba(255,0,127,0.6)] text-white font-black text-sm sm:text-base md:text-lg tracking-wide text-center transition-all duration-200 hover:scale-[1.015] active:scale-[0.98] select-none cursor-pointer flex items-center justify-center gap-2 break-words"
-                        title={`Download: ${buttonLabel}`}
-                      >
-                        <span>{buttonLabel}</span>
-                      </a>
+                  <div key={link.id || idx} className="relative group">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`block rounded-2xl bg-[#0c1020]/95 hover:bg-[#11172e] border border-[#1e293b]/80 ${card.accentBorder} hover:border-blue-500/50 p-4 sm:p-5 transition-all duration-200 shadow-md hover:shadow-blue-500/10 cursor-pointer select-none`}
+                      title={`Download ${card.title}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          {/* Top Row: Title + Badges */}
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                            <span className="font-bold text-white text-base sm:text-lg tracking-wide group-hover:text-blue-300 transition-colors">
+                              {card.title}
+                            </span>
+                            {card.badges.map((b, bIdx) => (
+                              <span key={bIdx} className={b.className}>
+                                {b.label}
+                              </span>
+                            ))}
+                          </div>
 
-                      {/* Admin Controls (Only visible to admin) */}
-                      {isAdmin && (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleStartEdit(link)}
-                            className="p-3 sm:p-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
-                            title="Admin: Edit link"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(link.id)}
-                            className="p-3 sm:p-3.5 rounded-2xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
-                            title="Admin: Delete link"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Bottom Row: Subtext meta line */}
+                          <p className="text-xs text-zinc-400 font-medium flex flex-wrap items-center gap-1.5">
+                            {card.subtext}
+                          </p>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Subtext: Scene title & audio language */}
-                    {(audioInfo || link.title) && (
-                      <div className="flex items-center justify-between px-2 text-[11px] text-zinc-400 font-medium">
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="truncate max-w-[70%] text-zinc-400 hover:text-blue-400 hover:underline font-mono text-[11px] transition-colors cursor-pointer"
-                          title={`Click to open ${stripWatermarks(link.title || '')}`}
-                        >
-                          {stripWatermarks(link.title || '')}
-                        </a>
-                        {audioInfo && (
-                          <span className="text-zinc-400 font-sans shrink-0">
-                            🔊 {audioInfo}
-                          </span>
+                        {/* Admin Controls (Only visible to admin) */}
+                        {isAdmin && (
+                          <div
+                            className="flex items-center gap-1.5 shrink-0 self-start"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleStartEdit(link);
+                              }}
+                              className="p-2 sm:p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                              title="Admin: Edit link"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleDelete(link.id);
+                              }}
+                              className="p-2 sm:p-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                              title="Admin: Delete link"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
                       </div>
-                    )}
+                    </a>
                   </div>
                 );
               })}
