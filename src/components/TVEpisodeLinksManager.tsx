@@ -39,6 +39,7 @@ import {
   detectShowPlatform,
   stripWatermarks,
   extractEpisodeTitle,
+  extractFilenameFromUrl,
 } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import RequestLinkModal from './RequestLinkModal';
@@ -86,13 +87,14 @@ interface GroupedEpisode {
   links: EnrichedLink[];
 }
 
-// Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p
-function extractReleaseProfile(title: string, quality?: string, titleDetails?: TitleDetails) {
+// Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p DV HDR vs 1080p SDR
+function extractReleaseProfile(title: string, quality?: string, titleDetails?: TitleDetails, url?: string) {
   // Strip website domain watermarks (e.g. 4kHdHub.Com, TSS-4kHdHub.com, Vegamovies.NL, etc.) before checking resolution
-  const cleanTitle = stripWatermarks(title || '');
+  const urlFn = extractFilenameFromUrl(url);
+  const cleanTitle = stripWatermarks(title || urlFn || '');
   const cleanQuality = stripWatermarks(quality || '');
 
-  const titleLower = cleanTitle.toLowerCase();
+  const titleLower = `${cleanTitle} ${urlFn}`.toLowerCase();
   const qHintLower = cleanQuality.toLowerCase();
 
   // 1. Resolution sensing (First analyze title directly, fallback to quality hint)
@@ -126,7 +128,7 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
   }
 
   // 2. Platform sensing (Detect accurate platform: DSNP for Disney+ Marvel/Star Wars, AMZN, NF, etc.)
-  const platform = detectShowPlatform(title, titleDetails);
+  const platform = detectShowPlatform(cleanTitle || urlFn, titleDetails);
 
   // 3. Source sensing (Disney+ streaming series are official DSNP.WEB-DL, never REMUX or BluRay disc)
   let source = 'WEB-DL';
@@ -140,7 +142,6 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
   else if (qHintLower.includes('bluray')) source = 'BluRay';
 
   // 4. Dynamic Range sensing (Sense DV HDR vs HDR vs SDR / simple H.265)
-  // Check if filename has scene release properties (dots, extension, release tags):
   const isSceneFilename =
     titleLower.includes('.mkv') ||
     titleLower.includes('.mp4') ||
@@ -149,11 +150,11 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
     titleLower.includes('bluray') ||
     titleLower.includes('remux');
 
-  const hasDVInTitle = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(titleLower);
+  const hasDVInTitle = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
   const hasHDRInTitle = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
   const hasSDRInTitle = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(titleLower);
 
-  const hasDVInHint = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
+  const hasDVInHint = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
   const hasHDRInHint = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
   const hasSDRInHint = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(qHintLower);
 
@@ -167,11 +168,14 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
   } else if (resTag === '2160p') {
     // In 4K / 2160p: if it has NO DV and NO HDR, it is strictly 2160p SDR!
     dynamicRange = 'SDR';
+  } else if (resTag === '1080p' && (/(?:h\.?265|x265|hevc)/i.test(titleLower) || qHintLower.includes('265') || qHintLower.includes('hevc'))) {
+    // In 1080p: if it has H.265/HEVC and NO DV and NO HDR, it is strictly 1080p SDR!
+    dynamicRange = 'SDR';
   }
 
   // 5. Codec sensing (Supports H.265, H265, HEVC, x265, H.264, x264, etc.)
   let codec = '';
-  if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
+  if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)/i.test(titleLower)) {
     codec = 'H.265';
   } else if (/(?:^|[\s._\-[\]()])(?:h\.?264|x264|avc)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
     codec = 'H.264';
@@ -180,7 +184,7 @@ function extractReleaseProfile(title: string, quality?: string, titleDetails?: T
   } else if (qHintLower.includes('h.264') || qHintLower.includes('264') || qHintLower.includes('avc')) {
     codec = 'H.264';
   } else {
-    codec = resTag === '2160p' ? 'H.265' : 'H.264';
+    codec = resTag === '2160p' || hasDVInTitle || hasHDRInTitle ? 'H.265' : 'H.264';
   }
 
   // 6. Part sensing (e.g. Part 1, Part 2, Part-1, Part-2, pt1, pt2)
@@ -327,10 +331,13 @@ function formatEpisodeTitle(
   const epNumStr = String(ep.episodeNumber || 1).padStart(2, '0');
   const sTag = `S${String(seasonNum).padStart(2, '0')}E${epNumStr}`;
 
-  // If ep.title is already an authentic scene release filename:
+  // If ep.title or ep.url is already an authentic scene release filename:
   const raw = (ep.title || '').trim();
-  if (/(?:s\d{1,2}e\d{1,2}|e\d{1,2})/i.test(raw) && raw.includes('.')) {
-    let clean = stripWatermarks(raw);
+  const urlFn = extractFilenameFromUrl(ep.url);
+  const candidate = (raw && raw.includes('.')) ? raw : (urlFn || raw);
+
+  if (candidate && /(?:s\d{1,2}e\d{1,2}|e\d{1,2})/i.test(candidate) && candidate.includes('.')) {
+    let clean = stripWatermarks(candidate);
     const plat = detectShowPlatform(clean, titleDetails);
     if (plat === 'DSNP') {
       clean = clean
@@ -472,19 +479,28 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   // Enrich each custom link with smart auto-detected metadata
   const enrichedLinks: EnrichedLink[] = useMemo(() => {
     return customLinks.map((l) => {
-      const detectedSeason = detectSeasonNumber(l);
-      const detectedEp = detectEpisodeNumber({ ...l, episodeNumber: l.episodeNumber, url: l.url });
-      const detectedType = detectLinkType({ ...l, episodeNumber: detectedEp, url: l.url });
-      const isSceneRelease = /(?:s\d{1,2}e\d{1,2}|2160p|1080p|720p|480p|\.mkv|\.mp4|web-dl|webdl|bluray)/i.test(l.title || '');
+      const urlFn = extractFilenameFromUrl(l.url);
+      const effectiveTitle = l.title || urlFn || '';
+      const detectedSeason = detectSeasonNumber({ title: effectiveTitle, seasonNumber: l.seasonNumber, url: l.url });
+      const detectedEp = detectEpisodeNumber({ title: effectiveTitle, episodeNumber: l.episodeNumber, url: l.url });
+      const detectedType = detectLinkType({ title: effectiveTitle, episodeNumber: detectedEp, url: l.url, linkType: l.linkType, category: l.category });
+      const isSceneRelease = /(?:s\d{1,2}e\d{1,2}|2160p|1080p|720p|480p|\.mkv|\.mp4|web-dl|webdl|bluray)/i.test(effectiveTitle);
       const detectedQ = (isSceneRelease || !l.quality || l.quality === 'HD')
-        ? detectQuality(l.title, l.quality)
+        ? detectQuality(effectiveTitle, l.quality, l.url)
         : l.quality;
-      const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(l.title, l.audioLanguage);
-      const detectedSz = l.size || detectSize(l.title) || detectSize(l.url);
-      const prof = extractReleaseProfile(l.title, detectedQ, titleDetails);
+      const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(effectiveTitle, l.audioLanguage, l.url);
+      const detectedSz = l.size || detectSize(effectiveTitle, undefined, l.url);
+      const prof = extractReleaseProfile(effectiveTitle, detectedQ, titleDetails, l.url);
+
+      const finalTitle = (isSceneRelease && effectiveTitle.includes('.'))
+        ? stripWatermarks(effectiveTitle)
+        : (urlFn && /\.(?:mkv|mp4)/i.test(urlFn))
+          ? stripWatermarks(urlFn)
+          : (l.title || '');
 
       return {
         ...l,
+        title: finalTitle,
         seasonNumber: detectedSeason,
         episodeNumber: detectedEp,
         linkType: detectedType,
@@ -509,13 +525,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         return;
       }
 
-      // Group by format key: resolution + source + dynamicRange (e.g. "2160p / 4K_WEB-DL_DV_HDR", "2160p / 4K_WEB-DL_SDR", "1080p_WEB-DL")
+      // Group by format key: resolution + source + dynamicRange + codec (e.g. "1080p_WEB-DL_DV_HDR_H.265", "1080p_WEB-DL_SDR_H.265")
       const formatMap = new Map<string, { resolution: string; source: string; links: EnrichedLink[] }>();
 
       currentSeasonLinks.forEach((link) => {
-        const prof = extractReleaseProfile(link.title, link.quality, titleDetails);
-        const dynSuffix = prof.dynamicRange ? `_${prof.dynamicRange.replace(/\s+/g, '_')}` : '';
-        const key = `${link.resolution}_${link.source}${dynSuffix}`;
+        const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url);
+        const dyn = prof.dynamicRange || (prof.codec === 'H.265' ? 'SDR' : '');
+        const dynSuffix = dyn ? `_${dyn.replace(/\s+/g, '_')}` : '';
+        const codecSuffix = prof.codec ? `_${prof.codec.replace(/\s+/g, '_')}` : '';
+        const key = `${link.resolution}_${link.source}${dynSuffix}${codecSuffix}`;
         if (!formatMap.has(key)) {
           formatMap.set(key, {
             resolution: link.resolution,
@@ -529,7 +547,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const formats: FormatGroup[] = [];
 
       formatMap.forEach((fVal, fKey) => {
-        // Group links inside this format by release profile (Separate 4K DV HDR vs 4K SDR)
+        // Group links inside this format by release profile (Separate 4K DV HDR vs 4K SDR vs 1080p DV HDR vs 1080p SDR)
         const optionsMap = new Map<
           string,
           {
@@ -543,7 +561,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         >();
 
         fVal.links.forEach((link) => {
-          const prof = extractReleaseProfile(link.title, link.quality, titleDetails);
+          const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url);
           const partSuffix = prof.part ? `_${prof.part}` : '';
           const optKey = `s${s}_${fKey}_${prof.dynamicRange || 'std'}_${prof.codec || 'codec'}${partSuffix}`;
 
@@ -692,9 +710,9 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       fmt.options.forEach((opt) => {
         if (opt.packs.length > 0) {
           const first = opt.packs[0];
-          const detectedSz = first.size || detectSize(first.title) || '';
+          const detectedSz = first.size || detectSize(first.title) || detectSize(undefined, undefined, first.url) || '';
           const cleanPackTitle = stripWatermarks(first.title || opt.title);
-          const prof = extractReleaseProfile(cleanPackTitle, first.quality, titleDetails);
+          const prof = extractReleaseProfile(cleanPackTitle, first.quality, titleDetails, first.url);
 
           results.push({
             optionId: opt.id,
@@ -723,25 +741,27 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       source: string,
       dynamicRange?: string,
       codec?: string,
-      sampleTitle?: string
+      sampleTitle?: string,
+      sampleUrl?: string
     ) => {
+      const urlFn = extractFilenameFromUrl(sampleUrl);
       const rLower = (res || '').toLowerCase();
-      const tLower = (sampleTitle || '').toLowerCase();
+      const tLower = `${sampleTitle || ''} ${urlFn}`.toLowerCase();
       const src = source && source !== 'Unknown' ? source.replace(/[^a-zA-Z0-9-]/g, '') : 'WebDL';
 
       // 1. Detect Resolution
       let resTag = '1080p';
       let baseWeight = 200;
-      if (rLower.includes('2160') || rLower.includes('4k') || rLower.includes('uhd')) {
+      if (rLower.includes('2160') || rLower.includes('4k') || rLower.includes('uhd') || /(?:2160p|2160i|\buhd\b|\b4k\b)/i.test(tLower)) {
         resTag = '2160p';
         baseWeight = 400;
-      } else if (rLower.includes('1080') || rLower.includes('fhd')) {
+      } else if (rLower.includes('1080') || rLower.includes('fhd') || /(?:1080p|1080i|\bfhd\b)/i.test(tLower)) {
         resTag = '1080p';
         baseWeight = 300;
-      } else if (rLower.includes('720') || rLower.includes('hd')) {
+      } else if (rLower.includes('720') || rLower.includes('hd') || /(?:720p|720i|\bhd\b)/i.test(tLower)) {
         resTag = '720p';
         baseWeight = 200;
-      } else if (rLower.includes('480') || rLower.includes('sd')) {
+      } else if (rLower.includes('480') || rLower.includes('sd') || /(?:480p|480i|\bsd\b)/i.test(tLower)) {
         resTag = '480p';
         baseWeight = 100;
       }
@@ -749,13 +769,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       // 2. Detect Dynamic Range (DV HDR vs HDR vs SDR)
       let dyn = (dynamicRange || '').trim();
       if (!dyn) {
-        if (/(?:dv|dovi|dolby[.\s_-]*vision)/i.test(tLower)) {
+        if (/(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)/i.test(tLower)) {
           dyn = 'DV HDR';
         } else if (/(?:hdr10\+|hdr10|hdr)/i.test(tLower)) {
           dyn = 'HDR';
         } else if (/sdr/i.test(tLower)) {
           dyn = 'SDR';
         } else if (resTag === '2160p') {
+          dyn = 'SDR';
+        } else if (resTag === '1080p' && /(?:h\.?265|x265|hevc)/i.test(tLower)) {
           dyn = 'SDR';
         }
       }
@@ -764,7 +786,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const is10Bit = /10bit|10-bit/i.test(tLower);
       const isHEVC = /hevc|x265|h\.?265/i.test(tLower) || codec === 'H.265' || resTag === '2160p';
 
-      // 4. Construct Key & Title
+      // 4. Construct Key & Title per resolution:
       if (resTag === '2160p') {
         const codecLabel = isHEVC ? ' H.265' : '';
         if (dyn === 'DV HDR' || dyn === 'DV') {
@@ -795,26 +817,43 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       }
 
       if (resTag === '1080p') {
-        if (is10Bit && isHEVC) {
+        const codecLabel = isHEVC ? ' H.265' : '';
+        if (dyn === 'DV HDR' || dyn === 'DV') {
+          return {
+            key: '1080p_dv_hdr_h265',
+            title: `1080p FHD DV HDR${codecLabel} ${src}`,
+            badge: `1080p DV HDR${codecLabel}`,
+            resolution: '1080p',
+            weight: 390,
+          };
+        } else if (dyn === 'HDR') {
+          return {
+            key: '1080p_hdr_h265',
+            title: `1080p FHD HDR${codecLabel} ${src}`,
+            badge: `1080p HDR${codecLabel}`,
+            resolution: '1080p',
+            weight: 380,
+          };
+        } else if (is10Bit && isHEVC) {
           return {
             key: '1080p_hevc_10bit',
-            title: `1080p 10bit HEVC ${src}`,
+            title: `1080p FHD 10bit HEVC ${src}`,
             badge: '1080p HEVC 10bit',
             resolution: '1080p',
-            weight: 350,
+            weight: 360,
           };
-        } else if (isHEVC) {
+        } else if (isHEVC || dyn === 'SDR') {
           return {
-            key: '1080p_hevc',
-            title: `1080p HEVC ${src}`,
-            badge: '1080p HEVC',
+            key: '1080p_sdr_h265',
+            title: `1080p FHD SDR H.265 ${src}`,
+            badge: '1080p SDR H.265',
             resolution: '1080p',
             weight: 340,
           };
         } else {
           return {
             key: '1080p_webdl',
-            title: `1080p ${src}`,
+            title: `1080p FHD ${src}`,
             badge: '1080p',
             resolution: '1080p',
             weight: 300,
@@ -823,10 +862,35 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       }
 
       if (resTag === '720p') {
-        if (isHEVC) {
+        const codecLabel = isHEVC ? ' HEVC' : '';
+        if (dyn === 'DV HDR' || dyn === 'DV') {
+          return {
+            key: '720p_dv_hdr',
+            title: `720p HD DV HDR${codecLabel} ${src}`,
+            badge: `720p DV HDR${codecLabel}`,
+            resolution: '720p',
+            weight: 270,
+          };
+        } else if (dyn === 'HDR') {
+          return {
+            key: '720p_hdr',
+            title: `720p HD HDR${codecLabel} ${src}`,
+            badge: `720p HDR${codecLabel}`,
+            resolution: '720p',
+            weight: 260,
+          };
+        } else if (is10Bit && isHEVC) {
+          return {
+            key: '720p_hevc_10bit',
+            title: `720p HD 10bit HEVC ${src}`,
+            badge: '720p HEVC 10bit',
+            resolution: '720p',
+            weight: 250,
+          };
+        } else if (isHEVC) {
           return {
             key: '720p_hevc',
-            title: `720p HEVC ${src}`,
+            title: `720p HD HEVC ${src}`,
             badge: '720p HEVC',
             resolution: '720p',
             weight: 240,
@@ -834,7 +898,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         } else {
           return {
             key: '720p_webdl',
-            title: `720p ${src}`,
+            title: `720p HD ${src}`,
             badge: '720p',
             resolution: '720p',
             weight: 200,
@@ -844,7 +908,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
       return {
         key: '480p_webdl',
-        title: `480p ${src}`,
+        title: `480p SD ${src}`,
         badge: '480p',
         resolution: '480p',
         weight: 100,
@@ -878,14 +942,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       fmt.options.forEach((opt) => {
         const sample = opt.episodes[0] || opt.packs[0];
         const sampleTitle = sample?.title || opt.title;
-        const prof = extractReleaseProfile(sampleTitle, sample?.quality, titleDetails);
+        const prof = extractReleaseProfile(sampleTitle, sample?.quality, titleDetails, sample?.url);
 
         const info = getQualitySlideInfo(
           fmt.resolution,
           fmt.source,
           prof.dynamicRange,
           prof.codec,
-          sampleTitle
+          sampleTitle,
+          sample?.url
         );
 
         if (!slidesMap.has(info.key)) {
@@ -925,7 +990,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         opt.episodes.forEach((ep) => {
           const epNum = ep.episodeNumber || 1;
           if (!epMap.has(epNum)) {
-            const detectedSz = ep.size || detectSize(ep.title) || '';
+            const detectedSz = ep.size || detectSize(ep.title) || detectSize(undefined, undefined, ep.url) || '';
             const epFormattedTitle = formatEpisodeTitle(
               ep,
               opt,
@@ -935,7 +1000,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               slide.source
             );
             const epName = extractEpisodeTitle(ep.title) || extractEpisodeTitle(epFormattedTitle);
-            const prof = extractReleaseProfile(ep.title || epFormattedTitle, ep.quality, titleDetails);
+            const prof = extractReleaseProfile(ep.title || epFormattedTitle, ep.quality, titleDetails, ep.url);
 
             epMap.set(epNum, {
               episodeNumber: epNum,

@@ -12,40 +12,83 @@ export interface ParsedMediaMeta {
 }
 
 /**
+ * Auto-extract authentic media filename from URL (e.g. HubCloud, GDFlix, KatDrive, GDrive)
+ */
+export function extractFilenameFromUrl(url?: string): string {
+  if (!url) return '';
+  try {
+    const decoded = decodeURIComponent(url);
+    // 1. Check query parameters like ?file=, ?filename=, ?name=, ?title=, ?f=
+    const queryMatch = decoded.match(/[?&](?:file|filename|name|title|f)=([^&#]+)/i);
+    if (queryMatch && queryMatch[1]) {
+      const candidate = queryMatch[1].replace(/\+/g, ' ').trim();
+      if (candidate.length > 5) return candidate;
+    }
+
+    // 2. Check path segments (looking from right to left)
+    const urlWithoutQuery = decoded.split(/[?#]/)[0];
+    const segments = urlWithoutQuery.split('/').filter(Boolean);
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const seg = segments[i].replace(/\+/g, ' ').trim();
+      // If segment looks like a file name or release title (has extension, resolution, or scene tags):
+      if (
+        /\.(?:mkv|mp4|avi|zip|rar|7z|tar)$/i.test(seg) ||
+        /(?:2160p|1080p|720p|480p|s\d{1,2}e\d{1,2}|web-dl|webdl|bluray|remux|hevc|x265|x264|hdr)/i.test(seg)
+      ) {
+        return seg;
+      }
+    }
+    // Fallback: if last segment is long enough and not a generic path like "drive", "file", "video", "d"
+    if (segments.length > 0) {
+      const last = segments[segments.length - 1].replace(/\+/g, ' ').trim();
+      if (last.length > 8 && !/^(?:drive|file|video|watch|download|view|d|v|u)$/i.test(last)) {
+        return last;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return '';
+}
+
+/**
  * Auto-detect Season Number from title, filename, or link metadata
  */
-export function detectSeasonNumber(link: { title?: string; seasonNumber?: number }): number {
+export function detectSeasonNumber(link: { title?: string; seasonNumber?: number; url?: string }): number {
   if (link.seasonNumber && link.seasonNumber > 0) {
     return link.seasonNumber;
   }
 
-  if (link.title) {
+  const urlFn = extractFilenameFromUrl(link.url);
+  const text = `${link.title || ''} ${urlFn}`.trim();
+
+  if (text) {
     // 1. Check patterns like 1x01, 02x05, 100x12 (Season x Episode)
-    const xMatch = link.title.match(/(?:^|[\s._\-[\]()])(\d{1,3})x\d{1,4}(?:[\s._\-[\]()]|\b)/i);
+    const xMatch = text.match(/(?:^|[\s._\-[\]()])(\d{1,3})x\d{1,4}(?:[\s._\-[\]()]|\b)/i);
     if (xMatch && xMatch[1]) {
       return parseInt(xMatch[1], 10);
     }
 
     // 2. Check patterns like S01, S02, S100, s100, S.02, S-02, S_02, [S01], (S100)
-    const sMatch = link.title.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})(?:[\s._\-[\]()]|e\d|\b)/i);
+    const sMatch = text.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})(?:[\s._\-[\]()]|e\d|\b)/i);
     if (sMatch && sMatch[1]) {
       return parseInt(sMatch[1], 10);
     }
 
     // 3. Check patterns like Season 2, Season 02, Season 100, Season.2, Season_2, Season-2
-    const seasonMatch = link.title.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,3})/i);
+    const seasonMatch = text.match(/(?:^|[\s._\-[\]()])season[\s._-]?0*(\d{1,3})/i);
     if (seasonMatch && seasonMatch[1]) {
       return parseInt(seasonMatch[1], 10);
     }
 
     // 4. Check ordinal patterns like 1st Season, 2nd Season, 10th Season
-    const ordinalMatch = link.title.match(/(\d{1,3})(?:st|nd|rd|th)\s*season/i);
+    const ordinalMatch = text.match(/(\d{1,3})(?:st|nd|rd|th)\s*season/i);
     if (ordinalMatch && ordinalMatch[1]) {
       return parseInt(ordinalMatch[1], 10);
     }
 
     // 5. Check season range like S01-S04, S1-S8, S01-04
-    const rangeMatch = link.title.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})\s*[-–—to]+\s*s?0*(\d{1,3})/i);
+    const rangeMatch = text.match(/(?:^|[\s._\-[\]()])s0*(\d{1,3})\s*[-–—to]+\s*s?0*(\d{1,3})/i);
     if (rangeMatch && rangeMatch[1]) {
       return parseInt(rangeMatch[1], 10);
     }
@@ -62,7 +105,8 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
     return link.episodeNumber;
   }
 
-  let text = link.title || '';
+  const urlFn = extractFilenameFromUrl(link.url);
+  let text = `${link.title || ''} ${urlFn}`.trim();
   if (link.url) {
     try {
       const decoded = decodeURIComponent(link.url);
@@ -138,9 +182,10 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
  * Auto-detect whether a link is a Complete Season Zip/Batch Pack or Single Episode
  */
 export function detectLinkType(link: { title?: string; linkType?: string; category?: string; episodeNumber?: number; url?: string }): 'zip_pack' | 'single_episode' {
+  const urlFn = extractFilenameFromUrl(link.url);
   const title = link.title || '';
   const url = link.url || '';
-  const combined = `${title} ${url}`.toLowerCase();
+  const combined = `${title} ${urlFn} ${url}`.toLowerCase();
 
   // 1. Explicit Zip / Archive file indicators
   const isExplicitZip = /(?:\.zip|\.rar|\.7z|\.tar|\.gz|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bfull\s*season\b)/i.test(combined);
@@ -246,21 +291,32 @@ export function extractEpisodeTitle(filename: string): string {
 /**
  * Auto-extract Quality/Resolution format tags from title
  */
-export function detectQuality(title: string, defaultQuality?: string): string {
-  if (!title) return defaultQuality || '1080p WEB-DL';
+/**
+ * Auto-extract Quality/Resolution format tags from title or URL
+ */
+export function detectQuality(title: string, defaultQuality?: string, url?: string): string {
+  const urlFn = extractFilenameFromUrl(url);
+  const text = `${title || ''} ${urlFn}`.trim();
+  if (!text) return defaultQuality || '1080p WEB-DL';
 
   const tags: string[] = [];
-
-  const cleanForQuality = stripWatermarks(title);
+  const cleanForQuality = stripWatermarks(text);
 
   // 1. Resolution (Check 1080p, 720p, 480p FIRST before 4K, to prevent false 4K matches)
   let is4k = false;
+  let is1080p = false;
+  let is720p = false;
+  let is480p = false;
+
   if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('1080p FHD');
+    is1080p = true;
   } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('720p HD');
+    is720p = true;
   } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('480p SD');
+    is480p = true;
   } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|\b)/i.test(cleanForQuality)) {
     tags.push('2160p 4K');
     is4k = true;
@@ -273,7 +329,7 @@ export function detectQuality(title: string, defaultQuality?: string): string {
   else if (/(?:^|[\s._\-[\]()])hdtv(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('HDTV');
 
   // 3. Dynamic Range (Sense DV HDR vs HDR vs SDR / simple H.265)
-  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
+  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
   const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
   const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
 
@@ -286,7 +342,12 @@ export function detectQuality(title: string, defaultQuality?: string): string {
   if (/10bit/i.test(cleanForQuality)) tags.push('10bit');
 
   // 4. Codec (Supports H.265 / HEVC, H.264 / AVC)
-  if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) {
+  const isHEVC = /(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
+  if (isHEVC) {
+    // In 1080p: if it's HEVC and has NO DV and NO HDR and NO explicit SDR yet, mark SDR
+    if (is1080p && !hasDV && !hasHDR && !hasSDR) {
+      tags.push('SDR');
+    }
     tags.push('HEVC');
   } else if (/(?:^|[\s._\-[\]()])(?:h\.?264|x264|avc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) {
     tags.push('x264');
@@ -300,33 +361,35 @@ export function detectQuality(title: string, defaultQuality?: string): string {
 }
 
 /**
- * Auto-extract Audio and Language tags from title
+ * Auto-extract Audio and Language tags from title or URL
  */
-export function detectAudio(title: string, defaultAudio?: string): string {
-  if (!title) return defaultAudio || 'English';
+export function detectAudio(title: string, defaultAudio?: string, url?: string): string {
+  const urlFn = extractFilenameFromUrl(url);
+  const text = `${title || ''} ${urlFn}`.trim();
+  if (!text) return defaultAudio || 'English';
 
   const languages: string[] = [];
 
   // Dual / Multi Audio
-  if (/dual\s*audio/i.test(title)) {
+  if (/dual\s*audio/i.test(text)) {
     return 'Dual Audio (Hin + Eng)';
   }
-  if (/multi\s*audio/i.test(title)) {
+  if (/multi\s*audio/i.test(text)) {
     return 'Multi Audio (5.1)';
   }
 
   // Language tags with channels
-  const hasHindi = /hindi|hin/i.test(title);
-  const hasEnglish = /english|eng/i.test(title);
-  const hasTamil = /tamil|tam/i.test(title);
-  const hasTelugu = /telugu|tel/i.test(title);
-  const hasJapanese = /japanese|jap/i.test(title);
-  const hasKorean = /korean|kor/i.test(title);
-  const hasSpanish = /spanish|spa/i.test(title);
+  const hasHindi = /hindi|hin/i.test(text);
+  const hasEnglish = /english|eng/i.test(text);
+  const hasTamil = /tamil|tam/i.test(text);
+  const hasTelugu = /telugu|tel/i.test(text);
+  const hasJapanese = /japanese|jap/i.test(text);
+  const hasKorean = /korean|kor/i.test(text);
+  const hasSpanish = /spanish|spa/i.test(text);
 
   if (hasHindi && hasEnglish) {
-    const atmos = /atmos|truehd/i.test(title) ? 'Atmos' : '';
-    const ddp = /ddp\s*5\.1|ddp5\.1|5\.1/i.test(title) ? '5.1' : '';
+    const atmos = /atmos|truehd/i.test(text) ? 'Atmos' : '';
+    const ddp = /ddp\s*5\.1|ddp5\.1|5\.1/i.test(text) ? '5.1' : '';
     return `Hindi + English ${[atmos, ddp].filter(Boolean).join(' ')}`.trim();
   }
 
@@ -346,13 +409,22 @@ export function detectAudio(title: string, defaultAudio?: string): string {
 }
 
 /**
- * Auto-extract File Size from title (e.g. 16.8 GB, 7.4 GB, 850 MB, 6.36 GB)
+ * Auto-extract File Size from title or URL (e.g. 16.8 GB, 7.4 GB, 850 MB, 6.36 GB)
  */
-export function detectSize(title: string, defaultSize?: string): string | undefined {
-  if (!title) return defaultSize;
-  const sizeMatch = title.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i);
-  if (sizeMatch && sizeMatch[1]) {
-    return sizeMatch[1].toUpperCase();
+export function detectSize(title?: string, defaultSize?: string, url?: string): string | undefined {
+  if (title) {
+    const sizeMatch = title.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i);
+    if (sizeMatch && sizeMatch[1]) {
+      return sizeMatch[1].toUpperCase();
+    }
+  }
+  if (url) {
+    const urlFn = extractFilenameFromUrl(url);
+    const candidate = `${urlFn} ${url}`;
+    const sizeMatch = candidate.match(/\b(\d+(?:\.\d+)?\s*(?:gb|mb|tb))\b/i);
+    if (sizeMatch && sizeMatch[1]) {
+      return sizeMatch[1].toUpperCase();
+    }
   }
   return defaultSize;
 }

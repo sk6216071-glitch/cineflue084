@@ -29,7 +29,7 @@ import {
   deleteGlobalCustomLink,
   getDeletedLinkIds,
 } from '@/lib/curatedLinks';
-import { parseFullMediaTitle, detectSize, stripWatermarks, getQualityWeight } from '@/lib/seasonParser';
+import { parseFullMediaTitle, detectSize, stripWatermarks, getQualityWeight, extractFilenameFromUrl } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
@@ -49,8 +49,9 @@ const CATEGORIES: CustomLink['category'][] = [
   'Review',
 ];
 
-function detectResolution(quality?: string, title?: string): string {
-  const cleanTitle = stripWatermarks(title || '');
+function detectResolution(quality?: string, title?: string, url?: string): string {
+  const urlFn = extractFilenameFromUrl(url);
+  const cleanTitle = stripWatermarks(title || urlFn || '');
   const cleanQuality = stripWatermarks(quality || '');
 
   // 1. Check title first (title is the true source of truth for the media file)
@@ -135,12 +136,13 @@ function formatAudioLanguages(audio?: string, title?: string): string {
  * Renames GDTOT with HubCloud, GDFlix, or detected link server.
  */
 export function formatMovieDownloadButtonTitle(link: CustomLink): string {
-  const cleanTitle = stripWatermarks(link.title || '');
+  const urlFn = extractFilenameFromUrl(link.url);
+  const cleanTitle = stripWatermarks(link.title || urlFn || '');
   const cleanQuality = stripWatermarks(link.quality || '');
-  const combined = `${cleanTitle} ${cleanQuality} ${link.url || ''}`.toLowerCase();
+  const combined = `${cleanTitle} ${cleanQuality} ${urlFn} ${link.url || ''}`.toLowerCase();
 
   // 1. Detect Size:
-  let size = link.size || detectSize(cleanTitle) || detectSize(link.url || '') || detectSize(cleanQuality) || '';
+  let size = link.size || detectSize(cleanTitle) || detectSize(urlFn) || detectSize(undefined, undefined, link.url) || detectSize(cleanQuality) || '';
   if (size) {
     size = size.replace(/\s+/g, '').trim();
     if (/^\d+mb$/i.test(size)) {
@@ -163,7 +165,7 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
   }
 
   // 3. Detect Dynamic Range / HDR / SDR / DV:
-  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(combined);
+  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
   const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
   const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(combined);
 
@@ -193,13 +195,22 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
 
     if (source && source !== 'WebDL') parts.push(source);
   } else if (resolution === '1080p') {
-    if (isHEVC && is10Bit) parts.push('HEVC 10bit');
-    else if (isHEVC) parts.push('HEVC');
+    const hevcTag = isHEVC ? ' H.265' : '';
+    if (hasDV && hasHDR) parts.push(`DV HDR${hevcTag}`);
+    else if (hasDV) parts.push(`DV${hevcTag}`);
+    else if (hasHDR) parts.push(`HDR${hevcTag}`);
+    else if (hasSDR) parts.push(`SDR${hevcTag}`);
+    else if (is10Bit && isHEVC) parts.push('10bit HEVC');
+    else if (isHEVC) parts.push('SDR H.265');
     else if (is10Bit) parts.push('10bit');
-    else if (source) parts.push(source);
-    else if (hasHDR) parts.push('HDR');
+    else if (source && source !== 'WebDL') parts.push(source);
+    else parts.push(source || 'WebDL');
   } else if (resolution === '720p') {
-    if (isHEVC && is10Bit) parts.push('HEVC 10bit');
+    const hevcTag = isHEVC ? ' HEVC' : '';
+    if (hasDV && hasHDR) parts.push(`DV HDR${hevcTag}`);
+    else if (hasDV) parts.push(`DV${hevcTag}`);
+    else if (hasHDR) parts.push(`HDR${hevcTag}`);
+    else if (is10Bit && isHEVC) parts.push('10bit HEVC');
     else if (isHEVC) parts.push('HEVC');
     else if (source && source !== 'WebDL') parts.push(source);
   }
@@ -233,18 +244,20 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
 }
 
 function formatReleaseTitle(custom: CustomLink, titleDetails: TitleDetails): string {
-  const raw = (custom.title || '').trim();
+  const urlFn = extractFilenameFromUrl(custom.url);
+  const raw = (custom.title || urlFn || '').trim();
   const movieName = titleDetails.title || titleDetails.name || '';
   const movieYear = (titleDetails.release_date || titleDetails.first_air_date || '').slice(0, 4);
 
-  // If the title is already in authentic release format:
+  // If the title or URL filename is already in authentic release format:
+  const candidate = (custom.title && custom.title.includes('.')) ? custom.title : (urlFn || custom.title || '');
   const isAlreadyFullRelease =
-    (movieName && raw.toLowerCase().includes(movieName.toLowerCase()) && /(?:1080p|2160p|720p|bluray|remux|hevc|web-dl|x265|x264|ddp|dd\s*5|dts|atmos|truehd)/i.test(raw)) ||
-    /\.(?:mkv|mp4|avi)\b/i.test(raw) ||
-    (/\b(19\d\d|20\d\d)\b/.test(raw) && /(?:bluray|remux|web-dl|hevc|x265|x264)/i.test(raw));
+    (movieName && candidate.toLowerCase().includes(movieName.toLowerCase()) && /(?:1080p|2160p|720p|bluray|remux|hevc|web-dl|x265|x264|ddp|dd\s*5|dts|atmos|truehd)/i.test(candidate)) ||
+    /\.(?:mkv|mp4|avi)\b/i.test(candidate) ||
+    (/\b(19\d\d|20\d\d)\b/.test(candidate) && /(?:bluray|remux|web-dl|hevc|x265|x264)/i.test(candidate));
 
-  if (isAlreadyFullRelease && raw.length >= 15) {
-    return stripWatermarks(raw);
+  if (isAlreadyFullRelease && candidate.length >= 15) {
+    return stripWatermarks(candidate);
   }
 
   // Synthesize scene release format matching reference screenshot:
@@ -399,7 +412,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const qualityCounts = useMemo(() => {
     const counts = new Map<string, number>();
     filteredCustomLinks.forEach(link => {
-      const key = detectResolution(link.quality, link.title);
+      const key = detectResolution(link.quality, link.title, link.url);
       counts.set(key, (counts.get(key) || 0) + 1);
     });
     return counts;
@@ -411,7 +424,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     const list = [...filteredCustomLinks];
 
     const getResRank = (l: CustomLink): number => {
-      const c = `${stripWatermarks(l.title || '')} ${stripWatermarks(l.quality || '')}`.toLowerCase();
+      const urlFn = extractFilenameFromUrl(l.url);
+      const c = `${stripWatermarks(l.title || urlFn || '')} ${stripWatermarks(l.quality || '')} ${urlFn}`.toLowerCase();
       if (/(?:2160p|2160i|\buhd\b|\b4k\b)/i.test(c)) return 4;
       if (/(?:1080p|1080i|fhd)/i.test(c)) return 3;
       if (/(?:720p|720i|hd)/i.test(c)) return 2;
@@ -420,7 +434,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     };
 
     const getSizeMB = (l: CustomLink): number => {
-      const raw = l.size || detectSize(l.title) || detectSize(l.url) || '';
+      const urlFn = extractFilenameFromUrl(l.url);
+      const raw = l.size || detectSize(l.title) || detectSize(urlFn) || detectSize(undefined, undefined, l.url) || '';
       const m = raw.match(/([\d.]+)\s*(gb|mb)/i);
       if (!m) return 0;
       const v = parseFloat(m[1]);
