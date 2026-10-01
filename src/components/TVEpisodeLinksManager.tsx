@@ -451,8 +451,6 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   // User Selection States (Single Open Accordion Slide & Season Selection)
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [openSlideId, setOpenSlideId] = useState<string | null>(null);
-  const [selectedEpisode, setSelectedEpisode] = useState<number>(1);
-  const [episodeViewMode, setEpisodeViewMode] = useState<'single' | 'all'>('single');
 
   // Dynamically calculate all seasons in ascending order (Season 1, Season 2, Season 3...) matching screenshot
   const seasonsList = useMemo(() => {
@@ -674,90 +672,6 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       setSelectedSeason(firstSeasonWithLinks);
     }
   }, [seasonsList, seasonGroupsMap, selectedSeason]);
-
-  // Compute available episodes for selectedSeason
-  const availableEpisodes = useMemo(() => {
-    const formats = seasonGroupsMap.get(selectedSeason) || [];
-    const eps = new Set<number>();
-    formats.forEach((fmt) => {
-      fmt.options.forEach((opt) => {
-        opt.episodes.forEach((ep) => {
-          if (ep.episodeNumber && ep.episodeNumber > 0) {
-            eps.add(ep.episodeNumber);
-          }
-        });
-      });
-    });
-
-    if (eps.size === 0) {
-      const tmdbSeason = titleDetails.seasons?.find((s) => s.season_number === selectedSeason);
-      const totalCount = tmdbSeason?.episode_count || (selectedSeason === 1 ? (titleDetails.number_of_episodes || 8) : 8);
-      for (let i = 1; i <= Math.min(totalCount, 24); i++) {
-        eps.add(i);
-      }
-    }
-
-    return Array.from(eps).sort((a, b) => a - b);
-  }, [selectedSeason, seasonGroupsMap, titleDetails]);
-
-  // Ensure selectedEpisode stays valid when season changes
-  useEffect(() => {
-    if (availableEpisodes.length > 0 && !availableEpisodes.includes(selectedEpisode)) {
-      setSelectedEpisode(availableEpisodes[0]);
-    }
-  }, [availableEpisodes, selectedEpisode]);
-
-  // Active episode releases for selectedSeason and selectedEpisode
-  const activeEpisodeReleases = useMemo(() => {
-    const formats = seasonGroupsMap.get(selectedSeason) || [];
-    const results: Array<{
-      optionId: string;
-      resolution: string;
-      source: string;
-      title: string;
-      episodeName: string;
-      codec?: string;
-      dynamicRange?: string;
-      audioLanguages: string;
-      links: EnrichedLink[];
-      size: string;
-    }> = [];
-
-    formats.forEach((fmt) => {
-      fmt.options.forEach((opt) => {
-        const epLinks = opt.episodes.filter((e) => e.episodeNumber === selectedEpisode);
-        if (epLinks.length > 0) {
-          const first = epLinks[0];
-          const detectedSz = first.size || detectSize(first.title) || '';
-          const epFormattedTitle = formatEpisodeTitle(
-            first,
-            opt,
-            titleDetails,
-            selectedSeason,
-            fmt.resolution,
-            fmt.source
-          );
-          const epName = extractEpisodeTitle(first.title) || extractEpisodeTitle(epFormattedTitle);
-          const prof = extractReleaseProfile(first.title || epFormattedTitle, first.quality, titleDetails);
-
-          results.push({
-            optionId: opt.id,
-            resolution: fmt.resolution,
-            source: fmt.source,
-            title: epFormattedTitle,
-            episodeName: epName,
-            codec: prof.codec,
-            dynamicRange: prof.dynamicRange,
-            audioLanguages: opt.audioLanguages,
-            links: epLinks,
-            size: detectedSz,
-          });
-        }
-      });
-    });
-
-    return results;
-  }, [selectedSeason, selectedEpisode, seasonGroupsMap, titleDetails]);
 
   // Active season packs for selectedSeason
   const activeSeasonPacks = useMemo(() => {
@@ -1277,86 +1191,82 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                       </div>
                     </div>
 
-                    {/* Release Filename */}
-                    <div className="font-mono text-xs sm:text-sm text-zinc-200 font-semibold break-all bg-black/40 p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Layers className="w-4 h-4 text-blue-400 shrink-0" />
-                        <span className="truncate">{packRel.title}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(packRel.title);
-                          alert('Pack title copied to clipboard!');
-                        }}
-                        className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1 cursor-pointer"
-                        title="Copy release name"
+                    {/* Release Filename & Direct Link */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/40 hover:bg-black/60 p-3 sm:p-4 rounded-xl border border-white/5 hover:border-blue-500/40 transition-all">
+                      <a
+                        href={packRel.packs[0]?.url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 min-w-0 flex-1 group/pack select-none cursor-pointer"
+                        title={`Click to download ${packRel.title}`}
                       >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                        <Layers className="w-4 h-4 text-blue-400 shrink-0 group-hover/pack:scale-110 transition-transform" />
+                        <span className="font-mono text-xs sm:text-sm text-zinc-100 group-hover/pack:text-blue-400 group-hover/pack:underline font-semibold break-all line-clamp-2 sm:line-clamp-1 transition-colors">
+                          {packRel.title}
+                        </span>
+                        <ExternalLink className="w-3.5 h-3.5 text-blue-400/70 group-hover/pack:text-blue-300 shrink-0 opacity-0 group-hover/pack:opacity-100 transition-opacity" />
+                      </a>
 
-                    {/* Blue Download Button matching media_1790848047765.png */}
-                    <div className="flex flex-wrap items-center gap-3 pt-1">
-                      {packRel.packs.map((pack, idx) => {
-                        const server = detectServer(pack.url);
-                        const sameServerCount = packRel.packs.filter(
-                          (p) => detectServer(p.url).name === server.name
-                        ).length;
-                        const serverLabel =
-                          sameServerCount > 1
-                            ? `Download ${server.name || 'HubCloud'} ${idx + 1}`
-                            : `Download ${server.name || 'HubCloud'}`;
-
-                        return (
-                          <div key={pack.id || idx} className="flex items-center gap-2">
-                            <a
-                              href={pack.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center gap-2.5 px-6 py-2.5 sm:px-7 sm:py-3 rounded-2xl bg-gradient-to-r from-[#2160fd] via-[#2b66ff] to-[#3b82f6] hover:from-[#1d4ed8] hover:to-[#2563eb] text-white font-extrabold text-xs sm:text-sm tracking-wide shadow-[0_4px_20px_rgba(37,99,235,0.45)] hover:shadow-[0_6px_28px_rgba(37,99,235,0.65)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer select-none"
-                              title={`Download complete season pack from ${server.name}`}
-                            >
-                              <Download className="w-4 h-4 shrink-0 text-white" />
-                              <span>{serverLabel}</span>
-                              <ExternalLink className="w-3.5 h-3.5 shrink-0 text-white/90" />
-                            </a>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(pack.url);
-                                alert('Zip pack link copied to clipboard!');
-                              }}
-                              className="p-2.5 sm:p-3 rounded-2xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
-                              title="Copy zip pack link"
-                            >
-                              <Copy className="w-4 h-4" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setReportingLink({
-                                  linkId: pack.id,
-                                  movieId: titleDetails.id,
-                                  mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
-                                  mediaType: 'tv',
-                                  posterPath: titleDetails.poster_path,
-                                  linkTitle: pack.title,
-                                  reportedUrl: pack.url,
-                                  quality: pack.quality,
-                                  server: server.name,
-                                })
-                              }
-                              className="p-2.5 sm:p-3 rounded-2xl bg-[#141620] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
-                              title="Report broken pack link"
-                            >
-                              <Flag className="w-4 h-4" />
-                            </button>
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                        {packRel.packs.length > 1 && (
+                          <div className="flex items-center gap-1.5 mr-1">
+                            {packRel.packs.map((p, idx) => {
+                              const s = detectServer(p.url);
+                              return (
+                                <a
+                                  key={p.id || idx}
+                                  href={p.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2.5 py-1 rounded-xl text-xs font-bold bg-[#141622] hover:bg-blue-600 text-zinc-300 hover:text-white border border-white/10 hover:border-blue-500 transition-all cursor-pointer"
+                                  title={`Download from ${s.name || `Mirror ${idx + 1}`}`}
+                                >
+                                  {s.name || `Mirror ${idx + 1}`} ↗
+                                </a>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
+                        )}
+
+                        {packRel.packs[0] && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(packRel.packs[0].url);
+                              alert('Zip pack link copied to clipboard!');
+                            }}
+                            className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                            title="Copy zip pack link"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {packRel.packs[0] && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReportingLink({
+                                linkId: packRel.packs[0].id,
+                                movieId: titleDetails.id,
+                                mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                                mediaType: 'tv',
+                                posterPath: titleDetails.poster_path,
+                                linkTitle: packRel.title,
+                                reportedUrl: packRel.packs[0].url,
+                                quality: packRel.packs[0].quality,
+                                server: detectServer(packRel.packs[0].url).name || 'HubCloud',
+                              });
+                            }}
+                            className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
+                            title="Report broken pack link"
+                          >
+                            <Flag className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Admin Management Section */}
@@ -1435,18 +1345,6 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           const isOpen = openSlideId === slide.key;
           const episodesCount = slide.episodes.length;
 
-          // Find current active episode in this slide
-          const currentEp =
-            slide.episodes.find((e) => e.episodeNumber === selectedEpisode) ||
-            slide.episodes[0] ||
-            null;
-
-          const currentEpIndex = slide.episodes.findIndex(
-            (e) => e.episodeNumber === (currentEp?.episodeNumber ?? selectedEpisode)
-          );
-          const hasPrev = currentEpIndex > 0;
-          const hasNext = currentEpIndex !== -1 && currentEpIndex < slide.episodes.length - 1;
-
           return (
             <div
               key={slide.key}
@@ -1495,293 +1393,172 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               {isOpen && (
                 <div className="bg-[#090b10] p-4 sm:p-6 space-y-5 animate-fadeIn border-t border-rose-950/40">
                   {episodesCount > 0 ? (
-                    <>
-                      {/* Episode Quick-Select Pills Bar */}
-                      <div className="space-y-2.5 pb-2 border-b border-white/5">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
-                            SELECT EPISODE:
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEpisodeViewMode(episodeViewMode === 'all' ? 'single' : 'all')
-                            }
-                            className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
-                          >
-                            {episodeViewMode === 'all' ? '← View Single Episode' : 'View All Episodes ↗'}
-                          </button>
-                        </div>
+                    <div className="space-y-2.5">
+                      {slide.episodes.map((ep) => {
+                        const primaryLink = ep.links[0];
+                        const server = primaryLink ? detectServer(primaryLink.url) : { name: 'HubCloud' };
+                        const serverName = server.name || 'HubCloud';
 
-                        <div className="flex flex-wrap items-center gap-2 max-h-48 overflow-y-auto pr-1">
-                          <button
-                            type="button"
-                            onClick={() => setEpisodeViewMode('all')}
-                            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                              episodeViewMode === 'all'
-                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                                : 'bg-[#14161f] text-zinc-400 hover:text-white border border-white/5'
-                            }`}
+                        return (
+                          <div
+                            key={ep.episodeNumber}
+                            className="group relative rounded-2xl bg-[#0e111a] hover:bg-[#131724] border border-white/5 hover:border-blue-500/40 p-3.5 sm:p-4.5 transition-all shadow-md hover:shadow-blue-500/10 flex flex-col md:flex-row md:items-center justify-between gap-3"
                           >
-                            ALL ({episodesCount})
-                          </button>
-                          {slide.episodes.map((ep) => {
-                            const isSelected =
-                              episodeViewMode === 'single' &&
-                              (currentEp?.episodeNumber ?? selectedEpisode) === ep.episodeNumber;
-
-                            return (
-                              <button
-                                key={ep.episodeNumber}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedEpisode(ep.episodeNumber);
-                                  setEpisodeViewMode('single');
-                                }}
-                                className={`min-w-[42px] h-[38px] px-2.5 rounded-xl font-bold text-xs flex items-center justify-center transition-all cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 text-white shadow-[0_4px_16px_rgba(59,130,246,0.6)] border border-blue-400/40 scale-105'
-                                    : 'bg-[#14161f] hover:bg-[#1e2130] text-zinc-300 hover:text-white border border-white/5'
-                                }`}
-                              >
+                            {/* Direct Clickable Link to destination HubCloud / GDFlix */}
+                            <a
+                              href={primaryLink?.url || '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 min-w-0 flex items-start sm:items-center gap-3 select-none cursor-pointer"
+                              title={`Click to open ${ep.title} on ${serverName}`}
+                            >
+                              {/* E01 Badge */}
+                              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-xl bg-gradient-to-r from-blue-600/30 to-indigo-600/30 border border-blue-500/40 text-blue-300 font-mono font-black text-xs shrink-0 shadow-inner group-hover:scale-105 transition-transform">
                                 E{ep.episodeNumber < 10 ? `0${ep.episodeNumber}` : ep.episodeNumber}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* View Mode 1: Single Episode Focused Card */}
-                      {episodeViewMode === 'single' && currentEp && (
-                        <div className="rounded-2xl bg-[#0e111a] border border-white/5 hover:border-blue-500/30 p-4 sm:p-5 space-y-4 transition-all shadow-xl">
-                          {/* Header Row */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-white/5 pb-3">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
-                                <FileVideo className="w-4 h-4" />
-                              </div>
-                              <h4 className="text-base sm:text-lg font-bold text-white tracking-wide truncate">
-                                Episode {currentEp.episodeNumber}
-                                {currentEp.episodeName ? ` : ${currentEp.episodeName}` : ''}
-                              </h4>
-                            </div>
-
-                            {/* Badges */}
-                            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                              <span className={getResolutionBadgeStyle(slide.resolution)}>
-                                {slide.resolution}
                               </span>
-                              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634]">
-                                {slide.source}
-                              </span>
-                              {currentEp.codec && (
-                                <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                                  {currentEp.codec}
-                                </span>
-                              )}
-                              {currentEp.dynamicRange && (
-                                <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                                  {currentEp.dynamicRange}
-                                </span>
-                              )}
-                              {currentEp.size && (
-                                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-zinc-900 text-zinc-300 border border-white/5">
-                                  {currentEp.size}
-                                </span>
-                              )}
-                              {currentEp.audio && (
-                                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                  {currentEp.audio}
-                                </span>
-                              )}
-                            </div>
-                          </div>
 
-                          {/* Filename Box */}
-                          <div className="font-mono text-xs sm:text-sm text-zinc-200 font-semibold break-all bg-black/40 p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Film className="w-4 h-4 text-blue-400 shrink-0" />
-                              <span className="truncate">{currentEp.title}</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(currentEp.title);
-                                alert('Release name copied to clipboard!');
-                              }}
-                              className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 p-1 cursor-pointer"
-                              title="Copy release name"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-
-                          {/* Blue Download Buttons matching media_1790848047765.png */}
-                          <div className="space-y-2">
-                            <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                              <Download className="w-3.5 h-3.5 text-blue-400" />
-                              <span>Direct Download Mirrors</span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-3 pt-1">
-                              {currentEp.links.map((lnk, idx) => {
-                                const server = detectServer(lnk.url);
-                                const sameServerCount = currentEp.links.filter(
-                                  (l) => detectServer(l.url).name === server.name
-                                ).length;
-                                const serverLabel =
-                                  sameServerCount > 1
-                                    ? `Download ${server.name || 'HubCloud'} ${idx + 1}`
-                                    : `Download ${server.name || 'HubCloud'}`;
-
-                                return (
-                                  <div key={lnk.id || idx} className="flex items-center gap-2">
-                                    <a
-                                      href={lnk.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center justify-center gap-2.5 px-6 py-2.5 sm:px-7 sm:py-3 rounded-2xl bg-gradient-to-r from-[#2160fd] via-[#2b66ff] to-[#3b82f6] hover:from-[#1d4ed8] hover:to-[#2563eb] text-white font-extrabold text-xs sm:text-sm tracking-wide shadow-[0_4px_20px_rgba(37,99,235,0.45)] hover:shadow-[0_6px_28px_rgba(37,99,235,0.65)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer select-none"
-                                      title={`Download from ${serverLabel}`}
-                                    >
-                                      <Download className="w-4 h-4 shrink-0 text-white" />
-                                      <span>{serverLabel}</span>
-                                      <ExternalLink className="w-3.5 h-3.5 shrink-0 text-white/90" />
-                                    </a>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(lnk.url);
-                                        alert('Download link copied to clipboard!');
-                                      }}
-                                      className="p-2.5 sm:p-3 rounded-2xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
-                                      title="Copy download link"
-                                    >
-                                      <Copy className="w-4 h-4" />
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setReportingLink({
-                                          linkId: lnk.id,
-                                          movieId: titleDetails.id,
-                                          mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
-                                          mediaType: 'tv',
-                                          posterPath: titleDetails.poster_path,
-                                          linkTitle: lnk.title,
-                                          reportedUrl: lnk.url,
-                                          quality: lnk.quality,
-                                          server: server.name,
-                                        })
-                                      }
-                                      className="p-2.5 sm:p-3 rounded-2xl bg-[#141620] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
-                                      title="Report broken mirror"
-                                    >
-                                      <Flag className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Episode Prev / Next Navigation Controls */}
-                          <div className="flex items-center justify-between pt-3 border-t border-white/5 text-xs font-bold text-zinc-400">
-                            {hasPrev ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedEpisode(slide.episodes[currentEpIndex - 1].episodeNumber)
-                                }
-                                className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
-                              >
-                                <span>← Episode {slide.episodes[currentEpIndex - 1].episodeNumber}</span>
-                              </button>
-                            ) : (
-                              <div />
-                            )}
-
-                            {hasNext ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedEpisode(slide.episodes[currentEpIndex + 1].episodeNumber)
-                                }
-                                className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
-                              >
-                                <span>Episode {slide.episodes[currentEpIndex + 1].episodeNumber} →</span>
-                              </button>
-                            ) : (
-                              <div />
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* View Mode 2: All Episodes List */}
-                      {episodeViewMode === 'all' && (
-                        <div className="space-y-3">
-                          {slide.episodes.map((ep) => (
-                            <div
-                              key={ep.episodeNumber}
-                              className="rounded-2xl bg-[#0e111a] border border-white/5 hover:border-blue-500/30 p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all shadow-md"
-                            >
-                              <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="space-y-1 min-w-0 flex-1">
+                                {/* The Direct Clickable Scene Release Filename */}
                                 <div className="flex items-center gap-2">
-                                  <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 font-black text-xs font-mono">
-                                    E{ep.episodeNumber < 10 ? `0${ep.episodeNumber}` : ep.episodeNumber}
+                                  <span className="font-mono text-xs sm:text-sm font-bold text-zinc-100 group-hover:text-blue-400 group-hover:underline transition-colors break-all line-clamp-2 md:line-clamp-1">
+                                    {ep.title}
                                   </span>
-                                  <h5 className="font-bold text-white text-sm sm:text-base truncate">
-                                    {ep.episodeName || `Episode ${ep.episodeNumber}`}
-                                  </h5>
+                                  <ExternalLink className="w-3.5 h-3.5 text-blue-400/70 group-hover:text-blue-300 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+
+                                {/* Subtext: Episode Name, Resolution, Source, Size, Codec, Dynamic Range, Audio, Server */}
+                                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] text-zinc-400">
+                                  {ep.episodeName && (
+                                    <span className="font-semibold text-zinc-300">
+                                      {ep.episodeName}
+                                    </span>
+                                  )}
                                   <span className="font-semibold text-blue-400">
                                     {slide.resolution} {slide.source}
                                   </span>
-                                  {ep.size && <span>• {ep.size}</span>}
-                                  {ep.audio && <span className="text-zinc-500">• {ep.audio}</span>}
+                                  {ep.size && (
+                                    <span className="font-mono text-zinc-400 bg-white/5 px-2 py-0.5 rounded-md border border-white/5">
+                                      {ep.size}
+                                    </span>
+                                  )}
+                                  {ep.dynamicRange && (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                      {ep.dynamicRange}
+                                    </span>
+                                  )}
+                                  {ep.codec && (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                      {ep.codec}
+                                    </span>
+                                  )}
+                                  {ep.audio && (
+                                    <span className="text-zinc-500">
+                                      🔊 {ep.audio}
+                                    </span>
+                                  )}
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                    {serverName}
+                                  </span>
                                 </div>
                               </div>
+                            </a>
 
-                              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                                {ep.links.map((lnk, idx) => {
-                                  const server = detectServer(lnk.url);
-                                  const serverLabel = `Download ${server.name || 'HubCloud'}`;
-                                  return (
-                                    <div key={lnk.id || idx} className="flex items-center gap-1.5">
+                            {/* Action icons / Mirror servers if more than 1 server exists */}
+                            <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
+                              {/* If there are multiple mirrors, show each mirror server link */}
+                              {ep.links.length > 1 && (
+                                <div className="flex items-center gap-1.5 mr-1">
+                                  {ep.links.map((lnk, idx) => {
+                                    const srv = detectServer(lnk.url);
+                                    return (
                                       <a
+                                        key={lnk.id || idx}
                                         href={lnk.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-[#2160fd] via-[#2b66ff] to-[#3b82f6] hover:from-[#1d4ed8] hover:to-[#2563eb] text-white font-extrabold text-xs sm:text-sm tracking-wide shadow-md shadow-blue-600/35 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer select-none"
-                                        title={`Download Episode ${ep.episodeNumber} from ${serverLabel}`}
+                                        className="px-2.5 py-1 rounded-xl text-xs font-bold bg-[#141622] hover:bg-blue-600 text-zinc-300 hover:text-white border border-white/10 hover:border-blue-500 transition-all cursor-pointer"
+                                        title={`Download from ${srv.name || `Mirror ${idx + 1}`}`}
                                       >
-                                        <Download className="w-3.5 h-3.5 text-white" />
-                                        <span>{serverLabel}</span>
-                                        <ExternalLink className="w-3 h-3 text-white/90" />
+                                        {srv.name || `Mirror ${idx + 1}`} ↗
                                       </a>
+                                    );
+                                  })}
+                                </div>
+                              )}
 
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(lnk.url);
-                                          alert('Download link copied to clipboard!');
-                                        }}
-                                        className="p-2 rounded-xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
-                                        title="Copy link"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                              {/* Quick Copy Link */}
+                              {primaryLink && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(primaryLink.url);
+                                    alert('Download link copied to clipboard!');
+                                  }}
+                                  className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-[#1f2230] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                                  title="Copy download link"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {/* Flag / Report Broken Link */}
+                              {primaryLink && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReportingLink({
+                                      linkId: primaryLink.id,
+                                      movieId: titleDetails.id,
+                                      mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                                      mediaType: 'tv',
+                                      posterPath: titleDetails.poster_path,
+                                      linkTitle: ep.title,
+                                      reportedUrl: primaryLink.url,
+                                      quality: primaryLink.quality,
+                                      server: serverName,
+                                    });
+                                  }}
+                                  className="p-2 sm:p-2.5 rounded-xl bg-[#141620] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
+                                  title="Report broken mirror"
+                                >
+                                  <Flag className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {/* Admin Edit / Delete Actions */}
+                              {isAdmin && primaryLink && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStartEdit(primaryLink);
+                                    }}
+                                    className="p-2 sm:p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                                    title="Admin: Edit link"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDelete(primaryLink.id);
+                                    }}
+                                    className="p-2 sm:p-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                                    title="Admin: Delete link"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <div className="p-8 rounded-2xl bg-[#0c0d13] border border-white/5 text-center space-y-3.5 shadow-xl">
                       <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto text-blue-400">

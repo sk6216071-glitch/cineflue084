@@ -706,9 +706,15 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                     {/* Subtext: Scene title & audio language */}
                     {(audioInfo || link.title) && (
                       <div className="flex items-center justify-between px-2 text-[11px] text-zinc-400 font-medium">
-                        <span className="truncate max-w-[70%] text-zinc-500 font-mono text-[10px]">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate max-w-[70%] text-zinc-400 hover:text-blue-400 hover:underline font-mono text-[11px] transition-colors cursor-pointer"
+                          title={`Click to open ${stripWatermarks(link.title || '')}`}
+                        >
                           {stripWatermarks(link.title || '')}
-                        </span>
+                        </a>
                         {audioInfo && (
                           <span className="text-zinc-400 font-sans shrink-0">
                             🔊 {audioInfo}
