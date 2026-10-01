@@ -18,6 +18,8 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  Flag,
+  Sparkles,
 } from 'lucide-react';
 import { TitleDetails, CustomLink } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -66,23 +68,6 @@ function detectResolution(quality?: string, title?: string): string {
   return '1080p';
 }
 
-interface MovieReleaseOption {
-  id: string;
-  displayTitle: string;
-  rawSceneTitle: string;
-  size: string;
-  audioLanguages: string;
-  source: string;
-  resolution: string;
-  links: CustomLink[];
-}
-
-interface MovieFormatGroup {
-  id: string;
-  resolution: string;
-  source: string;
-  options: MovieReleaseOption[];
-}
 
 function detectSource(title?: string, quality?: string): string {
   const combined = `${title || ''} ${quality || ''}`.toLowerCase();
@@ -141,95 +126,109 @@ function formatAudioLanguages(audio?: string, title?: string): string {
   return 'Hindi, English';
 }
 
-function formatMovieReleaseOptionTitle(
-  rawTitle: string,
-  titleDetails: TitleDetails,
-  resolution: string,
-  source: string,
-  qualityHint?: string
-): string {
-  const movieName = titleDetails.title || titleDetails.name || 'Movie';
-  const cleanTitle = stripWatermarks(rawTitle || '');
-  const titleLower = cleanTitle.toLowerCase();
-  const qLower = (qualityHint || '').toLowerCase();
-  const combined = `${titleLower} ${qLower}`;
 
-  // Check special edition tags: IMAX, PLAY, EXTENDED, UNRATED, DIRECTORS CUT
-  let editionTag = '';
-  if (/\bimax\b/i.test(cleanTitle)) editionTag = 'IMAX';
-  else if (/\bplay\b/i.test(cleanTitle)) editionTag = 'PLAY';
-  else if (/\bextended\b/i.test(cleanTitle)) editionTag = 'EXTENDED';
-  else if (/\bunrated\b/i.test(cleanTitle)) editionTag = 'UNRATED';
-  else if (/director'?s\s*cut/i.test(cleanTitle)) editionTag = 'DIRECTORS CUT';
+/**
+ * Format movie download button label according to reference image:
+ * e.g. "400mb 480p [HubCloud]", "1.5GB 720p [HubCloud]", "4GB 1080p [HubCloud]",
+ * "3.5GB 1080p HEVC 10bit [HubCloud]", "8GB 1080p WebDL [HubCloud]",
+ * "12GB 2160p SDR [HubCloud]", "16GB 2160p HDR [HubCloud]"
+ * Renames GDTOT with HubCloud, GDFlix, or detected link server.
+ */
+export function formatMovieDownloadButtonTitle(link: CustomLink): string {
+  const cleanTitle = stripWatermarks(link.title || '');
+  const cleanQuality = stripWatermarks(link.quality || '');
+  const combined = `${cleanTitle} ${cleanQuality} ${link.url || ''}`.toLowerCase();
 
-  // Resolution tag
-  const resTag = resolution.includes('2160') || resolution.includes('4K')
-    ? '2160p'
-    : resolution.includes('1080')
-    ? '1080p'
-    : resolution.includes('720')
-    ? '720p'
-    : resolution.includes('480')
-    ? '480p'
-    : resolution;
-
-  // Source tag
-  let srcTag = source;
-  if (!srcTag || srcTag === 'HD') {
-    if (/remux/i.test(combined)) srcTag = 'BluRay';
-    else if (/bluray|blu-ray|bdrip/i.test(combined)) srcTag = 'BluRay';
-    else if (/web-dl|webdl|webrip|web/i.test(combined)) srcTag = 'WEB-DL';
-    else if (/hdtv/i.test(combined)) srcTag = 'HDTV';
-    else srcTag = 'WEB-DL';
+  // 1. Detect Size:
+  let size = link.size || detectSize(cleanTitle) || detectSize(link.url || '') || detectSize(cleanQuality) || '';
+  if (size) {
+    size = size.replace(/\s+/g, '').trim();
+    if (/^\d+mb$/i.test(size)) {
+      size = size.toLowerCase();
+    } else {
+      size = size.replace(/gb/i, 'GB').replace(/mb/i, 'MB');
+    }
   }
 
-  // Dynamic Range tag
+  // 2. Detect Resolution:
+  let resolution = '1080p';
+  if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+    resolution = '2160p';
+  } else if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+    resolution = '1080p';
+  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+    resolution = '720p';
+  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
+    resolution = '480p';
+  }
+
+  // 3. Detect Dynamic Range / HDR / SDR / DV:
   const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision)(?:[\s._\-[\]()]|$)/i.test(combined);
-  const hasHDR10Plus = /(?:^|[\s._\-[\]()])hdr10\+(?:[\s._\-[\]()]|$)/i.test(combined);
-  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
+  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
   const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(combined);
 
-  let dynTag = '';
-  if (hasHDR10Plus && hasDV) {
-    dynTag = 'HDR10+ DV';
-  } else if (hasHDR && hasDV) {
-    dynTag = 'HDR DV';
-  } else if (hasDV) {
-    dynTag = 'DV';
-  } else if (hasHDR10Plus) {
-    dynTag = 'HDR10+';
-  } else if (hasHDR) {
-    dynTag = 'HDR';
-  } else if (hasSDR) {
-    dynTag = 'SDR';
-  } else if (resTag === '2160p' && !hasHDR && !hasDV) {
-    dynTag = 'SDR';
+  // 4. Detect Codec (HEVC, 10bit):
+  const is10Bit = /10bit|10-bit/i.test(combined);
+  const isHEVC = /hevc|x265|h\.?265/i.test(combined);
+
+  // 5. Detect Source (WebDL, BluRay, REMUX, HDTV):
+  let source = '';
+  if (/remux/i.test(combined)) source = 'REMUX';
+  else if (/bluray|blu-ray|bdrip/i.test(combined)) source = 'BluRay';
+  else if (/web-dl|webdl|webrip|web/i.test(combined)) source = 'WebDL';
+  else if (/hdtv/i.test(combined)) source = 'HDTV';
+
+  // 6. Build parts:
+  const parts: string[] = [];
+  if (size) parts.push(size);
+  parts.push(resolution);
+
+  if (resolution === '2160p') {
+    if (hasDV && hasHDR) parts.push('DV HDR');
+    else if (hasDV) parts.push('DV');
+    else if (hasHDR) parts.push('HDR');
+    else if (hasSDR) parts.push('SDR');
+    else parts.push('SDR');
+
+    if (source && source !== 'WebDL') parts.push(source);
+  } else if (resolution === '1080p') {
+    if (isHEVC && is10Bit) parts.push('HEVC 10bit');
+    else if (isHEVC) parts.push('HEVC');
+    else if (is10Bit) parts.push('10bit');
+    else if (source) parts.push(source);
+    else if (hasHDR) parts.push('HDR');
+  } else if (resolution === '720p') {
+    if (isHEVC && is10Bit) parts.push('HEVC 10bit');
+    else if (isHEVC) parts.push('HEVC');
+    else if (source && source !== 'WebDL') parts.push(source);
   }
 
-  // Codec tag
-  let codecTag = 'HEVC';
-  if (/hevc|x265|h\.?265|10bit/i.test(combined)) {
-    codecTag = 'HEVC';
-  } else if (/x264|h\.?264|avc/i.test(combined)) {
-    codecTag = 'AVC';
-  } else {
-    codecTag = resTag === '2160p' ? 'HEVC' : 'AVC';
+  // 7. Server detection (Rename GDTOT with HubCloud or GDFlix according to link):
+  const server = detectServer(link.url);
+  let serverName = server.name || 'HubCloud';
+  const urlLower = (link.url || '').toLowerCase();
+
+  if (urlLower.includes('gdflix')) {
+    serverName = 'GDFlix';
+  } else if (urlLower.includes('hubcloud')) {
+    serverName = 'HubCloud';
+  } else if (urlLower.includes('hubdrive')) {
+    serverName = 'HubDrive';
+  } else if (urlLower.includes('katdrive')) {
+    serverName = 'KatDrive';
+  } else if (urlLower.includes('drivehub')) {
+    serverName = 'DriveHub';
+  } else if (urlLower.includes('drive.google') || urlLower.includes('google')) {
+    serverName = 'GDrive';
+  } else if (urlLower.includes('gdtot')) {
+    serverName = 'GDTot';
   }
 
-  // Remux tag (appears at the end if REMUX)
-  const isRemux = /remux/i.test(combined);
-  const remuxTag = isRemux ? 'REMUX' : '';
+  if (!serverName || serverName === 'Cloud Server' || serverName === 'Direct Server') {
+    serverName = 'HubCloud';
+  }
 
-  const innerParts = [
-    editionTag,
-    resTag,
-    srcTag,
-    dynTag,
-    codecTag,
-    remuxTag,
-  ].filter(Boolean);
-
-  return `${movieName} (${innerParts.join(' ')})`;
+  return `${parts.join(' ')} [${serverName}]`;
 }
 
 function formatReleaseTitle(custom: CustomLink, titleDetails: TitleDetails): string {
@@ -405,118 +404,36 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     return counts;
   }, [filteredCustomLinks]);
 
-  // Track open state for release options (e.g. opt_xyz: true)
-  const [expandedOptions, setExpandedOptions] = useState<Record<string, boolean>>({});
+  // Sorted movie links: ascending resolution (480p -> 720p -> 1080p -> 2160p) and size
+  // matching reference image media_1790851187635.jpg
+  const sortedMovieLinks = useMemo(() => {
+    const list = [...filteredCustomLinks];
 
-  const toggleOption = (optId: string) => {
-    setExpandedOptions((prev) => ({
-      ...prev,
-      [optId]: !prev[optId],
-    }));
-  };
+    const getResRank = (l: CustomLink): number => {
+      const c = `${stripWatermarks(l.title || '')} ${stripWatermarks(l.quality || '')}`.toLowerCase();
+      if (/(?:2160p|2160i|\buhd\b|\b4k\b)/i.test(c)) return 4;
+      if (/(?:1080p|1080i|fhd)/i.test(c)) return 3;
+      if (/(?:720p|720i|hd)/i.test(c)) return 2;
+      if (/(?:480p|480i|sd)/i.test(c)) return 1;
+      return 3;
+    };
 
-  // Group movie/saved links into Format Groups (2160p / 4K + BluRay, etc.) & Release Options
-  const movieFormatGroups: MovieFormatGroup[] = useMemo(() => {
-    if (filteredCustomLinks.length === 0) return [];
+    const getSizeMB = (l: CustomLink): number => {
+      const raw = l.size || detectSize(l.title) || detectSize(l.url) || '';
+      const m = raw.match(/([\d.]+)\s*(gb|mb)/i);
+      if (!m) return 0;
+      const v = parseFloat(m[1]);
+      return m[2].toLowerCase() === 'gb' ? v * 1024 : v;
+    };
 
-    const formatMap = new Map<string, { resolution: string; source: string; links: CustomLink[] }>();
-
-    filteredCustomLinks.forEach((link) => {
-      const rawRes = detectResolution(link.quality, link.title);
-      const resolution = rawRes === '2160p' ? '2160p / 4K' : rawRes;
-      const source = detectSource(link.title, link.quality);
-      const key = `${resolution}_${source}`;
-
-      if (!formatMap.has(key)) {
-        formatMap.set(key, {
-          resolution,
-          source,
-          links: [],
-        });
-      }
-      formatMap.get(key)!.links.push(link);
+    list.sort((a, b) => {
+      const rankDiff = getResRank(a) - getResRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return getSizeMB(a) - getSizeMB(b);
     });
 
-    const groups: MovieFormatGroup[] = [];
-
-    formatMap.forEach((fmtVal, fmtKey) => {
-      const optionsMap = new Map<string, MovieReleaseOption>();
-
-      fmtVal.links.forEach((link) => {
-        const displayTitle = formatMovieReleaseOptionTitle(
-          link.title,
-          titleDetails,
-          fmtVal.resolution,
-          fmtVal.source,
-          link.quality
-        );
-        const detectedSize = link.size || detectSize(link.title) || detectSize(link.url) || '';
-        const audioLanguages = formatAudioLanguages(link.audioLanguage, link.title);
-
-        const optKey = `${displayTitle}_${detectedSize || 'std'}`;
-
-        if (!optionsMap.has(optKey)) {
-          optionsMap.set(optKey, {
-            id: `opt_${link.id || Math.random().toString(36).slice(2, 7)}`,
-            displayTitle,
-            rawSceneTitle: link.title,
-            size: detectedSize,
-            audioLanguages,
-            source: fmtVal.source,
-            resolution: fmtVal.resolution,
-            links: [],
-          });
-        }
-
-        optionsMap.get(optKey)!.links.push(link);
-      });
-
-      const options = Array.from(optionsMap.values());
-
-      options.sort((a, b) => {
-        const isRemuxA = a.displayTitle.includes('REMUX') ? 1 : 0;
-        const isRemuxB = b.displayTitle.includes('REMUX') ? 1 : 0;
-        if (isRemuxA !== isRemuxB) return isRemuxB - isRemuxA;
-
-        const szA = parseFloat(a.size) || 0;
-        const szB = parseFloat(b.size) || 0;
-        return szB - szA;
-      });
-
-      groups.push({
-        id: fmtKey,
-        resolution: fmtVal.resolution,
-        source: fmtVal.source,
-        options,
-      });
-    });
-
-    groups.sort((a, b) => {
-      const wA = getQualityWeight(a.resolution);
-      const wB = getQualityWeight(b.resolution);
-      if (wB !== wA) return wB - wA;
-      if (a.source === 'BluRay' && b.source !== 'BluRay') return -1;
-      if (b.source === 'BluRay' && a.source !== 'BluRay') return 1;
-      return 0;
-    });
-
-    return groups;
-  }, [filteredCustomLinks, titleDetails]);
-
-  // Auto-expand the first option of each format group on initial load
-  useEffect(() => {
-    if (movieFormatGroups.length > 0) {
-      setExpandedOptions((prev) => {
-        const next = { ...prev };
-        movieFormatGroups.forEach((grp) => {
-          if (grp.options.length > 0 && next[grp.options[0].id] === undefined) {
-            next[grp.options[0].id] = true;
-          }
-        });
-        return next;
-      });
-    }
-  }, [movieFormatGroups]);
+    return list;
+  }, [filteredCustomLinks]);
 
   const existing = isMounted ? watchlist.find((w) => w.id === titleDetails.id) : undefined;
   const imdbId = titleDetails.external_ids?.imdb_id;
@@ -614,15 +531,15 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   return (
     <CollapsibleSection
-      title={mediaType === 'tv' ? 'TV Series Season & Episode Vault' : 'Custom Saved Links & Downloads'}
-      icon={<Link2 className="w-5 h-5 text-amber-400" />}
+      title={mediaType === 'tv' ? 'TV Series Season & Episode Vault' : 'Movie Direct Download Links'}
+      icon={mediaType === 'tv' ? <Link2 className="w-5 h-5 text-amber-400" /> : <Download className="w-5 h-5 text-blue-400" />}
       subtitle={
         mediaType === 'tv'
           ? 'Auto-arranged seasons, batch zip archives, and weekly single episode releases.'
-          : 'Verified streaming & download sources, 4K releases, and direct playback links.'
+          : 'High-speed cloud downloads across 480p, 720p, 1080p, and 2160p 4K qualities.'
       }
       badge={`${totalLinkCount} files`}
-      defaultOpen={mediaType === 'tv'}
+      defaultOpen={true}
     >
       {/* TV Series Season & Episode Vault */}
       {mediaType === 'tv' && (
@@ -692,215 +609,116 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
             )}
           </div>
 
-        {movieFormatGroups.length > 0 ? (
-          <div className="space-y-6">
-            {movieFormatGroups.map((group) => (
-              <div key={group.id} className="space-y-3">
-                {/* Format Header Bar with Orange Left Accent (matching first screenshot) */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 rounded-xl bg-[#0f0d18] border border-[#211d33] relative overflow-hidden pl-4 shadow-md">
-                  <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500 rounded-l-xl" />
+        {sortedMovieLinks.length > 0 ? (
+          <div className="rounded-3xl bg-[#090b14] border border-white/5 p-4 sm:p-7 shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/5">
+              <div className="space-y-0.5">
+                <h4 className="text-sm sm:text-base font-black text-white tracking-wide flex items-center gap-2">
+                  <Download className="w-4 h-4 text-blue-400" />
+                  <span>Direct Download Links ({sortedMovieLinks.length})</span>
+                </h4>
+                <p className="text-xs text-zinc-400">
+                  Select your preferred resolution and server below to download.
+                </p>
+              </div>
+            </div>
 
-                  <div className="flex flex-wrap items-center gap-2 pl-1">
-                    <span className={getResolutionBadgeStyle(group.resolution)}>
-                      {group.resolution}
-                    </span>
-                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
-                      {group.source}
-                    </span>
-                  </div>
+            {/* Stack of Movie Download Buttons (Reference: media_1790851187635.jpg) */}
+            <div className="space-y-4 pt-2">
+              {sortedMovieLinks.map((link, idx) => {
+                const buttonLabel = formatMovieDownloadButtonTitle(link);
+                const audioInfo = formatAudioLanguages(link.audioLanguage, link.title);
+                const serverInfo = detectServer(link.url);
 
-                  <span className="px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 bg-[#1c1a27] border border-[#2d2a3d] shrink-0">
-                    {group.options.length} {group.options.length === 1 ? 'option' : 'options'}
-                  </span>
-                </div>
-
-                {/* Release Options List */}
-                <div className="space-y-2.5">
-                  {group.options.map((option) => {
-                    const isExpanded = !!expandedOptions[option.id];
-
-                    return (
-                      <div
-                        key={option.id}
-                        className="rounded-xl bg-[#12101e] border border-[#221f33] hover:border-[#383353] transition-all p-4 sm:p-4.5 space-y-3 shadow-sm"
+                return (
+                  <div key={link.id || idx} className="space-y-1.5 max-w-xl mx-auto w-full group">
+                    <div className="flex items-center gap-2 sm:gap-3 w-full">
+                      {/* Vibrant Blue Pill/Button with Neon Pink Border matching media_1790851187635.jpg */}
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 py-3.5 sm:py-4.5 px-4 sm:px-8 rounded-2xl bg-gradient-to-r from-[#0030eb] via-[#0038ff] to-[#0048ff] hover:from-[#0027c4] hover:to-[#0030eb] border-[2.5px] border-[#ff007f] shadow-[0_0_16px_rgba(255,0,127,0.35)] hover:shadow-[0_0_26px_rgba(255,0,127,0.6)] text-white font-black text-sm sm:text-base md:text-lg tracking-wide text-center transition-all duration-200 hover:scale-[1.015] active:scale-[0.98] select-none cursor-pointer flex items-center justify-center gap-2 break-words"
+                        title={`Download: ${buttonLabel}`}
                       >
-                        {/* Header Row: Title & Badges on Left, Chevron on Right */}
-                        <div
-                          onClick={() => toggleOption(option.id)}
-                          className="flex items-start sm:items-center justify-between gap-3 cursor-pointer select-none group"
+                        <span>{buttonLabel}</span>
+                      </a>
+
+                      {/* Quick Action Buttons: Copy, Flag/Report, Admin */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(link.url);
+                            alert('Download link copied to clipboard!');
+                          }}
+                          className="p-3 sm:p-3.5 rounded-2xl bg-[#141622] hover:bg-[#1f2336] text-zinc-400 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                          title="Copy download link"
                         >
-                          <div className="space-y-2 flex-1 min-w-0">
-                            {/* Clean Display Title matching screenshot 1 */}
-                            <h5 className="text-white font-bold text-sm sm:text-base tracking-tight font-sans group-hover:text-amber-300 transition-colors break-words">
-                              {option.displayTitle}
-                            </h5>
+                          <Copy className="w-4 h-4" />
+                        </button>
 
-                            {/* Badges Row: Size (Orange), Languages (Teal), Source (Green) */}
-                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                              {option.size && (
-                                <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#ea580c] text-white shadow-sm">
-                                  {option.size}
-                                </span>
-                              )}
-                              {option.audioLanguages && (
-                                <span className="px-3 py-0.5 rounded-full text-xs font-semibold bg-[#0c2a2a] text-[#2dd4bf] border border-[#144f4f] shadow-sm">
-                                  {option.audioLanguages}
-                                </span>
-                              )}
-                              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-[#0d281e] text-emerald-400 border border-[#154634] shadow-sm">
-                                {option.source}
-                              </span>
-                            </div>
-                          </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setReportingLink({
+                              linkId: link.id,
+                              movieId: titleDetails.id,
+                              mediaTitle: titleDetails.title || titleDetails.name || 'Movie',
+                              mediaType: mediaType === 'tv' ? 'tv' : 'movie',
+                              posterPath: titleDetails.poster_path,
+                              linkTitle: buttonLabel,
+                              reportedUrl: link.url,
+                              quality: link.quality,
+                              server: serverInfo.name,
+                            })
+                          }
+                          className="p-3 sm:p-3.5 rounded-2xl bg-[#141622] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/10 hover:border-rose-500/30 transition-colors cursor-pointer"
+                          title="Report broken or defective link"
+                        >
+                          <Flag className="w-4 h-4" />
+                        </button>
 
-                          {/* Chevron Icon */}
-                          <button
-                            type="button"
-                            className="w-8 h-8 rounded-full bg-[#1c1a27] border border-[#2d2a3d] flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors shrink-0 mt-1 sm:mt-0 cursor-pointer"
-                            title={isExpanded ? 'Collapse mirrors' : 'Expand mirrors'}
-                          >
-                            <ChevronDown
-                              className={`w-4 h-4 transition-transform duration-200 ${
-                                isExpanded ? 'rotate-180' : ''
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        {/* Expanded State: Scene filename + Download Mirrors */}
-                        {isExpanded && (
-                          <div className="pt-3 border-t border-white/5 space-y-3 animate-fadeIn">
-                            {/* Raw Scene Filename with Copy Icon */}
-                            {option.rawSceneTitle && (
-                              <div className="bg-[#0b0914] p-3 rounded-xl border border-white/5 font-mono text-xs text-zinc-300 flex items-center justify-between gap-2 break-all">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                  <span className="truncate">{option.rawSceneTitle}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigator.clipboard.writeText(option.rawSceneTitle);
-                                    alert('Filename copied to clipboard!');
-                                  }}
-                                  className="text-zinc-500 hover:text-zinc-300 transition-colors p-1 shrink-0 cursor-pointer"
-                                  title="Copy filename"
-                                >
-                                  <Copy className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Available Download Mirrors */}
-                            <div className="space-y-2">
-                              <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                <Download className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Available Download Mirrors</span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                                {option.links.map((link, idx) => {
-                                  const server = detectServer(link.url);
-                                  const sameServerCount = option.links.filter(
-                                    (l) => detectServer(l.url).name === server.name
-                                  ).length;
-                                  const serverLabel =
-                                    sameServerCount > 1
-                                      ? `${server.name || 'Server'} ${idx + 1}`
-                                      : server.name || `Server ${idx + 1}`;
-
-                                  return (
-                                    <div key={link.id || idx} className="flex items-center gap-1.5">
-                                      <a
-                                        href={link.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-600/25 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                                        title={`Download from ${serverLabel}`}
-                                      >
-                                        <Download className="w-3.5 h-3.5" />
-                                        <span>{serverLabel}</span>
-                                        <ExternalLink className="w-3 h-3 opacity-70" />
-                                      </a>
-
-                                      {/* Copy Link URL */}
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          navigator.clipboard.writeText(link.url);
-                                          alert('Download link copied to clipboard!');
-                                        }}
-                                        className="p-2 rounded-xl bg-[#1c1a27] hover:bg-[#282637] text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
-                                        title="Copy download link"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {/* Report Link */}
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setReportingLink({
-                                            linkId: link.id,
-                                            movieId: titleDetails.id,
-                                            mediaTitle: titleDetails.title || titleDetails.name || 'Movie',
-                                            mediaType: mediaType === 'tv' ? 'tv' : 'movie',
-                                            posterPath: titleDetails.poster_path,
-                                            linkTitle: option.displayTitle,
-                                            reportedUrl: link.url,
-                                            quality: link.quality,
-                                            server: server.name,
-                                          });
-                                        }}
-                                        className="p-2 rounded-xl bg-[#1c1a27] hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
-                                        title="Report broken or defective link"
-                                      >
-                                        <AlertTriangle className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {/* Admin controls */}
-                                      {isAdmin && (
-                                        <div className="flex items-center gap-1 pl-1 border-l border-zinc-800">
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleStartEdit(link);
-                                            }}
-                                            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
-                                            title="Admin: Edit link"
-                                          >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleDelete(link.id);
-                                            }}
-                                            className="p-2 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
-                                            title="Admin: Delete link"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
+                        {isAdmin && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(link)}
+                              className="p-3 sm:p-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 transition-colors cursor-pointer"
+                              title="Admin: Edit link"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(link.id)}
+                              className="p-3 sm:p-3.5 rounded-2xl bg-rose-950 hover:bg-rose-900 text-rose-400 border border-rose-900/50 transition-colors cursor-pointer"
+                              title="Admin: Delete link"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+                    </div>
+
+                    {/* Subtext: Scene title & audio language */}
+                    {(audioInfo || link.title) && (
+                      <div className="flex items-center justify-between px-2 text-[11px] text-zinc-400 font-medium">
+                        <span className="truncate max-w-[70%] text-zinc-500 font-mono text-[10px]">
+                          {stripWatermarks(link.title || '')}
+                        </span>
+                        {audioInfo && (
+                          <span className="text-zinc-400 font-sans shrink-0">
+                            🔊 {audioInfo}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div className="p-6 rounded-2xl bg-zinc-900/40 border border-dashed border-zinc-800 text-center space-y-1.5">

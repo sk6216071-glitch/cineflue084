@@ -48,6 +48,10 @@ export function detectServer(url: string, serverIndex?: number, totalForGroup?: 
     name = 'GDFlix';
     icon = '🚀';
     badgeClass = 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20';
+  } else if (host.includes('gdtot')) {
+    name = 'GDTot';
+    icon = '⚡';
+    badgeClass = 'text-amber-300 bg-amber-500/10 border-amber-500/20';
   } else if (host.includes('drive.google.com') || host === 'drive.google') {
     name = 'Google Drive';
     icon = '📁';

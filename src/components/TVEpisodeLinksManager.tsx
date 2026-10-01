@@ -1071,7 +1071,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                     {openSlideId === 'zip' ? '−' : '+'}
                   </span>
                   <h4 className="text-sm sm:text-base md:text-lg font-bold tracking-tight truncate">
-                    Zip Archive GDrive GDTOT Download Links
+                    Zip Archive GDrive HubCloud Download Links
                   </h4>
                 </div>
               </div>
@@ -1329,7 +1329,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         {isOpen ? '−' : '+'}
                       </span>
                       <h4 className="text-sm sm:text-base md:text-lg font-bold tracking-tight truncate">
-                        {slide.title} GDrive GDTOT Download Links
+                        {slide.title} GDrive HubCloud Download Links
                       </h4>
                     </div>
                   </div>
