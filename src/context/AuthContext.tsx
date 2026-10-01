@@ -51,7 +51,7 @@ interface AuthContextType {
   userProfile: UserProfile;
   isLoading: boolean;
   isLoggedIn: boolean;
-  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: (customEmail?: string, customName?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string; notFound?: boolean }>;
   signupWithEmail: (email: string, pass: string, name: string) => Promise<{ success: boolean; error?: string; alreadyExists?: boolean }>;
   fastLogin: (email: string, name?: string) => Promise<{ success: boolean; error?: string }>;
@@ -166,7 +166,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Auth Handlers
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (customEmail?: string, customName?: string) => {
+    // 1. Direct 1-click Google sync if email is provided
+    if (customEmail && customEmail.includes('@')) {
+      try {
+        setIsLoading(true);
+        const res = await fetch('/api/users/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'google_sync',
+            email: customEmail.trim(),
+            displayName: (customName || '').trim() || customEmail.split('@')[0],
+            provider: 'google',
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.user) {
+          const profile: UserProfile = {
+            uid: data.user.uid,
+            email: data.user.email,
+            displayName: data.user.displayName || customEmail.split('@')[0],
+            photoURL: data.user.photoURL || null,
+            bio: data.user.bio || '',
+            favoriteGenres: data.user.favoriteGenres || [],
+            createdAt: data.user.createdAt || new Date().toISOString(),
+            isGuest: false,
+          };
+          setUserProfile(profile);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('cinefuel_user_profile', JSON.stringify(profile));
+          }
+          return { success: true };
+        }
+      } catch (e: any) {
+        console.warn('Google custom sync error:', e);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    // 2. Attempt native Firebase Google OAuth popup if credentials exist
     try {
       setIsLoading(true);
       const result = await signInWithPopup(auth, googleProvider);
@@ -183,6 +223,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: fbUser.email,
           displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Cinephile',
           photoURL: fbUser.photoURL,
+          provider: 'google',
         }),
       });
       const data = await res.json();
@@ -207,8 +248,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Google Sign-In note:', error?.message || error);
       return {
         success: false,
-        error:
-          'Google Sign-In is unavailable or blocked in this browser (e.g. Brave Shields / Adblock). Please sign in with your Email and Password below (or Quick Sign-In).',
+        error: 'GOOGLE_PROMPT_FALLBACK',
       };
     } finally {
       setIsLoading(false);
