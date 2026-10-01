@@ -124,7 +124,9 @@ const BACKDROP_THEMES: Record<string, BackdropTheme> = {
 function formatRelativeTime(isoString?: string): string {
   if (!isoString) return 'Recently';
   try {
-    const diffMs = Date.now() - new Date(isoString).getTime();
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return 'Recently';
+    const diffMs = Date.now() - d.getTime();
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -133,7 +135,33 @@ function formatRelativeTime(isoString?: string): string {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return new Date(isoString).toLocaleDateString();
+    return d.toLocaleDateString();
+  } catch {
+    return 'Recently';
+  }
+}
+
+function formatDateSafe(dateStr?: string | null): string {
+  if (!dateStr) return 'Active Session';
+  try {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? 'Active Session' : d.toLocaleDateString();
+  } catch {
+    return 'Active Session';
+  }
+}
+
+function formatDateTimeSafe(isoString?: string | null): string {
+  if (!isoString) return 'Recently';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return 'Recently';
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   } catch {
     return 'Recently';
   }
@@ -384,7 +412,10 @@ export default function AdminPage() {
       const storedLinks = localStorage.getItem('cinefuel_custom_links');
       if (storedLinks) {
         try {
-          setCustomLinksMap(JSON.parse(storedLinks));
+          const parsed = JSON.parse(storedLinks);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            setCustomLinksMap(parsed);
+          }
         } catch {
           // ignore
         }
@@ -397,12 +428,12 @@ export default function AdminPage() {
           const res = await fetch(`/api/curated-links?_t=${Date.now()}`, { cache: 'no-store' });
           if (res.ok) {
             const data = await res.json();
-            if (data.allLinks && typeof data.allLinks === 'object') {
+            if (data && data.allLinks && typeof data.allLinks === 'object' && !Array.isArray(data.allLinks)) {
               const currentDeleted = getDeletedLinkIds();
               const cleanedMap: Record<string, CustomLink[]> = {};
               for (const [k, arr] of Object.entries(data.allLinks)) {
                 if (Array.isArray(arr)) {
-                  const filtered = (arr as CustomLink[]).filter((l) => !currentDeleted.has(l.id));
+                  const filtered = (arr as CustomLink[]).filter((l) => l && l.id && !currentDeleted.has(l.id));
                   if (filtered.length > 0) {
                     cleanedMap[k] = filtered;
                   }
@@ -422,7 +453,10 @@ export default function AdminPage() {
       const storedLists = localStorage.getItem('cinefuel_custom_lists');
       if (storedLists) {
         try {
-          setCustomLists(JSON.parse(storedLists));
+          const parsed = JSON.parse(storedLists);
+          if (Array.isArray(parsed)) {
+            setCustomLists(parsed);
+          }
         } catch {
           // ignore
         }
@@ -431,7 +465,10 @@ export default function AdminPage() {
       const storedTitlesCache = localStorage.getItem('cinefuel_known_titles_cache');
       if (storedTitlesCache) {
         try {
-          setKnownTitlesCache(JSON.parse(storedTitlesCache));
+          const parsed = JSON.parse(storedTitlesCache);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            setKnownTitlesCache(parsed);
+          }
         } catch {
           // ignore
         }
@@ -1036,9 +1073,11 @@ export default function AdminPage() {
     let targetTmdbId = fulfillingRequest.tmdbId;
 
     if (!targetTmdbId) {
-      const found = Object.entries(knownTitlesCache).find(([_, info]) =>
-        info.title.toLowerCase() === fulfillingRequest.title.toLowerCase()
-      );
+      const reqTitleLower = (fulfillingRequest.title || '').trim().toLowerCase();
+      const found = Object.entries(knownTitlesCache).find(([_, info]) => {
+        const titleStr = typeof info === 'string' ? info : info?.title;
+        return (titleStr || '').trim().toLowerCase() === reqTitleLower;
+      });
       if (found) targetTmdbId = Number(found[0]);
     }
 
@@ -1175,9 +1214,11 @@ export default function AdminPage() {
     let targetTmdbId = fulfillingRequest.tmdbId;
 
     if (!targetTmdbId) {
-      const found = Object.entries(knownTitlesCache).find(([_, info]) =>
-        info.title.toLowerCase() === fulfillingRequest.title.toLowerCase()
-      );
+      const reqTitleLower = (fulfillingRequest.title || '').trim().toLowerCase();
+      const found = Object.entries(knownTitlesCache).find(([_, info]) => {
+        const titleStr = typeof info === 'string' ? info : info?.title;
+        return (titleStr || '').trim().toLowerCase() === reqTitleLower;
+      });
       if (found) targetTmdbId = Number(found[0]);
     }
 
@@ -1333,9 +1374,11 @@ export default function AdminPage() {
     let targetTmdbId = fulfillingRequest.tmdbId;
 
     if (!targetTmdbId) {
-      const found = Object.entries(knownTitlesCache).find(([_, info]) =>
-        info.title.toLowerCase() === fulfillingRequest.title.toLowerCase()
-      );
+      const reqTitleLower = (fulfillingRequest.title || '').trim().toLowerCase();
+      const found = Object.entries(knownTitlesCache).find(([_, info]) => {
+        const titleStr = typeof info === 'string' ? info : info?.title;
+        return (titleStr || '').trim().toLowerCase() === reqTitleLower;
+      });
       if (found) targetTmdbId = Number(found[0]);
     }
 
@@ -2285,32 +2328,57 @@ export default function AdminPage() {
   // Memoized Title Lookup Map for O(1) Instant Title Resolution across 7,000+ links
   const titleLookupMap = useMemo(() => {
     const map = new Map<number, { title: string; poster_path?: string | null; media_type?: 'movie' | 'tv' }>();
-    PINNED_TITLES.forEach((p) => {
-      map.set(p.id, { title: p.title, poster_path: p.poster_path, media_type: p.media_type });
-    });
-    Object.values(MOCK_TITLES).forEach((m) => {
-      map.set(m.id, {
-        title: m.title || m.name || `Title #${m.id}`,
-        poster_path: m.poster_path,
-        media_type: ((m.media_type as any) || (m.name ? 'tv' : 'movie')) as 'movie' | 'tv',
+    if (Array.isArray(PINNED_TITLES)) {
+      PINNED_TITLES.forEach((p) => {
+        if (p && p.id) {
+          map.set(p.id, { title: p.title || `Title #${p.id}`, poster_path: p.poster_path, media_type: p.media_type || 'movie' });
+        }
       });
-    });
-    watchlist.forEach((w) => {
-      map.set(w.id, {
-        title: w.title || `Title #${w.id}`,
-        poster_path: w.poster_path,
-        media_type: w.mediaType,
+    }
+    if (typeof MOCK_TITLES === 'object' && MOCK_TITLES !== null) {
+      Object.values(MOCK_TITLES).forEach((m) => {
+        if (m && m.id) {
+          map.set(m.id, {
+            title: m.title || m.name || `Title #${m.id}`,
+            poster_path: m.poster_path,
+            media_type: ((m.media_type as any) || (m.name ? 'tv' : 'movie')) as 'movie' | 'tv',
+          });
+        }
       });
-    });
-    Object.entries(knownTitlesCache).forEach(([idStr, val]) => {
-      map.set(Number(idStr), val);
-    });
+    }
+    if (Array.isArray(watchlist)) {
+      watchlist.forEach((w) => {
+        if (w && w.id) {
+          map.set(w.id, {
+            title: w.title || `Title #${w.id}`,
+            poster_path: w.poster_path,
+            media_type: w.mediaType || 'movie',
+          });
+        }
+      });
+    }
+    if (knownTitlesCache && typeof knownTitlesCache === 'object') {
+      Object.entries(knownTitlesCache).forEach(([idStr, val]) => {
+        const numId = Number(idStr);
+        if (!isNaN(numId)) {
+          if (typeof val === 'string') {
+            map.set(numId, { title: val, media_type: 'movie' });
+          } else if (val && typeof val === 'object') {
+            map.set(numId, {
+              title: (val as any).title || `Title #${numId}`,
+              poster_path: (val as any).poster_path,
+              media_type: (val as any).media_type || 'movie',
+            });
+          }
+        }
+      });
+    }
     return map;
   }, [watchlist, knownTitlesCache]);
 
   const resolveTitleInfo = useCallback(
     (movieId: number) => {
-      return titleLookupMap.get(movieId) || { title: `Title #${movieId}` };
+      return titleLookupMap.get(movieId) || { title: `Title #${movieId}`, media_type: 'movie' as const };
     },
     [titleLookupMap]
   );
@@ -2319,74 +2387,86 @@ export default function AdminPage() {
   const allFlattenedLinks = useMemo(() => {
     const list: Array<{ movieId: number; movieName: string; mediaType: 'movie' | 'tv'; link: CustomLink }> = [];
     const seenLinkIds = new Set<string>();
+    const safeDelIds = deletedCuratedLinkIds instanceof Set ? deletedCuratedLinkIds : new Set<string>();
 
-    // 1. Built-in Curated Links (Filtered by deletedCuratedLinkIds)
-    Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
-      const numId = Number(movieIdStr);
-      const info = resolveTitleInfo(numId);
-      links.forEach((l) => {
-        if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
-          seenLinkIds.add(l.id);
-          list.push({
-            movieId: numId,
-            movieName: info.title,
-            mediaType: info.media_type || 'movie',
-            link: l,
+    // 1. Built-in Curated Links (Filtered by safeDelIds)
+    if (typeof BUILTIN_CURATED_LINKS === 'object' && BUILTIN_CURATED_LINKS !== null) {
+      Object.entries(BUILTIN_CURATED_LINKS).forEach(([movieIdStr, links]) => {
+        const numId = Number(movieIdStr);
+        const info = resolveTitleInfo(numId);
+        if (Array.isArray(links)) {
+          links.forEach((l) => {
+            if (l && l.id && !safeDelIds.has(l.id) && !seenLinkIds.has(l.id)) {
+              seenLinkIds.add(l.id);
+              list.push({
+                movieId: numId,
+                movieName: info.title || `Title #${numId}`,
+                mediaType: info.media_type || 'movie',
+                link: l,
+              });
+            }
           });
         }
       });
-    });
+    }
 
-    // 2. Watchlist Links (Filtered by deletedCuratedLinkIds)
-    watchlist.forEach((w) => {
-      if (w.customLinks && Array.isArray(w.customLinks)) {
-        w.customLinks.forEach((l) => {
-          if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
-            seenLinkIds.add(l.id);
-            list.push({
-              movieId: w.id,
-              movieName: w.title || `Title #${w.id}`,
-              mediaType: w.mediaType || 'movie',
-              link: l,
-            });
-          }
-        });
-      }
-    });
+    // 2. Watchlist Links (Filtered by safeDelIds)
+    if (Array.isArray(watchlist)) {
+      watchlist.forEach((w) => {
+        if (w && w.customLinks && Array.isArray(w.customLinks)) {
+          w.customLinks.forEach((l) => {
+            if (l && l.id && !safeDelIds.has(l.id) && !seenLinkIds.has(l.id)) {
+              seenLinkIds.add(l.id);
+              list.push({
+                movieId: w.id,
+                movieName: w.title || `Title #${w.id}`,
+                mediaType: w.mediaType || 'movie',
+                link: l,
+              });
+            }
+          });
+        }
+      });
+    }
 
     // 3. Dynamic Live Server/Cloud Custom Links
-    Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
-      if (Array.isArray(links)) {
-        const numId = Number(movieIdStr);
-        const info = resolveTitleInfo(numId);
-        const isTv =
-          info.media_type === 'tv' ||
-          links.some(
-            (l) =>
-              l.seasonNumber !== undefined ||
-              l.episodeNumber !== undefined ||
-              l.linkType === 'single_episode' ||
-              l.linkType === 'zip_pack'
-          );
-        links.forEach((l: CustomLink) => {
-          if (!deletedCuratedLinkIds.has(l.id) && !seenLinkIds.has(l.id)) {
-            seenLinkIds.add(l.id);
-            list.push({
-              movieId: numId,
-              movieName: info.title,
-              mediaType: isTv ? 'tv' : 'movie',
-              link: l,
-            });
-          }
-        });
-      }
-    });
+    if (customLinksMap && typeof customLinksMap === 'object') {
+      Object.entries(customLinksMap).forEach(([movieIdStr, links]) => {
+        if (Array.isArray(links)) {
+          const numId = Number(movieIdStr);
+          const info = resolveTitleInfo(numId);
+          const isTv =
+            info.media_type === 'tv' ||
+            links.some(
+              (l) =>
+                l &&
+                (l.seasonNumber !== undefined ||
+                  l.episodeNumber !== undefined ||
+                  l.linkType === 'single_episode' ||
+                  l.linkType === 'zip_pack')
+            );
+          links.forEach((l: CustomLink) => {
+            if (l && l.id && !safeDelIds.has(l.id) && !seenLinkIds.has(l.id)) {
+              seenLinkIds.add(l.id);
+              list.push({
+                movieId: numId,
+                movieName: info.title || `Title #${numId}`,
+                mediaType: isTv ? 'tv' : 'movie',
+                link: l,
+              });
+            }
+          });
+        }
+      });
+    }
 
     // Sort all links newest first by default
     list.sort((a, b) => {
-      const timeA = a.link.createdAt ? new Date(a.link.createdAt).getTime() : 0;
-      const timeB = b.link.createdAt ? new Date(b.link.createdAt).getTime() : 0;
-      return timeB - timeA;
+      const timeA = a.link?.createdAt ? new Date(a.link.createdAt).getTime() : 0;
+      const timeB = b.link?.createdAt ? new Date(b.link.createdAt).getTime() : 0;
+      const validA = isNaN(timeA) ? 0 : timeA;
+      const validB = isNaN(timeB) ? 0 : timeB;
+      return validB - validA;
     });
 
     return list;
@@ -2445,6 +2525,7 @@ export default function AdminPage() {
     if (linkCategoryFilter === 'Recent') {
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
       let recents = allFlattenedLinks.filter((item) => {
+        if (!item || !item.link) return false;
         if (item.link.category === 'Recent') return true;
         if (!item.link.createdAt) return false;
         const t = new Date(item.link.createdAt).getTime();
@@ -2454,24 +2535,30 @@ export default function AdminPage() {
       // If no links were uploaded in the last 7 days, fallback to the latest 100 uploaded links
       if (recents.length === 0) {
         recents = allFlattenedLinks
-          .filter((item) => item.link.createdAt && !isNaN(new Date(item.link.createdAt).getTime()))
+          .filter((item) => {
+            if (!item || !item.link?.createdAt) return false;
+            const t = new Date(item.link.createdAt).getTime();
+            return !isNaN(t);
+          })
           .slice(0, 100);
       }
 
       // Sort by upload time (newest first)
       recents = [...recents].sort((a, b) => {
-        const timeA = a.link.createdAt ? new Date(a.link.createdAt).getTime() : 0;
-        const timeB = b.link.createdAt ? new Date(b.link.createdAt).getTime() : 0;
-        return timeB - timeA;
+        const timeA = a.link?.createdAt ? new Date(a.link.createdAt).getTime() : 0;
+        const timeB = b.link?.createdAt ? new Date(b.link.createdAt).getTime() : 0;
+        const validA = isNaN(timeA) ? 0 : timeA;
+        const validB = isNaN(timeB) ? 0 : timeB;
+        return validB - validA;
       });
 
       if (!q) return recents;
       return recents.filter((item) => {
         return (
-          item.link.title?.toLowerCase().includes(q) ||
-          item.link.url?.toLowerCase().includes(q) ||
-          item.movieName?.toLowerCase().includes(q) ||
-          String(item.movieId).includes(q)
+          (item.link?.title || '').toLowerCase().includes(q) ||
+          (item.link?.url || '').toLowerCase().includes(q) ||
+          (item.movieName || '').toLowerCase().includes(q) ||
+          String(item.movieId || '').includes(q)
         );
       });
     }
@@ -2481,14 +2568,15 @@ export default function AdminPage() {
       return allFlattenedLinks;
     }
     return allFlattenedLinks.filter((item) => {
+      if (!item || !item.link) return false;
       const matchesCat = linkCategoryFilter === 'All' || item.link.category === linkCategoryFilter;
       if (!matchesCat) return false;
       if (!q) return true;
       return (
-        item.link.title?.toLowerCase().includes(q) ||
-        item.link.url?.toLowerCase().includes(q) ||
-        item.movieName?.toLowerCase().includes(q) ||
-        String(item.movieId).includes(q)
+        (item.link.title || '').toLowerCase().includes(q) ||
+        (item.link.url || '').toLowerCase().includes(q) ||
+        (item.movieName || '').toLowerCase().includes(q) ||
+        String(item.movieId || '').includes(q)
       );
     });
   }, [allFlattenedLinks, linkCategoryFilter, linkSearchQuery]);
@@ -2538,7 +2626,7 @@ export default function AdminPage() {
 
   // Filtered registered users for Manage Users directory tab
   const filteredRegisteredUsers = useMemo(() => {
-    let list = registeredUsers;
+    let list = Array.isArray(registeredUsers) ? registeredUsers : [];
     if (userFilterCategory === 'requesters') {
       list = list.filter((u) => (u.requestsCount || 0) > 0);
     } else if (userFilterCategory === 'reporters') {
@@ -2552,7 +2640,9 @@ export default function AdminPage() {
       const matchName = (u.displayName || '').toLowerCase().includes(q);
       const matchEmail = (u.email || '').toLowerCase().includes(q);
       const matchUid = (u.uid || '').toLowerCase().includes(q);
-      const matchRecent = (u.recentRequests || []).some((t) => t.toLowerCase().includes(q));
+      const matchRecent =
+        Array.isArray(u.recentRequests) &&
+        u.recentRequests.some((t) => String(t || '').toLowerCase().includes(q));
       return matchName || matchEmail || matchUid || matchRecent;
     });
   }, [registeredUsers, userFilterCategory, userSearchQuery]);
@@ -4194,7 +4284,7 @@ export default function AdminPage() {
                           <td className="py-3 px-3 text-[11px] text-zinc-400 whitespace-nowrap font-mono">
                             <span
                               className="flex items-center gap-1.5"
-                              title={item.link.createdAt ? new Date(item.link.createdAt).toLocaleString() : 'Recently'}
+                              title={formatDateTimeSafe(item.link.createdAt)}
                             >
                               <Clock className="w-3 h-3 text-amber-400/80 shrink-0" />
                               <span>{formatRelativeTime(item.link.createdAt)}</span>
@@ -4516,12 +4606,12 @@ export default function AdminPage() {
 
           {/* Requests Cards List */}
           {(() => {
-            const filteredRequests = requestsList.filter((r) => {
+            const filteredRequests = (Array.isArray(requestsList) ? requestsList : []).filter((r) => {
               if (requestsFilter !== 'all' && r.status !== requestsFilter) return false;
               if (!requestsSearchQuery.trim()) return true;
               const q = requestsSearchQuery.toLowerCase();
               return (
-                r.title.toLowerCase().includes(q) ||
+                (r.title || '').toLowerCase().includes(q) ||
                 (r.userContact && r.userContact.toLowerCase().includes(q)) ||
                 (r.notes && r.notes.toLowerCase().includes(q)) ||
                 (r.quality && r.quality.toLowerCase().includes(q)) ||
@@ -4551,12 +4641,7 @@ export default function AdminPage() {
               <div className="space-y-3">
                 {filteredRequests.map((req) => {
                   const posterUrl = req.posterPath ? getImageURL(req.posterPath, 'w200') : null;
-                  const dateStr = new Date(req.createdAt).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
+                  const dateStr = formatDateTimeSafe(req.createdAt);
 
                   return (
                     <div
@@ -4926,15 +5011,15 @@ export default function AdminPage() {
 
           {/* Reports List Cards */}
           {(() => {
-            const filteredReports = reportsList.filter((r) => {
+            const filteredReports = (Array.isArray(reportsList) ? reportsList : []).filter((r) => {
               if (reportsFilter !== 'all' && r.status !== reportsFilter) return false;
               if (reportsIssueFilter !== 'all' && r.issueType !== reportsIssueFilter) return false;
               if (!reportsSearchQuery.trim()) return true;
               const q = reportsSearchQuery.toLowerCase();
               return (
-                r.mediaTitle.toLowerCase().includes(q) ||
-                r.linkTitle.toLowerCase().includes(q) ||
-                r.reportedUrl.toLowerCase().includes(q) ||
+                (r.mediaTitle || '').toLowerCase().includes(q) ||
+                (r.linkTitle || '').toLowerCase().includes(q) ||
+                (r.reportedUrl || '').toLowerCase().includes(q) ||
                 (r.server && r.server.toLowerCase().includes(q)) ||
                 (r.additionalNotes && r.additionalNotes.toLowerCase().includes(q)) ||
                 (r.userEmail && r.userEmail.toLowerCase().includes(q))
@@ -5411,7 +5496,7 @@ export default function AdminPage() {
                         <div className="flex items-center justify-between text-zinc-400">
                           <span className="text-zinc-500">Joined:</span>
                           <span className="text-zinc-300">
-                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Active Session'}
+                            {formatDateSafe(user.createdAt)}
                           </span>
                         </div>
                       </div>
@@ -5429,7 +5514,7 @@ export default function AdminPage() {
                       </div>
 
                       {/* Requested Titles Pills */}
-                      {user.recentRequests && user.recentRequests.length > 0 && (
+                      {Array.isArray(user.recentRequests) && user.recentRequests.length > 0 && (
                         <div className="space-y-1.5 pt-1">
                           <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                             Requested Titles:

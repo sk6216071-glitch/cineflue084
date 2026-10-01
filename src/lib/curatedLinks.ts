@@ -211,7 +211,10 @@ export function getDeletedLinkIds(): Set<string> {
   try {
     const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
     if (delStored) {
-      return new Set(JSON.parse(delStored));
+      const parsed = JSON.parse(delStored);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.filter((id) => id !== null && id !== undefined).map(String));
+      }
     }
   } catch {
     // ignore
