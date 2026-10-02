@@ -219,6 +219,16 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
 }
 
 /**
+ * Checks whether a specific link URL already exists for a movie in the database.
+ */
+export function isLinkAlreadyInDatabase(movieId: number | string, url: string): boolean {
+  if (!url) return false;
+  const localData = getLocalFallbackLinks();
+  const existing = localData[String(movieId)] || [];
+  return existing.some((l: any) => l.url === url);
+}
+
+/**
  * Saves multiple links to Upstash Redis and local JSON backup in one atomic operation
  */
 export async function saveMultipleLinksToDatabase(movieId: number | string, links: any[]): Promise<boolean> {

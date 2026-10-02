@@ -1053,6 +1053,146 @@ async function saveLink(movieId, link) {
   return saveMultipleLinks({ [String(movieId)]: [link] });
 }
 
+const TMDB_GENRES = {
+  28: 'Action',
+  12: 'Adventure',
+  16: 'Animation',
+  35: 'Comedy',
+  80: 'Crime',
+  99: 'Documentary',
+  18: 'Drama',
+  10751: 'Family',
+  14: 'Fantasy',
+  36: 'History',
+  27: 'Horror',
+  10402: 'Music',
+  9648: 'Mystery',
+  10749: 'Romance',
+  878: 'Sci-Fi',
+  10770: 'TV Movie',
+  53: 'Thriller',
+  10752: 'War',
+  37: 'Western',
+  10759: 'Action & Adventure',
+  10762: 'Kids',
+  10763: 'News',
+  10764: 'Reality',
+  10765: 'Sci-Fi & Fantasy',
+  10766: 'Soap',
+  10767: 'Talk',
+  10768: 'War & Politics',
+};
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function sendMediaPostCard(chatId, {
+  photoUrl,
+  title,
+  year,
+  mediaType = 'movie',
+  movieId,
+  rating,
+  genres,
+  outline,
+  versions = [],
+  audio,
+  uploadedBy = 'OGGY',
+  channelHandle = '@unityhubofficial',
+  pageUrl,
+  autoMigrationNotice = '',
+}) {
+  const versionsLines = versions.map((v) => {
+    let q = v.quality || '1080p';
+    if (/\b(?:2160p|2160|4k|uhd)\b/i.test(q)) q = '2160p';
+    else if (/\b(?:1080p|1080|fhd)\b/i.test(q)) q = '1080p';
+    else if (/\b(?:720p|720|hd)\b/i.test(q)) q = '720p';
+    else if (/\b(?:480p|480|sd)\b/i.test(q)) q = '480p';
+    const s = v.size ? `\n  ${v.size}` : '';
+    return `• ${q} :${s}`;
+  }).join('\n');
+
+  const versionsText = versionsLines || '• 1080p :\n  WEB-DL';
+
+  let cleanOutline = (outline || 'Every release brings the cinema home.').trim();
+  if (cleanOutline.length > 240) {
+    cleanOutline = cleanOutline.slice(0, 237) + '...';
+  }
+
+  const caption = 
+`⚡ <b>${escapeHtml(title.toUpperCase())} ${year ? `(${year})` : ''}</b>
+─────────────────────────────
+⭐ <b>Rating:</b> ${rating || '6.5'}/10
+🎭 <b>Genres:</b> ${escapeHtml(genres || 'Drama, Cinema')}
+─────────────────────────────
+
+📖 <b>Plot Outline:</b>
+<blockquote>${escapeHtml(cleanOutline)}</blockquote>
+
+📦 <b>Available Versions:</b>
+<pre>${escapeHtml(versionsText)}</pre>
+
+🔊 <b>Audio Track:</b> ${escapeHtml(audio || 'Hindi, English')}
+
+👤 <b>Uploaded by:</b> #${uploadedBy.replace(/^#/, '')}
+
+🚀 ${channelHandle}${autoMigrationNotice ? `\n\n${escapeHtml(autoMigrationNotice)}` : ''}`;
+
+  const destinationUrl = pageUrl || `${SITE_URL}/${mediaType}/${movieId}`;
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        {
+          text: `🚀 Download ${title}`,
+          url: destinationUrl,
+        },
+      ],
+    ],
+  };
+
+  // 1. Try sending Photo with styled HTML Caption & Inline Keyboard (media_1790946099611.png)
+  if (photoUrl) {
+    try {
+      const res = await safeFetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          photo: photoUrl,
+          caption,
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+        }),
+        timeoutMs: 9000,
+      });
+      const data = await res?.json();
+      if (data?.ok) return data;
+      console.warn('sendPhoto failed, falling back to sendMessage:', data?.description);
+    } catch (e) {
+      console.warn('sendPhoto error, falling back to sendMessage:', e.message);
+    }
+  }
+
+  // 2. Fallback to HTML Message with Inline Keyboard
+  return await safeFetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: caption,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+      disable_web_page_preview: false,
+    }),
+    timeoutMs: 6000,
+  });
+}
+
 async function sendTelegram(chatId, text) {
   try {
     const res = await safeFetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -1071,6 +1211,9 @@ async function sendTelegram(chatId, text) {
   }
 }
 
+// Anti-spam rapid repeat protection cache (15 seconds cooldown for identical message)
+const recentRepeatsCache = new Map();
+
 async function handleMessage(msg) {
   const fromId = msg.from ? msg.from.id : msg.chat.id;
   const chatId = msg.chat.id;
@@ -1084,6 +1227,21 @@ async function handleMessage(msg) {
   // 1. Authorization check
   if (!AUTHORIZED_TELEGRAM_IDS.includes(fromId)) {
     return sendTelegram(chatId, `⛔ *Unauthorized*\nYour Telegram ID (${fromId}) is not registered as an Admin.`);
+  }
+
+  // 1b. Rapid repeat anti-spam check (if exact same message sent within 15 seconds)
+  const repeatKey = `${fromId}:${rawText}`;
+  const lastSeen = recentRepeatsCache.get(repeatKey);
+  if (lastSeen && (Date.now() - lastSeen) < 15000) {
+    return sendTelegram(chatId, `⚡ *Already Processed!*
+This exact release was just processed a moment ago. Your links are already live and active on CineFuel!`);
+  }
+  recentRepeatsCache.set(repeatKey, Date.now());
+  if (recentRepeatsCache.size > 200) {
+    const now = Date.now();
+    for (const [k, t] of recentRepeatsCache.entries()) {
+      if (now - t > 60000) recentRepeatsCache.delete(k);
+    }
   }
 
   // 2. Parse command if present
@@ -1512,6 +1670,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       serverBadge: serverInfo.badge,
       url: meta.url,
       pageUrl: `${SITE_URL}/${mediaType}/${movieId}`,
+      tmdbItem,
     });
   }
 
@@ -1545,35 +1704,64 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     autoMigrationNotice = `\n\n🔄 *Smart Domain Auto-Sync:*\n${lines}\n_All older releases were auto-upgraded to the new mirror!_`;
   }
 
-  // 5. Send Confirmation Message back to Telegram
+  // 5. Send Confirmation Message back to Telegram matching media_1790946099611.png
   if (publishedItems.length === 0) {
     return sendTelegram(chatId, `⚠️ *Could Not Process Releases*\nCould not find TMDB matches for the titles provided. Please verify spelling.`);
   }
 
+  const uploadedByTag = process.env.TELEGRAM_UPLOADED_BY || 'OGGY';
+  const channelHandle = process.env.TELEGRAM_CHANNEL_HANDLE || '@unityhubofficial';
+
+  // Helper to extract clean metadata from tmdbItem
+  const extractMediaCardMeta = (item) => {
+    const tmdb = item.tmdbItem || {};
+    const photoUrl = tmdb.backdrop_path 
+      ? `https://image.tmdb.org/t/p/w780${tmdb.backdrop_path}`
+      : (tmdb.poster_path ? `https://image.tmdb.org/t/p/w780${tmdb.poster_path}` : null);
+    const rating = tmdb.vote_average ? Number(tmdb.vote_average).toFixed(1) : '6.5';
+    const genreList = Array.isArray(tmdb.genres)
+      ? tmdb.genres.map((g) => g.name).filter(Boolean).join(', ')
+      : (Array.isArray(tmdb.genre_ids)
+          ? tmdb.genre_ids.map((id) => TMDB_GENRES[id]).filter(Boolean).join(', ')
+          : 'Drama, Cinema');
+    const outline = tmdb.overview || `${item.title} is now streaming in high definition.`;
+    return { photoUrl, rating, genreList, outline };
+  };
+
   // Case A: Single Release
   if (publishedItems.length === 1) {
     const item = publishedItems[0];
-    let modeBadge = '';
-    if (item.mediaType === 'movie') {
-      modeBadge = `🎥 Movie (${activeMode ? 'Command' : 'Auto-Sensed'})`;
-    } else if (item.isZip) {
-      modeBadge = `🗜️ Season ${item.season} Complete Zip/Pack (${activeMode ? 'Command' : 'Auto-Sensed'})`;
-    } else {
-      modeBadge = `🎬 Single Episode (Season ${item.season}, Ep ${item.episode || 1}) (${activeMode ? 'Command' : 'Auto-Sensed'})`;
+    const { photoUrl, rating, genreList, outline } = extractMediaCardMeta(item);
+
+    let cardTitle = item.title;
+    if (item.mediaType === 'tv') {
+      if (item.isZip) cardTitle = `${item.title} - SEASON ${item.season}`;
+      else cardTitle = `${item.title} - S${String(item.season).padStart(2, '0')}${item.episode ? `E${String(item.episode).padStart(2, '0')}` : ''}`;
     }
 
-    return sendTelegram(chatId, `🎉 *Link Successfully Published to CineFuel!*
+    const versions = [
+      {
+        quality: item.quality,
+        size: item.size || (item.quality.includes('2160p') ? '4K UHD' : 'WEB-DL'),
+      },
+    ];
 
-🎬 *Title:* ${item.title} ${item.year ? `(${item.year})` : ''}
-🏷️ *Upload Mode:* ${modeBadge}
-🖥️ *Host Server:* \`${item.serverBadge || '⚡ Cloud Server'}\`
-💎 *Quality:* \`${item.quality}\`
-🔊 *Audio:* \`${item.audio}\`
-${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
-[Open ${item.title} on CineFuel](${item.pageUrl})
-
-✅ *Direct Link Stored:*
-\`${item.url}\`${autoMigrationNotice}`);
+    return await sendMediaPostCard(chatId, {
+      photoUrl,
+      title: cardTitle,
+      year: item.year,
+      mediaType: item.mediaType,
+      movieId: item.movieId,
+      rating,
+      genres: genreList,
+      outline,
+      versions,
+      audio: item.audio,
+      uploadedBy: uploadedByTag,
+      channelHandle,
+      pageUrl: item.pageUrl,
+      autoMigrationNotice,
+    });
   }
 
   // Case B: Batch of TV Episodes for the SAME show and season (e.g. Daredevil Season 2 E01-E13)
@@ -1582,58 +1770,115 @@ ${item.size ? `💾 *Size:* \`${item.size}\`\n` : ''}🌐 *View on Website:*
 
   if (allSameTvSeason) {
     const first = publishedItems[0];
+    const { photoUrl, rating, genreList, outline } = extractMediaCardMeta(first);
+
     const epNumbers = publishedItems.map(i => i.episode).filter(Boolean).sort((a, b) => a - b);
     const epRange = epNumbers.length > 0 
       ? `E${String(epNumbers[0]).padStart(2, '0')} - E${String(epNumbers[epNumbers.length - 1]).padStart(2, '0')}` 
       : `${publishedItems.length} Episodes`;
 
-    let tvMsg = `🎉 *Bulk TV Episodes Upload Successful!*\n\n`;
-    tvMsg += `🎬 *Show:* ${first.title} (${first.year})\n`;
-    tvMsg += `🏷️ *Upload Mode:* 📦 Bulk Episodes (${publishedItems.length} Episodes: \`${epRange}\`)\n`;
-    tvMsg += `📺 *Season:* Season ${first.season}\n`;
-    tvMsg += `🖥️ *Host Server:* \`${first.serverBadge || '⚡ Cloud Server'}\`\n`;
-    tvMsg += `💎 *Quality:* \`${first.quality}\`\n`;
-    tvMsg += `🔊 *Audio:* \`${first.audio}\`\n\n`;
-    tvMsg += `🌐 *View Season on Website:*\n[Open ${first.title} Season ${first.season} on CineFuel](${first.pageUrl})\n\n`;
-    tvMsg += `✅ All ${publishedItems.length} episodes are now live in their respective Season ${first.season} slots!${autoMigrationNotice}`;
+    const versions = [
+      {
+        quality: `${first.quality} (${epRange})`,
+        size: `${publishedItems.length} Episodes`,
+      },
+    ];
 
-    return sendTelegram(chatId, tvMsg);
+    const allAudios = Array.from(new Set(publishedItems.map(i => i.audio).filter(Boolean))).join(', ') || 'Hindi, English';
+
+    return await sendMediaPostCard(chatId, {
+      photoUrl,
+      title: `${first.title} - SEASON ${first.season}`,
+      year: first.year,
+      mediaType: 'tv',
+      movieId: first.movieId,
+      rating,
+      genres: genreList,
+      outline,
+      versions,
+      audio: allAudios,
+      uploadedBy: uploadedByTag,
+      channelHandle,
+      pageUrl: first.pageUrl,
+      autoMigrationNotice,
+    });
   }
 
-  // Case B2: Batch of Multiple Releases for the SAME Movie (e.g. The Matrix with 8 qualities/encodes)
+  // Case B2: Batch of Multiple Releases for the SAME Movie (e.g. 365 Days with 2160p and 1080p)
   const allSameMovie = publishedItems.length > 1 &&
     publishedItems.every(i => i.mediaType === 'movie' && i.movieId === publishedItems[0].movieId);
 
   if (allSameMovie) {
     const first = publishedItems[0];
-    let movieMsg = `🎉 *Batch Movie Upload Successful!*\n\n`;
-    movieMsg += `🎬 *Movie:* ${first.title} (${first.year})\n`;
-    movieMsg += `🏷️ *Upload Mode:* 🎥 Multi-Quality Releases (*${publishedItems.length} Links*)\n\n`;
-    publishedItems.forEach((item, index) => {
-      movieMsg += `${index + 1}️⃣ 💎 \`${item.quality}\`${item.size ? ` [${item.size}]` : ''}\n`;
-      movieMsg += `   🔊 \`${item.audio}\` • \`${item.serverBadge || '⚡ Cloud Server'}\`\n`;
-    });
-    movieMsg += `\n🌐 *View Movie on Website:*\n[Open ${first.title} on CineFuel](${first.pageUrl})\n\n`;
-    movieMsg += `✅ All ${publishedItems.length} releases are now live on your site!${autoMigrationNotice}`;
+    const { photoUrl, rating, genreList, outline } = extractMediaCardMeta(first);
 
-    return sendTelegram(chatId, movieMsg);
+    const versions = publishedItems.map((item) => ({
+      quality: item.quality,
+      size: item.size || (item.quality.includes('2160p') ? '4K UHD' : 'FHD WEB-DL'),
+    }));
+
+    const allAudios = Array.from(new Set(publishedItems.map(i => i.audio).filter(Boolean))).join(', ') || 'Hindi, English';
+
+    return await sendMediaPostCard(chatId, {
+      photoUrl,
+      title: first.title,
+      year: first.year,
+      mediaType: 'movie',
+      movieId: first.movieId,
+      rating,
+      genres: genreList,
+      outline,
+      versions,
+      audio: allAudios,
+      uploadedBy: uploadedByTag,
+      channelHandle,
+      pageUrl: first.pageUrl,
+      autoMigrationNotice,
+    });
   }
 
-  // Case C: Multi-Movie Collection / Trilogy Batch
-  let batchMsg = `🎉 *Batch Upload Successful! (${publishedItems.length} Releases Published)*\n\n`;
+  // Case C: Multi-Movie Collection / Trilogy Batch (Group by title)
+  const movieGroups = {};
+  for (const item of publishedItems) {
+    const mId = String(item.movieId);
+    if (!movieGroups[mId]) movieGroups[mId] = [];
+    movieGroups[mId].push(item);
+  }
 
-  publishedItems.forEach((item, index) => {
-    const typeIcon = item.mediaType === 'tv' ? (item.isZip ? '🗜️' : '🎬') : '🎥';
-    batchMsg += `${index + 1}️⃣ ${typeIcon} *${item.title} (${item.year})*\n`;
-    batchMsg += `🖥️ \`${item.serverBadge || '⚡ Cloud Server'}\`\n`;
-    batchMsg += `💎 \`${item.quality}\`${item.size ? ` [${item.size}]` : ''}\n`;
-    batchMsg += `🔊 \`${item.audio}\`\n`;
-    batchMsg += `🌐 [Open on CineFuel](${item.pageUrl})\n\n`;
-  });
+  for (const items of Object.values(movieGroups)) {
+    const first = items[0];
+    const { photoUrl, rating, genreList, outline } = extractMediaCardMeta(first);
 
-  batchMsg += `✅ All ${publishedItems.length} titles are now live on your site!${autoMigrationNotice}`;
+    let cardTitle = first.title;
+    if (first.mediaType === 'tv') {
+      if (first.isZip) cardTitle = `${first.title} - SEASON ${first.season}`;
+      else cardTitle = `${first.title} - S${String(first.season).padStart(2, '0')}`;
+    }
 
-  return sendTelegram(chatId, batchMsg);
+    const versions = items.map((item) => ({
+      quality: item.quality,
+      size: item.size || 'HD',
+    }));
+
+    const allAudios = Array.from(new Set(items.map(i => i.audio).filter(Boolean))).join(', ') || 'Hindi, English';
+
+    await sendMediaPostCard(chatId, {
+      photoUrl,
+      title: cardTitle,
+      year: first.year,
+      mediaType: first.mediaType,
+      movieId: first.movieId,
+      rating,
+      genres: genreList,
+      outline,
+      versions,
+      audio: allAudios,
+      uploadedBy: uploadedByTag,
+      channelHandle,
+      pageUrl: first.pageUrl,
+      autoMigrationNotice,
+    });
+  }
 }
 
 // Long-polling loop

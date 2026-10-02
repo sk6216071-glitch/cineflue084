@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { parseFullMediaTitle } from './seasonParser';
-import { saveLinkToDatabase } from './redisDb';
+import { saveLinkToDatabase, isLinkAlreadyInDatabase } from './redisDb';
+
+const recentMessagesCache = new Map<string, number>();
 
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
@@ -16,11 +18,56 @@ export const AUTHORIZED_TELEGRAM_IDS = [
   930928310, // Shyam
 ];
 
+export const TMDB_GENRES: Record<number, string> = {
+  28: 'Action',
+  12: 'Adventure',
+  16: 'Animation',
+  35: 'Comedy',
+  80: 'Crime',
+  99: 'Documentary',
+  18: 'Drama',
+  10751: 'Family',
+  14: 'Fantasy',
+  36: 'History',
+  27: 'Horror',
+  10402: 'Music',
+  9648: 'Mystery',
+  10749: 'Romance',
+  878: 'Sci-Fi',
+  10770: 'TV Movie',
+  53: 'Thriller',
+  10752: 'War',
+  37: 'Western',
+  10759: 'Action & Adventure',
+  10762: 'Kids',
+  10763: 'News',
+  10764: 'Reality',
+  10765: 'Sci-Fi & Fantasy',
+  10766: 'Soap',
+  10767: 'Talk',
+  10768: 'War & Politics',
+};
+
 export interface ProcessResult {
   replyText: string;
   success: boolean;
   movie?: any;
   link?: any;
+  card?: {
+    photoUrl?: string | null;
+    title: string;
+    year?: string;
+    mediaType?: 'movie' | 'tv';
+    movieId?: number | string;
+    rating?: string;
+    genres?: string;
+    outline?: string;
+    versions?: { quality: string; size?: string }[];
+    audio?: string;
+    uploadedBy?: string;
+    channelHandle?: string;
+    pageUrl?: string;
+  };
 }
 
 export function cleanTitleForSearch(text: string): { query: string; year?: number } {
@@ -120,6 +167,23 @@ export async function processTelegramMessage(fromId: number, rawText: string): P
   }
 
   const trimmed = rawText.trim();
+
+  // Rapid repeat anti-spam check (if exact same message sent within 15 seconds)
+  const repeatKey = `${fromId}:${trimmed}`;
+  const lastSeen = recentMessagesCache.get(repeatKey);
+  if (lastSeen && (Date.now() - lastSeen) < 15000) {
+    return {
+      success: true,
+      replyText: `⚡ *Already Processed!*\nThis exact release was just processed a moment ago. Your links are already live and active on CineFuel!`,
+    };
+  }
+  recentMessagesCache.set(repeatKey, Date.now());
+  if (recentMessagesCache.size > 200) {
+    const now = Date.now();
+    for (const [k, t] of recentMessagesCache.entries()) {
+      if (now - t > 60000) recentMessagesCache.delete(k);
+    }
+  }
 
   // 1. Parse command if present
   let command: string | null = null;
@@ -376,10 +440,49 @@ Failed to write link to the CineFuel database. Please check server logs.`,
     modeBadge = `🎬 Single Episode (Season ${meta.seasonNumber}, Ep ${meta.episodeNumber || 1}) (${forcedMode ? 'Command' : 'Auto-Sensed'})`;
   }
 
+  const photoUrl = tmdbItem.backdrop_path 
+    ? `https://image.tmdb.org/t/p/w780${tmdbItem.backdrop_path}`
+    : (tmdbItem.poster_path ? `https://image.tmdb.org/t/p/w780${tmdbItem.poster_path}` : null);
+  const rating = tmdbItem.vote_average ? Number(tmdbItem.vote_average).toFixed(1) : '6.5';
+  const genreList = Array.isArray(tmdbItem.genres)
+    ? tmdbItem.genres.map((g: any) => g.name).filter(Boolean).join(', ')
+    : (Array.isArray(tmdbItem.genre_ids)
+        ? tmdbItem.genre_ids.map((id: number) => TMDB_GENRES[id]).filter(Boolean).join(', ')
+        : 'Drama, Cinema');
+  const outline = tmdbItem.overview || `${officialTitle} is now streaming in high definition.`;
+
+  let cardTitle = officialTitle;
+  if (mediaType === 'tv') {
+    if (isZip) cardTitle = `${officialTitle} - SEASON ${meta.seasonNumber}`;
+    else cardTitle = `${officialTitle} - S${String(meta.seasonNumber).padStart(2, '0')}${meta.episodeNumber ? `E${String(meta.episodeNumber).padStart(2, '0')}` : ''}`;
+  }
+
+  const card = {
+    photoUrl,
+    title: cardTitle,
+    year: releaseYear,
+    mediaType,
+    movieId,
+    rating,
+    genres: genreList,
+    outline,
+    versions: [
+      {
+        quality: meta.quality || '1080p WEB-DL',
+        size: meta.size || (meta.quality?.includes('2160p') ? '4K UHD' : 'WEB-DL'),
+      },
+    ],
+    audio: meta.audioLanguage || 'Hindi, English',
+    uploadedBy: process.env.TELEGRAM_UPLOADED_BY || 'OGGY',
+    channelHandle: process.env.TELEGRAM_CHANNEL_HANDLE || '@unityhubofficial',
+    pageUrl: websiteUrl,
+  };
+
   return {
     success: true,
     movie: tmdbItem,
     link: linkObj,
+    card,
     replyText: `🎉 *Link Successfully Published to CineFuel!*
 
 🎬 *Title:* ${officialTitle} ${releaseYear ? `(${releaseYear})` : ''}

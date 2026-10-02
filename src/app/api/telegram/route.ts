@@ -3,6 +3,14 @@ import { processTelegramMessage } from '@/lib/telegramBotCore';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
+function escapeHtml(str: string) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function sendTelegramReply(chatId: number, text: string) {
   try {
     const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -19,6 +27,91 @@ async function sendTelegramReply(chatId: number, text: string) {
   } catch (e) {
     console.error('Error sending reply to Telegram:', e);
   }
+}
+
+async function sendTelegramPhotoCard(chatId: number, card: any) {
+  const versionsLines = (card.versions || []).map((v: any) => {
+    let q = v.quality || '1080p';
+    if (/\b(?:2160p|2160|4k|uhd)\b/i.test(q)) q = '2160p';
+    else if (/\b(?:1080p|1080|fhd)\b/i.test(q)) q = '1080p';
+    else if (/\b(?:720p|720|hd)\b/i.test(q)) q = '720p';
+    else if (/\b(?:480p|480|sd)\b/i.test(q)) q = '480p';
+    const s = v.size ? `\n  ${v.size}` : '';
+    return `• ${q} :${s}`;
+  }).join('\n');
+
+  const versionsText = versionsLines || '• 1080p :\n  WEB-DL';
+
+  let cleanOutline = (card.outline || 'Every release brings the cinema home.').trim();
+  if (cleanOutline.length > 240) {
+    cleanOutline = cleanOutline.slice(0, 237) + '...';
+  }
+
+  const caption = 
+`⚡ <b>${escapeHtml(card.title?.toUpperCase())} ${card.year ? `(${card.year})` : ''}</b>
+─────────────────────────────
+⭐ <b>Rating:</b> ${card.rating || '6.5'}/10
+🎭 <b>Genres:</b> ${escapeHtml(card.genres || 'Drama, Cinema')}
+─────────────────────────────
+
+📖 <b>Plot Outline:</b>
+<blockquote>${escapeHtml(cleanOutline)}</blockquote>
+
+📦 <b>Available Versions:</b>
+<pre>${escapeHtml(versionsText)}</pre>
+
+🔊 <b>Audio Track:</b> ${escapeHtml(card.audio || 'Hindi, English')}
+
+👤 <b>Uploaded by:</b> #${(card.uploadedBy || 'OGGY').replace(/^#/, '')}
+
+🚀 ${card.channelHandle || '@unityhubofficial'}${card.autoMigrationNotice ? `\n\n${escapeHtml(card.autoMigrationNotice)}` : ''}`;
+
+  const destinationUrl = card.pageUrl || `https://cineflue084.vercel.app/${card.mediaType || 'movie'}/${card.movieId}`;
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        {
+          text: `🚀 Download ${card.title}`,
+          url: destinationUrl,
+        },
+      ],
+    ],
+  };
+
+  // 1. Try sending Photo with styled HTML Caption & Inline Keyboard (matches reference)
+  if (card.photoUrl) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          photo: card.photoUrl,
+          caption,
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+        }),
+      });
+      const data = await res.json();
+      if (data?.ok) return data;
+      console.warn('sendPhoto failed in webhook, falling back to sendMessage:', data?.description);
+    } catch (e: any) {
+      console.warn('sendPhoto error in webhook, falling back to sendMessage:', e?.message);
+    }
+  }
+
+  // 2. Fallback to HTML Message with Inline Keyboard
+  return await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: caption,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+      disable_web_page_preview: false,
+    }),
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -43,7 +136,16 @@ export async function POST(request: NextRequest) {
     }).catch(() => {});
 
     const result = await processTelegramMessage(fromId, text);
-    await sendTelegramReply(chatId, result.replyText);
+
+    if ((result as any).cards && (result as any).cards.length > 0) {
+      for (const card of (result as any).cards) {
+        await sendTelegramPhotoCard(chatId, card);
+      }
+    } else if (result.card) {
+      await sendTelegramPhotoCard(chatId, result.card);
+    } else {
+      await sendTelegramReply(chatId, result.replyText);
+    }
 
     return NextResponse.json({ ok: true, processed: result.success });
   } catch (error: any) {
