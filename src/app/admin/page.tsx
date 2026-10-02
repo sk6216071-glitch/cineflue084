@@ -1108,12 +1108,16 @@ export default function AdminPage() {
       // 1. Save link to title database
       await saveGlobalCustomLink(targetTmdbId, newCustomLink);
 
-      // 2. Update local customLinksMap
+      // 2. Update local customLinksMap with URL deduplication
       setCustomLinksMap((prev) => {
-        const existing = prev[String(targetTmdbId)] || [];
+        const key = String(targetTmdbId);
+        const existing = prev[key] || [];
+        const filtered = existing.filter(
+          (l) => l.id !== newCustomLink.id && l.url.trim().toLowerCase() !== newCustomLink.url.trim().toLowerCase()
+        );
         return {
           ...prev,
-          [String(targetTmdbId)]: [newCustomLink, ...existing],
+          [key]: [newCustomLink, ...filtered],
         };
       });
 
@@ -1250,12 +1254,15 @@ export default function AdminPage() {
       // 1. Save all links to database
       await saveMultipleGlobalCustomLinks(targetTmdbId, createdObjs);
 
-      // 2. Update local customLinksMap
+      // 2. Update local customLinksMap with URL deduplication
       setCustomLinksMap((prev) => {
-        const existing = prev[String(targetTmdbId)] || [];
+        const key = String(targetTmdbId);
+        const existing = prev[key] || [];
+        const newUrls = new Set(createdObjs.map((l) => l.url.trim().toLowerCase()));
+        const filtered = existing.filter((l) => !newUrls.has(l.url.trim().toLowerCase()));
         return {
           ...prev,
-          [String(targetTmdbId)]: [...createdObjs, ...existing],
+          [key]: [...createdObjs, ...filtered],
         };
       });
 
@@ -1404,12 +1411,15 @@ export default function AdminPage() {
       // 1. Save links to title database
       await saveMultipleGlobalCustomLinks(targetTmdbId, createdObjs);
 
-      // 2. Update local customLinksMap
+      // 2. Update local customLinksMap with URL deduplication
       setCustomLinksMap((prev) => {
-        const existing = prev[String(targetTmdbId)] || [];
+        const key = String(targetTmdbId);
+        const existing = prev[key] || [];
+        const newUrls = new Set(createdObjs.map((l) => l.url.trim().toLowerCase()));
+        const filtered = existing.filter((l) => !newUrls.has(l.url.trim().toLowerCase()));
         return {
           ...prev,
-          [String(targetTmdbId)]: [...createdObjs, ...existing],
+          [key]: [...createdObjs, ...filtered],
         };
       });
 
@@ -1783,10 +1793,14 @@ export default function AdminPage() {
     });
 
     setCustomLinksMap((prev) => {
-      const existing = prev[String(selectedTargetTitle.id)] || [];
+      const key = String(selectedTargetTitle.id);
+      const existing = prev[key] || [];
+      const filtered = existing.filter(
+        (l) => l.id !== newLinkObj.id && l.url.trim().toLowerCase() !== newLinkObj.url.trim().toLowerCase()
+      );
       return {
         ...prev,
-        [String(selectedTargetTitle.id)]: [newLinkObj, ...existing],
+        [key]: [newLinkObj, ...filtered],
       };
     });
 
@@ -1881,10 +1895,13 @@ export default function AdminPage() {
     saveMultipleGlobalCustomLinks(selectedTargetTitle.id, createdObjs);
 
     setCustomLinksMap((prev) => {
-      const existing = prev[String(selectedTargetTitle.id)] || [];
+      const key = String(selectedTargetTitle.id);
+      const existing = prev[key] || [];
+      const newUrls = new Set(createdObjs.map((l) => l.url.trim().toLowerCase()));
+      const filtered = existing.filter((l) => !newUrls.has(l.url.trim().toLowerCase()));
       return {
         ...prev,
-        [String(selectedTargetTitle.id)]: [...createdObjs, ...existing],
+        [key]: [...createdObjs, ...filtered],
       };
     });
 
@@ -2030,10 +2047,13 @@ export default function AdminPage() {
     });
 
     setCustomLinksMap((prev) => {
-      const existing = prev[String(selectedTargetTitle.id)] || [];
+      const key = String(selectedTargetTitle.id);
+      const existing = prev[key] || [];
+      const newUrls = new Set(createdObjs.map((l) => l.url.trim().toLowerCase()));
+      const filtered = existing.filter((l) => !newUrls.has(l.url.trim().toLowerCase()));
       return {
         ...prev,
-        [String(selectedTargetTitle.id)]: [...createdObjs, ...existing],
+        [key]: [...createdObjs, ...filtered],
       };
     });
 
