@@ -1077,24 +1077,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     return Array.from(slidesMap.values()).sort((a, b) => b.weight - a.weight);
   }, [seasonGroupsMap, selectedSeason, titleDetails]);
 
-  // Single-open accordion toggle: clicking an open slide closes it, clicking another opens it & closes all others
+  // Accordion toggle: clicking an open tab minimizes it, clicking a minimized tab maximizes it & closes other tabs
   const toggleSlide = (slideKey: string) => {
     setOpenSlideId((prev) => (prev === slideKey ? null : slideKey));
   };
 
-  // Sync open slide on season changes
+  // Keep all tabs minimized by default and reset to minimized when switching seasons
   useEffect(() => {
-    const availableKeys = ['zip', ...qualitySlides.map((s) => s.key)];
-    if (openSlideId && availableKeys.includes(openSlideId)) return;
-    const firstWithEps = qualitySlides.find((s) => s.episodes.length > 0);
-    if (firstWithEps) {
-      setOpenSlideId(firstWithEps.key);
-    } else if (activeSeasonPacks.length > 0) {
-      setOpenSlideId('zip');
-    } else {
-      setOpenSlideId(qualitySlides[0]?.key || '1080p_webdl');
-    }
-  }, [selectedSeason, qualitySlides, activeSeasonPacks.length, openSlideId]);
+    setOpenSlideId(null);
+  }, [selectedSeason]);
 
   const handleStartEdit = (link: CustomLink) => {
     setEditingLink(link);
