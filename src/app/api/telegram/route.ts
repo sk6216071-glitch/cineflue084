@@ -62,11 +62,11 @@ async function sendTelegramPhotoCard(chatId: number, card: any) {
 
 🔊 <b>Audio Track:</b> ${escapeHtml(card.audio || 'Hindi, English')}
 
-👤 <b>Uploaded by:</b> #${(card.uploadedBy || 'OGGY').replace(/^#/, '')}
+👤 <b>Uploaded by:</b> #${(card.uploadedBy || 'Shyam').replace(/^#/, '')}
 
-🚀 ${card.channelHandle || '@unityhubofficial'}${card.autoMigrationNotice ? `\n\n${escapeHtml(card.autoMigrationNotice)}` : ''}`;
+🚀 ${card.channelHandle || '@cinflue'}${card.autoMigrationNotice ? `\n\n${card.autoMigrationNotice}` : ''}`;
 
-  const destinationUrl = card.pageUrl || `https://cineflue084.vercel.app/${card.mediaType || 'movie'}/${card.movieId}`;
+  const destinationUrl = card.pageUrl || `https://cineflue084.sk6216071.workers.dev/${card.mediaType || 'movie'}/${card.movieId}`;
   const replyMarkup = {
     inline_keyboard: [
       [

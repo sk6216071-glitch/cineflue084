@@ -6,7 +6,7 @@ import { saveLinkToDatabase, isLinkAlreadyInDatabase } from './redisDb';
 const recentMessagesCache = new Map<string, number>();
 
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.sk6216071.workers.dev').replace(/\/+$/, '');
 const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 // Strict URL regex: matches http(s):// or www. or domain with path slash
@@ -473,8 +473,8 @@ Failed to write link to the CineFuel database. Please check server logs.`,
       },
     ],
     audio: meta.audioLanguage || 'Hindi, English',
-    uploadedBy: process.env.TELEGRAM_UPLOADED_BY || 'OGGY',
-    channelHandle: process.env.TELEGRAM_CHANNEL_HANDLE || '@unityhubofficial',
+    uploadedBy: process.env.TELEGRAM_UPLOADED_BY || 'Shyam',
+    channelHandle: process.env.TELEGRAM_CHANNEL_HANDLE || '@cinflue',
     pageUrl: websiteUrl,
   };
 

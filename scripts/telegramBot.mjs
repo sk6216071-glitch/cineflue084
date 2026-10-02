@@ -48,7 +48,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.vercel.app';
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.sk6216071.workers.dev').replace(/\/+$/, '');
 const DATA_FILE = path.join(rootDir, 'src', 'data', 'serverLinks.json');
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
@@ -1102,8 +1102,8 @@ async function sendMediaPostCard(chatId, {
   outline,
   versions = [],
   audio,
-  uploadedBy = 'OGGY',
-  channelHandle = '@unityhubofficial',
+  uploadedBy = 'Shyam',
+  channelHandle = '@cinflue',
   pageUrl,
   autoMigrationNotice = '',
 }) {
@@ -1141,7 +1141,7 @@ async function sendMediaPostCard(chatId, {
 
 👤 <b>Uploaded by:</b> #${uploadedBy.replace(/^#/, '')}
 
-🚀 ${channelHandle}${autoMigrationNotice ? `\n\n${escapeHtml(autoMigrationNotice)}` : ''}`;
+🚀 ${channelHandle}${autoMigrationNotice ? `\n\n${autoMigrationNotice}` : ''}`;
 
   const destinationUrl = pageUrl || `${SITE_URL}/${mediaType}/${movieId}`;
   const replyMarkup = {
@@ -1682,13 +1682,16 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
   // Auto-detect and sync newer filehost domains across the database
   const domainMigrations = [];
-  const checkedHosts = new Set();
-  for (const item of publishedItems) {
+  const handledFamilies = new Set();
+  for (let i = publishedItems.length - 1; i >= 0; i--) {
+    const item = publishedItems[i];
     if (item.url) {
       try {
-        const h = new URL(item.url.startsWith('http') ? item.url : `https://${item.url}`).hostname.toLowerCase().replace(/^www\./, '');
-        if (!checkedHosts.has(h)) {
-          checkedHosts.add(h);
+        const p = new URL(item.url.startsWith('http') ? item.url : `https://${item.url}`);
+        const h = p.hostname.toLowerCase().replace(/^www\./, '');
+        const fam = getDomainFamily(h);
+        if (fam && !handledFamilies.has(fam.family)) {
+          handledFamilies.add(fam.family);
           const migs = await autoDetectAndSyncDomain(item.url);
           if (migs && migs.length > 0) {
             domainMigrations.push(...migs);
@@ -1700,8 +1703,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
   let autoMigrationNotice = '';
   if (domainMigrations.length > 0) {
-    const lines = domainMigrations.map(m => `• *${m.name}*: \`${m.oldHost}\` ➡️ \`${m.newHost}\` (*${m.count}* links upgraded)`).join('\n');
-    autoMigrationNotice = `\n\n🔄 *Smart Domain Auto-Sync:*\n${lines}\n_All older releases were auto-upgraded to the new mirror!_`;
+    const lines = domainMigrations.map(m => `• <b>${escapeHtml(m.name)}</b>: <code>${escapeHtml(m.oldHost)}</code> ➡️ <code>${escapeHtml(m.newHost)}</code> (<b>${m.count}</b> links upgraded)`).join('\n');
+    autoMigrationNotice = `🔄 <b>Smart Domain Auto-Sync:</b>\n${lines}\n<i>All older releases were auto-upgraded to the new mirror!</i>`;
   }
 
   // 5. Send Confirmation Message back to Telegram matching media_1790946099611.png
@@ -1709,8 +1712,8 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
     return sendTelegram(chatId, `⚠️ *Could Not Process Releases*\nCould not find TMDB matches for the titles provided. Please verify spelling.`);
   }
 
-  const uploadedByTag = process.env.TELEGRAM_UPLOADED_BY || 'OGGY';
-  const channelHandle = process.env.TELEGRAM_CHANNEL_HANDLE || '@unityhubofficial';
+  const uploadedByTag = process.env.TELEGRAM_UPLOADED_BY || 'Shyam';
+  const channelHandle = process.env.TELEGRAM_CHANNEL_HANDLE || '@cinflue';
 
   // Helper to extract clean metadata from tmdbItem
   const extractMediaCardMeta = (item) => {
