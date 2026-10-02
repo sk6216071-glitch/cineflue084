@@ -1,4 +1,9 @@
 import { CustomLink } from '@/types';
+import {
+  safeSetLocalStorage,
+  safeGetLocalStorage,
+  pruneCustomLinksCache,
+} from './safeStorage';
 
 export const BUILTIN_CURATED_LINKS: Record<number, CustomLink[]> = {};
 
@@ -14,7 +19,7 @@ export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks
 
   if (typeof window !== 'undefined') {
     try {
-      const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+      const delStored = safeGetLocalStorage('cinefuel_deleted_curated_links');
       if (delStored) {
         deletedIds = new Set(JSON.parse(delStored));
       }
@@ -34,7 +39,7 @@ export function getConsolidatedCustomLinks(titleId: number, watchlistCustomLinks
   // 2. Storage links added by Admin
   if (typeof window !== 'undefined') {
     try {
-      const stored = localStorage.getItem('cinefuel_custom_links');
+      const stored = safeGetLocalStorage('cinefuel_custom_links');
       if (stored) {
         const parsed = JSON.parse(stored);
         const forTitle = parsed[String(titleId)] || parsed[titleId];
@@ -68,27 +73,17 @@ export async function syncServerLinks(movieId?: number): Promise<void> {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
-    const stored = localStorage.getItem('cinefuel_custom_links');
-    const parsed = stored ? JSON.parse(stored) : {};
 
-    let changed = false;
+    // Only cache individual movie links to avoid blowing through 5MB browser quota
     if (movieId && Array.isArray(data.links)) {
+      const stored = safeGetLocalStorage('cinefuel_custom_links');
+      const parsed = stored ? JSON.parse(stored) : {};
       const key = String(movieId);
       parsed[key] = data.links;
-      changed = true;
-    } else if (data.allLinks && typeof data.allLinks === 'object') {
-      Object.entries(data.allLinks).forEach(([key, list]) => {
-        if (Array.isArray(list)) {
-          parsed[key] = list;
-          changed = true;
-        }
-      });
+      safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
     }
 
-    if (changed) {
-      localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
-      window.dispatchEvent(new Event('cinefuel_links_updated'));
-    }
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
   } catch {
     // ignore offline sync
   }
@@ -100,20 +95,20 @@ export async function syncServerLinks(movieId?: number): Promise<void> {
 export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
   if (typeof window === 'undefined') return;
   try {
-    const stored = localStorage.getItem('cinefuel_custom_links');
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
     const parsed = stored ? JSON.parse(stored) : {};
     const key = String(movieId);
     const existing = parsed[key] || [];
     parsed[key] = [link, ...existing.filter((l: CustomLink) => l.id !== link.id && l.url !== link.url)];
-    localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+    safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
 
     // Un-tombstone in deleted links registry
-    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delStored = safeGetLocalStorage('cinefuel_deleted_curated_links');
     if (delStored) {
       try {
         const delList: string[] = JSON.parse(delStored);
         if (delList.includes(link.id)) {
-          localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(delList.filter((id) => id !== link.id)));
+          safeSetLocalStorage('cinefuel_deleted_curated_links', JSON.stringify(delList.filter((id) => id !== link.id)));
         }
       } catch {}
     }
@@ -137,7 +132,7 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
 export function saveMultipleGlobalCustomLinks(movieId: number, newLinks: CustomLink[]): void {
   if (typeof window === 'undefined' || !newLinks || newLinks.length === 0) return;
   try {
-    const stored = localStorage.getItem('cinefuel_custom_links');
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
     const parsed = stored ? JSON.parse(stored) : {};
     const key = String(movieId);
     const existing: CustomLink[] = parsed[key] || [];
@@ -145,15 +140,15 @@ export function saveMultipleGlobalCustomLinks(movieId: number, newLinks: CustomL
     const newUrls = new Set(newLinks.map((l) => l.url));
     const filteredExisting = existing.filter((l: CustomLink) => !newIds.has(l.id) && !newUrls.has(l.url));
     parsed[key] = [...newLinks, ...filteredExisting];
-    localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+    safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
 
     // Un-tombstone in deleted links registry
-    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delStored = safeGetLocalStorage('cinefuel_deleted_curated_links');
     if (delStored) {
       try {
         const delList: string[] = JSON.parse(delStored);
         const filtered = delList.filter((id) => !newIds.has(id));
-        localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(filtered));
+        safeSetLocalStorage('cinefuel_deleted_curated_links', JSON.stringify(filtered));
       } catch {}
     }
 
@@ -176,7 +171,7 @@ export function saveMultipleGlobalCustomLinks(movieId: number, newLinks: CustomL
 export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink): void {
   if (typeof window === 'undefined') return;
   try {
-    const stored = localStorage.getItem('cinefuel_custom_links');
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
     const parsed = stored ? JSON.parse(stored) : {};
     const key = String(movieId);
     const existing: CustomLink[] = parsed[key] || [];
@@ -189,7 +184,7 @@ export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink)
       parsed[key] = [updatedLink, ...existing];
     }
 
-    localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+    safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
     window.dispatchEvent(new Event('cinefuel_links_updated'));
 
     // Also persist to server database
@@ -209,7 +204,7 @@ export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink)
 export function getDeletedLinkIds(): Set<string> {
   if (typeof window === 'undefined') return new Set();
   try {
-    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delStored = safeGetLocalStorage('cinefuel_deleted_curated_links');
     if (delStored) {
       const parsed = JSON.parse(delStored);
       if (Array.isArray(parsed)) {
@@ -229,26 +224,26 @@ export async function deleteGlobalCustomLink(movieId: number, linkId: string): P
   if (typeof window === 'undefined') return;
   try {
     // 1. Mark as deleted in deleted links registry
-    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delStored = safeGetLocalStorage('cinefuel_deleted_curated_links');
     const delList: string[] = delStored ? JSON.parse(delStored) : [];
     if (!delList.includes(linkId)) {
       delList.push(linkId);
-      localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(delList));
+      safeSetLocalStorage('cinefuel_deleted_curated_links', JSON.stringify(delList));
     }
 
     // 2. Remove from custom links storage
-    const stored = localStorage.getItem('cinefuel_custom_links');
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
     if (stored) {
       const parsed = JSON.parse(stored);
       const key = String(movieId);
       if (parsed[key]) {
         parsed[key] = parsed[key].filter((l: CustomLink) => l.id !== linkId);
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+        safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
       }
     }
 
     // 3. Also remove from watchlist storage if present
-    const watchStored = localStorage.getItem('cinefuel_watchlist');
+    const watchStored = safeGetLocalStorage('cinefuel_watchlist');
     if (watchStored) {
       try {
         const watchParsed = JSON.parse(watchStored);
@@ -262,7 +257,7 @@ export async function deleteGlobalCustomLink(movieId: number, linkId: string): P
             }
             return item;
           });
-          localStorage.setItem('cinefuel_watchlist', JSON.stringify(updatedWatch));
+          safeSetLocalStorage('cinefuel_watchlist', JSON.stringify(updatedWatch));
         }
       } catch {
         // ignore
@@ -294,15 +289,15 @@ export async function deleteMultipleGlobalCustomLinks(items: Array<{ movieId: nu
     const delSet = new Set(linkIds);
 
     // 1. Mark in deleted links registry
-    const delStored = localStorage.getItem('cinefuel_deleted_curated_links');
+    const delStored = safeGetLocalStorage('cinefuel_deleted_curated_links');
     const delList: string[] = delStored ? JSON.parse(delStored) : [];
     linkIds.forEach((id) => {
       if (!delList.includes(id)) delList.push(id);
     });
-    localStorage.setItem('cinefuel_deleted_curated_links', JSON.stringify(delList));
+    safeSetLocalStorage('cinefuel_deleted_curated_links', JSON.stringify(delList));
 
     // 2. Remove from custom links storage
-    const stored = localStorage.getItem('cinefuel_custom_links');
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
     if (stored) {
       const parsed = JSON.parse(stored);
       items.forEach(({ movieId }) => {
@@ -311,7 +306,7 @@ export async function deleteMultipleGlobalCustomLinks(items: Array<{ movieId: nu
           parsed[key] = parsed[key].filter((l: CustomLink) => !delSet.has(l.id));
         }
       });
-      localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+      safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
     }
 
     // 3. Batch API delete to cloud database

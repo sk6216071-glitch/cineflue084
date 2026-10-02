@@ -30,6 +30,24 @@ export default function AdminErrorBoundary({
         window.location.reload();
       }
     }
+
+    // Auto-recover from QuotaExceededError caused by bloated localStorage
+    const isQuotaError =
+      error?.name === 'QuotaExceededError' ||
+      error?.message?.toLowerCase().includes('quota') ||
+      error?.message?.toLowerCase().includes('storage');
+
+    if (isQuotaError && typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('cinefuel_custom_links');
+        localStorage.removeItem('cinefuel_known_titles_cache');
+      } catch {}
+      const lastQuotaReload = Number(sessionStorage.getItem('last_admin_quota_reload') || '0');
+      if (Date.now() - lastQuotaReload > 6000) {
+        sessionStorage.setItem('last_admin_quota_reload', String(Date.now()));
+        window.location.reload();
+      }
+    }
   }, [error]);
 
   const handleClearCacheAndReload = () => {
@@ -39,7 +57,6 @@ export default function AdminErrorBoundary({
         localStorage.removeItem('cinefuel_known_titles_cache');
         localStorage.removeItem('cinefuel_custom_links');
         localStorage.removeItem('cinefuel_custom_lists');
-        sessionStorage.removeItem('cinefuel_admin_auth');
       } catch (e) {
         console.error('Failed to clear storage:', e);
       }

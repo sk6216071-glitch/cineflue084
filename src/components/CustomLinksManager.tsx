@@ -31,6 +31,7 @@ import {
 } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, detectSize, stripWatermarks, getQualityWeight, extractFilenameFromUrl } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
+import { safeGetLocalStorage, safeSetLocalStorage, pruneCustomLinksCache } from '@/lib/safeStorage';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
 import RequestLinkModal from './RequestLinkModal';
@@ -514,10 +515,10 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
           if (active && Array.isArray(data.links)) {
             setLiveServerLinks(data.links);
             try {
-              const stored = localStorage.getItem('cinefuel_custom_links');
+              const stored = safeGetLocalStorage('cinefuel_custom_links');
               const parsed = stored ? JSON.parse(stored) : {};
               parsed[String(titleDetails.id)] = data.links;
-              localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed));
+              safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
             } catch {}
           }
         }

@@ -58,6 +58,7 @@ import { CustomLink, CustomList, TitleDetails, UserRequest, DefectiveLinkReport,
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, getBackdropURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
+import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from '@/lib/safeStorage';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 
@@ -409,12 +410,16 @@ export default function AdminPage() {
         }
       }
 
-      const storedLinks = localStorage.getItem('cinefuel_custom_links');
+      const storedLinks = safeGetLocalStorage('cinefuel_custom_links');
       if (storedLinks) {
         try {
-          const parsed = JSON.parse(storedLinks);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            setCustomLinksMap(parsed);
+          if (storedLinks.length > 200000) {
+            safeRemoveLocalStorage('cinefuel_custom_links');
+          } else {
+            const parsed = JSON.parse(storedLinks);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              setCustomLinksMap(parsed);
+            }
           }
         } catch {
           // ignore
@@ -529,15 +534,9 @@ export default function AdminPage() {
     setKnownTitlesCache(initialMap);
   }, []);
 
-  // Save cache helper
+  // Save cache helper (in-memory for speed, never triggers quota errors)
   const cacheTitle = (id: number, data: { title: string; poster_path?: string | null; media_type?: 'movie' | 'tv'; year?: string }) => {
-    setKnownTitlesCache((prev) => {
-      const updated = { ...prev, [id]: data };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_known_titles_cache', JSON.stringify(updated));
-      }
-      return updated;
-    });
+    setKnownTitlesCache((prev) => ({ ...prev, [id]: data }));
   };
 
   // Close search dropdown on click outside
@@ -1112,14 +1111,10 @@ export default function AdminPage() {
       // 2. Update local customLinksMap
       setCustomLinksMap((prev) => {
         const existing = prev[String(targetTmdbId)] || [];
-        const updated = {
+        return {
           ...prev,
           [String(targetTmdbId)]: [newCustomLink, ...existing],
         };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
-        }
-        return updated;
       });
 
       // 3. Mark request as fulfilled
@@ -1258,14 +1253,10 @@ export default function AdminPage() {
       // 2. Update local customLinksMap
       setCustomLinksMap((prev) => {
         const existing = prev[String(targetTmdbId)] || [];
-        const updated = {
+        return {
           ...prev,
           [String(targetTmdbId)]: [...createdObjs, ...existing],
         };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
-        }
-        return updated;
       });
 
       // 3. Mark user request fulfilled
@@ -1416,14 +1407,10 @@ export default function AdminPage() {
       // 2. Update local customLinksMap
       setCustomLinksMap((prev) => {
         const existing = prev[String(targetTmdbId)] || [];
-        const updated = {
+        return {
           ...prev,
           [String(targetTmdbId)]: [...createdObjs, ...existing],
         };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
-        }
-        return updated;
       });
 
       // 3. Mark request as fulfilled
@@ -1731,13 +1718,13 @@ export default function AdminPage() {
   const handleSaveApis = (e: React.FormEvent) => {
     e.preventDefault();
     if (typeof window !== 'undefined') {
-      const storedSettings = localStorage.getItem('cinefuel_settings') || '{}';
+      const storedSettings = safeGetLocalStorage('cinefuel_settings') || '{}';
       try {
         const parsed = JSON.parse(storedSettings);
         parsed.tmdbApiKey = tmdbKey.trim();
-        localStorage.setItem('cinefuel_settings', JSON.stringify(parsed));
+        safeSetLocalStorage('cinefuel_settings', JSON.stringify(parsed));
       } catch {
-        localStorage.setItem('cinefuel_settings', JSON.stringify({ tmdbApiKey: tmdbKey.trim() }));
+        safeSetLocalStorage('cinefuel_settings', JSON.stringify({ tmdbApiKey: tmdbKey.trim() }));
       }
     }
 
@@ -1797,14 +1784,10 @@ export default function AdminPage() {
 
     setCustomLinksMap((prev) => {
       const existing = prev[String(selectedTargetTitle.id)] || [];
-      const updated = {
+      return {
         ...prev,
         [String(selectedTargetTitle.id)]: [newLinkObj, ...existing],
       };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
-      }
-      return updated;
     });
 
     setNewLinkTitle('');
@@ -1899,14 +1882,10 @@ export default function AdminPage() {
 
     setCustomLinksMap((prev) => {
       const existing = prev[String(selectedTargetTitle.id)] || [];
-      const updated = {
+      return {
         ...prev,
         [String(selectedTargetTitle.id)]: [...createdObjs, ...existing],
       };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
-      }
-      return updated;
     });
 
     const count = adminBulkParsedItems.length;
@@ -2052,14 +2031,10 @@ export default function AdminPage() {
 
     setCustomLinksMap((prev) => {
       const existing = prev[String(selectedTargetTitle.id)] || [];
-      const updated = {
+      return {
         ...prev,
         [String(selectedTargetTitle.id)]: [...createdObjs, ...existing],
       };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updated));
-      }
-      return updated;
     });
 
     const count = valid.length;
@@ -2125,11 +2100,7 @@ export default function AdminPage() {
       const existing = prev[movieIdStr] || [];
       const filtered = existing.filter((l) => l.id !== editingLink.link.id);
       const updatedList = [updatedLinkObj, ...filtered];
-      const updatedMap = { ...prev, [movieIdStr]: updatedList };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
-      }
-      return updatedMap;
+      return { ...prev, [movieIdStr]: updatedList };
     });
 
     addLog(`Admin updated link "${editTitle}" for ID ${editingLink.movieId}`, 'success');
@@ -2151,11 +2122,7 @@ export default function AdminPage() {
       const movieIdStr = String(movieId);
       const existing = prev[movieIdStr] || [];
       const updatedList = existing.filter((l) => l.id !== linkId);
-      const updatedMap = { ...prev, [movieIdStr]: updatedList };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
-      }
-      return updatedMap;
+      return { ...prev, [movieIdStr]: updatedList };
     });
 
     setSelectedLinkIds((prev) => {
@@ -2230,9 +2197,6 @@ export default function AdminPage() {
           updatedMap[movieIdStr] = updatedMap[movieIdStr].filter((l) => !deleteIds.has(l.id));
         }
       });
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_custom_links', JSON.stringify(updatedMap));
-      }
       return updatedMap;
     });
 
@@ -2309,11 +2273,11 @@ export default function AdminPage() {
       try {
         const content = event.target?.result as string;
         const parsed = JSON.parse(content);
-        if (parsed.watchlist) localStorage.setItem('cinefuel_watchlist', JSON.stringify(parsed.watchlist));
-        if (parsed.customLists) localStorage.setItem('cinefuel_custom_lists', JSON.stringify(parsed.customLists));
-        if (parsed.customLinks) localStorage.setItem('cinefuel_custom_links', JSON.stringify(parsed.customLinks));
-        if (parsed.knownTitles) localStorage.setItem('cinefuel_known_titles_cache', JSON.stringify(parsed.knownTitles));
-        if (parsed.mdblistConfig) localStorage.setItem('cinefuel_mdblist_config', JSON.stringify(parsed.mdblistConfig));
+        if (parsed.watchlist) safeSetLocalStorage('cinefuel_watchlist', JSON.stringify(parsed.watchlist));
+        if (parsed.customLists) safeSetLocalStorage('cinefuel_custom_lists', JSON.stringify(parsed.customLists));
+        if (parsed.customLinks) safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(parsed.customLinks));
+        if (parsed.knownTitles) safeSetLocalStorage('cinefuel_known_titles_cache', JSON.stringify(parsed.knownTitles));
+        if (parsed.mdblistConfig) safeSetLocalStorage('cinefuel_mdblist_config', JSON.stringify(parsed.mdblistConfig));
 
         addLog('Database backup restored successfully! Reloading...', 'success');
         setTimeout(() => window.location.reload(), 1200);
