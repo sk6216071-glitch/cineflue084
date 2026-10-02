@@ -1284,6 +1284,29 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                           </div>
                         </a>
 
+                        {/* Report Broken Link Button (media_1790900300745.png) */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportingLink({
+                              linkId: primaryPack?.id,
+                              movieId: titleDetails.id,
+                              mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                              mediaType: 'tv',
+                              posterPath: titleDetails.poster_path,
+                              linkTitle: packRel.title,
+                              reportedUrl: destinationUrl,
+                              quality: packRel.resolution,
+                              server: 'HubCloud',
+                            });
+                          }}
+                          className="p-2 sm:p-2.5 rounded-xl bg-[#141824] hover:bg-[#1d2335] text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer shrink-0"
+                          title="Report broken or defective link"
+                        >
+                          <Flag className="w-3.5 h-3.5" />
+                        </button>
+
                         {/* Admin Controls (Only visible to admin) */}
                         {isEffectiveAdmin && primaryPack && (
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -1467,6 +1490,29 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                               </div>
                             </a>
 
+                            {/* Report Broken Link Button (media_1790900300745.png) */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReportingLink({
+                                  linkId: primaryLink?.id,
+                                  movieId: titleDetails.id,
+                                  mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                                  mediaType: 'tv',
+                                  posterPath: titleDetails.poster_path,
+                                  linkTitle: ep.title,
+                                  reportedUrl: primaryLink?.url || '',
+                                  quality: slide.resolution,
+                                  server: serverName,
+                                });
+                              }}
+                              className="p-2 sm:p-2.5 rounded-xl bg-[#141824] hover:bg-[#1d2335] text-zinc-400 hover:text-rose-400 border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer shrink-0 self-end md:self-center"
+                              title="Report broken or defective link"
+                            >
+                              <Flag className="w-3.5 h-3.5" />
+                            </button>
+
                             {/* Admin Edit / Delete Actions (Only visible to admin) */}
                             {(isEffectiveAdmin || isAdmin) && primaryLink && (
                               <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
@@ -1536,22 +1582,43 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         })}
       </div>
 
-      {/* Bottom Request Custom Quality Card */}
+      {/* Bottom Request Custom Quality & Report Card */}
       <div className="p-5 sm:p-6 rounded-2xl bg-[#0b0e17] border border-blue-500/25 shadow-xl text-center space-y-3.5 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="w-10 h-10 rounded-full bg-blue-500/15 border border-blue-500/40 flex items-center justify-center mx-auto text-blue-400 shadow-md shadow-blue-500/10">
           <Info className="w-5 h-5" />
         </div>
         <p className="text-xs sm:text-sm text-zinc-200 font-medium max-w-md mx-auto leading-relaxed">
-          Can&apos;t find the episode or quality you want? Request custom format (4K DV HDR, 1080p, Dual Audio) and our team will add it!
+          Can&apos;t find the episode or quality you want? Request custom format (4K DV HDR, 1080p, Dual Audio) or report a broken link and our team will add it!
         </p>
-        <button
-          type="button"
-          onClick={() => setIsRequestModalOpen(true)}
-          className="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-        >
-          REQUEST LINK
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsRequestModalOpen(true)}
+            className="px-8 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+          >
+            REQUEST LINK
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+              setReportingLink({
+                movieId: titleDetails.id,
+                mediaTitle: titleDetails.name || titleDetails.title || 'TV Series',
+                mediaType: 'tv',
+                posterPath: titleDetails.poster_path,
+                linkTitle: `${titleDetails.name || titleDetails.title} (Broken Link Report)`,
+                reportedUrl: currentUrl,
+              });
+            }}
+            className="px-6 py-3 rounded-2xl bg-[#141824] hover:bg-[#1d2335] text-zinc-300 hover:text-rose-400 border border-white/10 hover:border-rose-500/40 font-bold text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer inline-flex items-center gap-2"
+            title="Report broken or defective link"
+          >
+            <Flag className="w-4 h-4 text-zinc-400 group-hover:text-rose-400" />
+            <span>REPORT LINK</span>
+          </button>
+        </div>
       </div>
 
       {/* Admin Quick Edit Modal */}
