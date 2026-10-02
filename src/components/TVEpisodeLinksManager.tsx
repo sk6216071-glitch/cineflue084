@@ -11,6 +11,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
+  ArrowUpRight,
+  Play,
   Sparkles,
   Info,
   FileArchive,
@@ -803,6 +806,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             title: `2160p 4K DV HDR${codecLabel} ${src}`,
             badge: `2160p DV HDR${codecLabel}`,
             resolution: '2160p / 4K',
+            accentBorder: 'border-l-4 border-l-fuchsia-500',
             weight: 450,
           };
         } else if (dyn === 'HDR') {
@@ -811,6 +815,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             title: `2160p 4K HDR${codecLabel} ${src}`,
             badge: `2160p HDR${codecLabel}`,
             resolution: '2160p / 4K',
+            accentBorder: 'border-l-4 border-l-purple-500',
             weight: 440,
           };
         } else {
@@ -819,6 +824,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             title: `2160p 4K SDR${codecLabel} ${src}`,
             badge: `2160p SDR${codecLabel}`,
             resolution: '2160p / 4K',
+            accentBorder: 'border-l-4 border-l-blue-500',
             weight: 420,
           };
         }
@@ -829,41 +835,46 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         if (dyn === 'DV HDR' || dyn === 'DV') {
           return {
             key: '1080p_dv_hdr_h265',
-            title: `1080p FHD DV HDR${codecLabel} ${src}`,
+            title: `1080p DV HDR${codecLabel} ${src}`,
             badge: `1080p DV HDR${codecLabel}`,
             resolution: '1080p',
+            accentBorder: 'border-l-4 border-l-fuchsia-400',
             weight: 390,
           };
         } else if (dyn === 'HDR') {
           return {
             key: '1080p_hdr_h265',
-            title: `1080p FHD HDR${codecLabel} ${src}`,
+            title: `1080p HDR${codecLabel} ${src}`,
             badge: `1080p HDR${codecLabel}`,
             resolution: '1080p',
+            accentBorder: 'border-l-4 border-l-indigo-400',
             weight: 380,
           };
         } else if (is10Bit && isHEVC) {
           return {
             key: '1080p_hevc_10bit',
-            title: `1080p FHD 10bit HEVC ${src}`,
+            title: `1080p 10-bit HEVC ${src}`,
             badge: '1080p HEVC 10bit',
             resolution: '1080p',
+            accentBorder: 'border-l-4 border-l-emerald-400',
             weight: 360,
           };
         } else if (isHEVC || dyn === 'SDR') {
           return {
             key: '1080p_sdr_h265',
-            title: `1080p FHD SDR H.265 ${src}`,
+            title: `1080p SDR H.265 ${src}`,
             badge: '1080p SDR H.265',
             resolution: '1080p',
+            accentBorder: 'border-l-4 border-l-sky-500',
             weight: 340,
           };
         } else {
           return {
             key: '1080p_webdl',
-            title: `1080p FHD ${src}`,
+            title: `1080p ${src}`,
             badge: '1080p',
             resolution: '1080p',
+            accentBorder: 'border-l-4 border-l-cyan-400',
             weight: 300,
           };
         }
@@ -874,33 +885,37 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         if (dyn === 'DV HDR' || dyn === 'DV') {
           return {
             key: '720p_dv_hdr',
-            title: `720p HD DV HDR${codecLabel} ${src}`,
+            title: `720p DV HDR${codecLabel} ${src}`,
             badge: `720p DV HDR${codecLabel}`,
             resolution: '720p',
+            accentBorder: 'border-l-4 border-l-fuchsia-400',
             weight: 270,
           };
         } else if (dyn === 'HDR') {
           return {
             key: '720p_hdr',
-            title: `720p HD HDR${codecLabel} ${src}`,
+            title: `720p HDR${codecLabel} ${src}`,
             badge: `720p HDR${codecLabel}`,
             resolution: '720p',
+            accentBorder: 'border-l-4 border-l-indigo-400',
             weight: 260,
           };
         } else if (is10Bit && isHEVC) {
           return {
             key: '720p_hevc_10bit',
-            title: `720p HD 10bit HEVC ${src}`,
+            title: `720p 10-bit HEVC ${src}`,
             badge: '720p HEVC 10bit',
             resolution: '720p',
+            accentBorder: 'border-l-4 border-l-emerald-400',
             weight: 250,
           };
         } else if (isHEVC) {
           return {
             key: '720p_hevc',
-            title: `720p HD HEVC ${src}`,
+            title: `720p HEVC ${src}`,
             badge: '720p HEVC',
             resolution: '720p',
+            accentBorder: 'border-l-4 border-l-teal-400',
             weight: 240,
           };
         } else {
@@ -909,6 +924,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             title: `720p HD ${src}`,
             badge: '720p',
             resolution: '720p',
+            accentBorder: 'border-l-4 border-l-teal-400',
             weight: 200,
           };
         }
@@ -919,6 +935,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         title: `480p SD ${src}`,
         badge: '480p',
         resolution: '480p',
+        accentBorder: 'border-l-4 border-l-slate-400',
         weight: 100,
       };
     };
@@ -931,6 +948,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         resolution: string;
         source: string;
         dynamicRange?: string;
+        accentBorder: string;
         weight: number;
         options: ReleaseOption[];
         episodes: Array<{
@@ -968,6 +986,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             resolution: info.resolution,
             source: fmt.source || 'WEB-DL',
             dynamicRange: prof.dynamicRange,
+            accentBorder: info.accentBorder,
             weight: info.weight,
             options: [],
             episodes: [],
@@ -1036,6 +1055,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           title: '1080p WebDL',
           resolution: '1080p',
           source: 'WEB-DL',
+          accentBorder: 'border-l-4 border-l-cyan-400',
           weight: 300,
           options: [],
           episodes: [],
@@ -1045,6 +1065,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           title: '720p WebDL',
           resolution: '720p',
           source: 'WEB-DL',
+          accentBorder: 'border-l-4 border-l-teal-400',
           weight: 200,
           options: [],
           episodes: [],
@@ -1177,52 +1198,59 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         </div>
       </div>
 
-      {/* 2. Collapsible Accordion Slides (Zip Archive & Episode-Wise Qualities - media_1790847788704.jpg) */}
+      {/* 2. Choose a Download Option Header & Accordion Cards (media_1790899727140.png) */}
       <div className="space-y-4">
-        {/* SLIDE: Zip Archive GDrive GDTOT Download Links */}
-        <div className="rounded-2xl overflow-hidden border border-[#8f2b42]/60 shadow-xl transition-all">
-          {/* Maroon Clickable Header Banner */}
-          <div
+        {/* Section Title */}
+        <div className="space-y-1.5 pt-2 pb-1">
+          <p className="text-xs font-bold tracking-widest text-sky-400 uppercase">
+            CHOOSE A DOWNLOAD OPTION
+          </p>
+          <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Open download links
+          </h3>
+          <p className="text-xs sm:text-sm text-zinc-400 font-medium">
+            Select the type of links you want to view.
+          </p>
+        </div>
+
+        {/* SLIDE: Full Collection / Zip Archive */}
+        <div className="rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 border-l-4 border-l-cyan-400 shadow-xl transition-all duration-300 bg-[#0e1322]/95 hover:bg-[#12182c]/95">
+          {/* Card Button matching media_1790899727140.png */}
+          <button
+            type="button"
             onClick={() => toggleSlide('zip')}
-            className={`w-full p-4 sm:p-5 cursor-pointer select-none transition-all duration-200 ${
-              openSlideId === 'zip'
-                ? 'bg-gradient-to-r from-[#6e1e2f] via-[#5a1725] to-[#45101c] border-b border-[#8f2b42]/70 shadow-inner'
-                : 'bg-gradient-to-r from-[#5a1725] via-[#48111c] to-[#360b13] hover:from-[#661b2b] hover:via-[#521521] hover:to-[#3e0e17]'
-            }`}
+            className="w-full text-left p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer select-none focus:outline-none transition-colors"
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-1 min-w-0">
-                <p className="text-xs sm:text-sm font-semibold tracking-wide text-rose-200/90 italic font-serif">
-                  Click Here to Open All Qualities
-                </p>
-                <div className="flex items-center gap-2 sm:gap-2.5 text-white">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-black/40 border border-white/30 text-white font-mono text-xs font-black shrink-0 shadow-inner">
-                    {openSlideId === 'zip' ? '−' : '+'}
-                  </span>
-                  <h4 className="text-sm sm:text-base md:text-lg font-bold tracking-tight truncate">
-                    Zip Archive GDrive HubCloud Download Links
-                  </h4>
-                </div>
+            <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1">
+              <div className="w-12 h-12 rounded-2xl bg-[#1c243a] border border-[#2b3756] flex items-center justify-center text-cyan-400 shadow-inner shrink-0">
+                <ArrowUpRight className="w-5 h-5 text-cyan-400" />
               </div>
 
-              {/* Corner + / - Icon */}
-              <div
-                className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-200 ${
-                  openSlideId === 'zip'
-                    ? 'bg-white/20 border-white/30 text-white'
-                    : 'bg-black/30 border-white/10 text-rose-200 hover:text-white hover:bg-black/50'
-                }`}
-              >
-                <span className="font-bold text-lg sm:text-xl leading-none">
-                  {openSlideId === 'zip' ? '−' : '+'}
-                </span>
+              <div className="space-y-1 min-w-0 flex-1">
+                <p className="text-[11px] font-bold tracking-widest text-sky-400 uppercase">
+                  FULL COLLECTION
+                </p>
+                <h4 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-tight truncate">
+                  Zip Archive
+                </h4>
+                <p className="text-xs text-zinc-400 font-medium truncate">
+                  GDrive · HubCloud · Download Links
+                </p>
               </div>
             </div>
-          </div>
+
+            <div className="text-zinc-400 shrink-0 p-1">
+              {openSlideId === 'zip' ? (
+                <ChevronDown className="w-5 h-5 text-zinc-300 transition-transform duration-200" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-zinc-400 transition-transform duration-200" />
+              )}
+            </div>
+          </button>
 
           {/* Expanded Body for Zip Archive */}
           {openSlideId === 'zip' && (
-            <div className="bg-[#090b10] p-4 sm:p-6 space-y-4 animate-fadeIn border-t border-rose-950/40">
+            <div className="bg-[#090c15] p-4 sm:p-6 space-y-4 animate-fadeIn border-t border-white/10">
               {activeSeasonPacks.length > 0 ? (
                 <div className="space-y-2.5">
                   {activeSeasonPacks.map((packRel) => {
@@ -1330,50 +1358,44 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           return (
             <div
               key={slide.key}
-              className="rounded-2xl overflow-hidden border border-[#8f2b42]/60 shadow-xl transition-all"
+              className={`rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 ${slide.accentBorder || 'border-l-4 border-l-cyan-400'} shadow-xl transition-all duration-300 bg-[#0e1322]/95 hover:bg-[#12182c]/95`}
             >
-              {/* Maroon Clickable Header Banner matching media_1790847788704.jpg */}
-              <div
+              {/* Quality Card Button matching media_1790899727140.png */}
+              <button
+                type="button"
                 onClick={() => toggleSlide(slide.key)}
-                className={`w-full p-4 sm:p-5 cursor-pointer select-none transition-all duration-200 ${
-                  isOpen
-                    ? 'bg-gradient-to-r from-[#6e1e2f] via-[#5a1725] to-[#45101c] border-b border-[#8f2b42]/70 shadow-inner'
-                    : 'bg-gradient-to-r from-[#5a1725] via-[#48111c] to-[#360b13] hover:from-[#661b2b] hover:via-[#521521] hover:to-[#3e0e17]'
-                }`}
+                className="w-full text-left p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer select-none focus:outline-none transition-colors"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="space-y-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-semibold tracking-wide text-rose-200/90 italic font-serif">
-                      Click Here to Open Episode Wise
-                    </p>
-                    <div className="flex items-center gap-2 sm:gap-2.5 text-white">
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-black/40 border border-white/30 text-white font-mono text-xs font-black shrink-0 shadow-inner">
-                        {isOpen ? '−' : '+'}
-                      </span>
-                      <h4 className="text-sm sm:text-base md:text-lg font-bold tracking-tight truncate">
-                        {slide.title} GDrive HubCloud Download Links
-                      </h4>
-                    </div>
+                <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1">
+                  <div className="w-12 h-12 rounded-2xl bg-[#1c243a] border border-[#2b3756] flex items-center justify-center text-white shadow-inner shrink-0">
+                    <Play className="w-5 h-5 fill-white text-white ml-0.5" />
                   </div>
 
-                  {/* Corner + / - Icon */}
-                  <div
-                    className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-200 ${
-                      isOpen
-                        ? 'bg-white/20 border-white/30 text-white'
-                        : 'bg-black/30 border-white/10 text-rose-200 hover:text-white hover:bg-black/50'
-                    }`}
-                  >
-                    <span className="font-bold text-lg sm:text-xl leading-none">
-                      {isOpen ? '−' : '+'}
-                    </span>
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <p className="text-[11px] font-bold tracking-widest text-sky-400 uppercase">
+                      INDIVIDUAL EPISODES
+                    </p>
+                    <h4 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-tight truncate">
+                      {slide.title}
+                    </h4>
+                    <p className="text-xs text-zinc-400 font-medium truncate">
+                      Episode Wise · GDrive · HubCloud · Download Links
+                    </p>
                   </div>
                 </div>
-              </div>
+
+                <div className="text-zinc-400 shrink-0 p-1">
+                  {isOpen ? (
+                    <ChevronDown className="w-5 h-5 text-zinc-300 transition-transform duration-200" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-zinc-400 transition-transform duration-200" />
+                  )}
+                </div>
+              </button>
 
               {/* Expanded Body for this Quality */}
               {isOpen && (
-                <div className="bg-[#090b10] p-4 sm:p-6 space-y-5 animate-fadeIn border-t border-rose-950/40">
+                <div className="bg-[#090c15] p-4 sm:p-6 space-y-5 animate-fadeIn border-t border-white/10">
                   {episodesCount > 0 ? (
                     <div className="space-y-2.5">
                       {slide.episodes.map((ep) => {
