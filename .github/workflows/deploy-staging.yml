@@ -78,6 +78,15 @@ jobs:
           STAGE_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET_KEY }}
           STAGE_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: |
+          echo "=== AUDITING STAGING SECRETS PRESENCE ==="
+          echo "MONGODB_URI present: $([ -n "$STAGE_MONGO" ] && echo 'YES' || echo 'NO')"
+          echo "UPSTASH_REDIS_REST_URL present: $([ -n "$STAGE_REDIS_URL" ] && echo 'YES' || echo 'NO')"
+          echo "UPSTASH_REDIS_REST_TOKEN present: $([ -n "$STAGE_REDIS_TOKEN" ] && echo 'YES' || echo 'NO')"
+          echo "ADMIN_SECRET_KEY present: $([ -n "$STAGE_ADMIN_SECRET" ] && echo 'YES' || echo 'NO')"
+          echo "TELEGRAM_WEBHOOK_SECRET present: $([ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ] && echo 'YES' || echo 'NO')"
+          echo "TELEGRAM_BOT_TOKEN present: $([ -n "$STAGE_TELEGRAM_TOKEN" ] && echo 'YES' || echo 'NO')"
+          echo "==========================================="
+
           if [ -n "$STAGE_MONGO" ]; then
             echo "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --config wrangler.staging.toml
           fi

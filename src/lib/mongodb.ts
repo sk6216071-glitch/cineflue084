@@ -18,7 +18,7 @@ declare global {
   var _mongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-export async function getDatabase(dbName: string = 'cinefuel'): Promise<Db | null> {
+export async function getDatabase(dbName?: string): Promise<Db | null> {
   const currentUri = process.env.MONGODB_URI || uri;
   if (!currentUri) {
     return null;
@@ -37,7 +37,9 @@ export async function getDatabase(dbName: string = 'cinefuel'): Promise<Db | nul
       }
     }
     const connectedClient = await clientPromise;
-    return connectedClient.db(dbName);
+    const isStaging = process.env.APP_ENV === 'staging' || process.env.CINEFUEL_ENV === 'staging';
+    const targetDb = dbName || process.env.MONGODB_DB_NAME || (isStaging ? 'cinefuel_staging' : 'cinefuel');
+    return connectedClient.db(targetDb);
   } catch (err) {
     console.error('Failed to connect to MongoDB Atlas:', err);
     clientPromise = null;
