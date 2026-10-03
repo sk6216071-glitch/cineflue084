@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { processTelegramMessage } from '@/lib/telegramBotCore';
 import { getEnv } from '@/lib/env';
 
+export const dynamic = 'force-dynamic';
+
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
 function escapeHtml(str: string) {
@@ -165,7 +167,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(_req: NextRequest) {
   return NextResponse.json({
     status: 'online',
     bot: 'CineFlue_bot',
