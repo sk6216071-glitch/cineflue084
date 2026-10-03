@@ -9,16 +9,6 @@ import {
   updateProfile,
   Auth,
 } from 'firebase/auth';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  getDocs,
-  deleteDoc,
-  Firestore,
-} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyDemoPlaceholderKeyForOfflineFirst',
@@ -29,24 +19,61 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '1:1234567890:web:abcdef',
 };
 
-// Safe initialization
-let app: FirebaseApp;
-let auth: Auth;
-let db: Firestore;
+// Safe client-only initialization (prevents SSR / Cloudflare Workers eval errors)
+let app: FirebaseApp | undefined;
+let authInstance: Auth | undefined;
+let googleProviderInstance: GoogleAuthProvider | undefined;
 
-try {
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-} catch (error) {
-  console.warn('Firebase initialization note (operating in offline-first mode):', error);
-  // Re-attempt or fallback
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig, 'cinefuel-fallback');
-  auth = getAuth(app);
-  db = getFirestore(app);
+function getClientAuth(): Auth | undefined {
+  if (typeof window === 'undefined') return undefined;
+  if (!authInstance) {
+    try {
+      app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+      authInstance = getAuth(app);
+    } catch (e) {
+      console.warn('Firebase client auth initialization error:', e);
+    }
+  }
+  return authInstance;
 }
 
-const googleProvider = new GoogleAuthProvider();
+function getClientGoogleProvider(): GoogleAuthProvider {
+  if (!googleProviderInstance) {
+    googleProviderInstance = new GoogleAuthProvider();
+  }
+  return googleProviderInstance;
+}
+
+if (typeof window !== 'undefined') {
+  getClientAuth();
+}
+
+// Proxies ensure code importing `auth` and `googleProvider` continues to work seamlessly
+const auth = new Proxy({} as Auth, {
+  get(_target, prop) {
+    const inst = getClientAuth();
+    if (!inst) return undefined;
+    const val = (inst as any)[prop];
+    return typeof val === 'function' ? val.bind(inst) : val;
+  },
+});
+
+const googleProvider = new Proxy({} as GoogleAuthProvider, {
+  get(_target, prop) {
+    const inst = getClientGoogleProvider();
+    const val = (inst as any)[prop];
+    return typeof val === 'function' ? val.bind(inst) : val;
+  },
+});
+
+// Stubs for compatibility in case any component touches them
+const db = {} as any;
+const doc = (..._args: any[]) => ({} as any);
+const setDoc = async (..._args: any[]) => {};
+const getDoc = async (..._args: any[]) => ({ exists: () => false, data: () => null } as any);
+const collection = (..._args: any[]) => ({} as any);
+const getDocs = async (..._args: any[]) => ({ docs: [], empty: true } as any);
+const deleteDoc = async (..._args: any[]) => {};
 
 export {
   app,
