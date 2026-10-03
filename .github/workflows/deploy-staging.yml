@@ -10,6 +10,7 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: staging
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -88,20 +89,20 @@ jobs:
           echo "==========================================="
 
           if [ -n "$STAGE_MONGO" ]; then
-            echo "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --config wrangler.staging.toml
+            echo "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_REDIS_URL" ]; then
-            echo "$STAGE_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --config wrangler.staging.toml
+            echo "$STAGE_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_REDIS_TOKEN" ]; then
-            echo "$STAGE_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --config wrangler.staging.toml
+            echo "$STAGE_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_TELEGRAM_TOKEN" ]; then
-            echo "$STAGE_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --config wrangler.staging.toml
+            echo "$STAGE_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_ADMIN_SECRET" ]; then
-            echo "$STAGE_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --config wrangler.staging.toml
+            echo "$STAGE_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ]; then
-            echo "$STAGE_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --config wrangler.staging.toml
+            echo "$STAGE_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name cinefuel-staging --config wrangler.staging.toml
           fi

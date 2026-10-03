@@ -169,5 +169,13 @@ export async function GET() {
     status: 'online',
     bot: 'CineFlue_bot',
     service: 'CineFuel Telegram Auto-Uploader API',
+    diagnostics: {
+      mongoUriConfigured: !!process.env.MONGODB_URI,
+      redisUrlConfigured: !!(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL),
+      redisTokenConfigured: !!(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
+      adminKeyConfigured: !!(process.env.ADMIN_SECRET_KEY || process.env.ADMIN_PASSWORD),
+      tgWebhookSecretConfigured: !!process.env.TELEGRAM_WEBHOOK_SECRET,
+      env: process.env.APP_ENV || process.env.CINEFUEL_ENV || 'unknown',
+    },
   });
 }
