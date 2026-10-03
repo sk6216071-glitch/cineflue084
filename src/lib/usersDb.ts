@@ -1,26 +1,11 @@
-import { Redis } from '@upstash/redis';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { getDatabase } from '@/lib/mongodb';
+import { getRedisClient } from '@/lib/redisDb';
 import { getAllRequests } from '@/lib/requestsDb';
 import { getAllReports } from '@/lib/reportsDb';
 import { RegisteredUser } from '@/types';
-
-const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
-const REDIS_TOKEN = (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '').replace(/^["']|["']$/g, '').trim();
-
-let redisClient: Redis | null = null;
-if (REDIS_URL && REDIS_TOKEN) {
-  try {
-    redisClient = new Redis({
-      url: REDIS_URL,
-      token: REDIS_TOKEN,
-    });
-  } catch (err) {
-    console.error('Failed to initialize Upstash Redis client for users:', err);
-  }
-}
 
 const REDIS_USERS_KEY = 'cinefuel:registered_users';
 const LOCAL_USERS_FILE = path.join(process.cwd(), 'src', 'data', 'registeredUsers.json');
@@ -96,6 +81,7 @@ export async function getAllUsers(): Promise<{
   }
 
   // 2. Try Redis if Mongo was empty
+  const redisClient = getRedisClient();
   if (userList.length === 0 && redisClient) {
     try {
       const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
@@ -248,6 +234,7 @@ export async function getUserByEmail(email: string): Promise<RegisteredUser | nu
   }
 
   // 2. Try Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
@@ -309,6 +296,7 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
   }
 
   // 2. Upstash Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const existingRedis = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
@@ -357,6 +345,7 @@ export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
   } catch (e) {}
 
   // 2. Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const existing = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];

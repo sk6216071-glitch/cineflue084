@@ -1,24 +1,8 @@
-import { Redis } from '@upstash/redis';
 import fs from 'fs';
 import path from 'path';
 import { getDatabase } from '@/lib/mongodb';
+import { getRedisClient } from '@/lib/redisDb';
 import { UserRequest } from '@/types';
-
-// Support both standard Upstash env vars and Vercel KV auto-provisioned env vars
-const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
-const REDIS_TOKEN = (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '').replace(/^["']|["']$/g, '').trim();
-
-let redisClient: Redis | null = null;
-if (REDIS_URL && REDIS_TOKEN) {
-  try {
-    redisClient = new Redis({
-      url: REDIS_URL,
-      token: REDIS_TOKEN,
-    });
-  } catch (err) {
-    console.error('Failed to initialize Upstash Redis client for requests:', err);
-  }
-}
 
 const REDIS_REQUESTS_KEY = 'cinefuel:user_requests';
 const LOCAL_REQUESTS_FILE = path.join(process.cwd(), 'src', 'data', 'userRequests.json');
@@ -104,6 +88,7 @@ export async function getAllRequests(filterStatus?: string): Promise<{
   }
 
   // 2. Try Upstash Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const redisList = await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY);
@@ -175,6 +160,7 @@ export async function saveNewRequest(request: UserRequest): Promise<boolean> {
   }
 
   // 2. Upstash Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
@@ -243,6 +229,7 @@ export async function updateRequestStatus(
   }
 
   // 2. Upstash Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
@@ -291,6 +278,7 @@ export async function deleteRequest(id: string): Promise<boolean> {
   } catch {}
 
   // 2. Redis
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];

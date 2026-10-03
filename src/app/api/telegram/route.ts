@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processTelegramMessage } from '@/lib/telegramBotCore';
+import { getEnv } from '@/lib/env';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
@@ -115,7 +116,7 @@ async function sendTelegramPhotoCard(chatId: number, card: any) {
 }
 
 export async function POST(request: NextRequest) {
-  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const webhookSecret = getEnv('TELEGRAM_WEBHOOK_SECRET');
   const headerSecret = request.headers.get('x-telegram-bot-api-secret-token');
 
   if (!webhookSecret || !headerSecret || headerSecret !== webhookSecret) {
@@ -170,12 +171,12 @@ export async function GET() {
     bot: 'CineFlue_bot',
     service: 'CineFuel Telegram Auto-Uploader API',
     diagnostics: {
-      mongoUriConfigured: !!process.env.MONGODB_URI,
-      redisUrlConfigured: !!(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL),
-      redisTokenConfigured: !!(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
-      adminKeyConfigured: !!(process.env.ADMIN_SECRET_KEY || process.env.ADMIN_PASSWORD),
-      tgWebhookSecretConfigured: !!process.env.TELEGRAM_WEBHOOK_SECRET,
-      env: process.env.APP_ENV || process.env.CINEFUEL_ENV || 'unknown',
+      mongoUriConfigured: !!getEnv('MONGODB_URI'),
+      redisUrlConfigured: !!(getEnv('UPSTASH_REDIS_REST_URL') || getEnv('KV_REST_API_URL')),
+      redisTokenConfigured: !!(getEnv('UPSTASH_REDIS_REST_TOKEN') || getEnv('KV_REST_API_TOKEN')),
+      adminKeyConfigured: !!(getEnv('ADMIN_SECRET_KEY') || getEnv('ADMIN_PASSWORD')),
+      tgWebhookSecretConfigured: !!getEnv('TELEGRAM_WEBHOOK_SECRET'),
+      env: getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'unknown',
     },
   });
 }

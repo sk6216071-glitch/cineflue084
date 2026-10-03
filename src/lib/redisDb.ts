@@ -6,20 +6,17 @@ import { TitleDetails } from '@/types';
 import { getTitleDetails } from '@/lib/tmdb';
 import { detectShowPlatform, stripWatermarks } from '@/lib/seasonParser';
 
-// Support both standard Upstash env vars and Vercel KV auto-provisioned env vars
-const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
-const REDIS_TOKEN = (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '').replace(/^["']|["']$/g, '').trim();
+import { getEnv } from '@/lib/env';
 
-let redisClient: Redis | null = null;
-
-if (REDIS_URL && REDIS_TOKEN) {
+export function getRedisClient(): Redis | null {
+  const url = (getEnv('UPSTASH_REDIS_REST_URL') || getEnv('KV_REST_API_URL')).replace(/^["']|["']$/g, '').trim();
+  const token = (getEnv('UPSTASH_REDIS_REST_TOKEN') || getEnv('KV_REST_API_TOKEN')).replace(/^["']|["']$/g, '').trim();
+  if (!url || !token) return null;
   try {
-    redisClient = new Redis({
-      url: REDIS_URL,
-      token: REDIS_TOKEN,
-    });
+    return new Redis({ url, token });
   } catch (err) {
     console.error('Failed to initialize Upstash Redis client:', err);
+    return null;
   }
 }
 
@@ -105,6 +102,7 @@ export async function getLinksFromDatabase(movieId?: number | string): Promise<{
   }
 
   const localData = getLocalFallbackLinks();
+  const redisClient = getRedisClient();
 
   if (redisClient) {
     try {
@@ -189,6 +187,7 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
   }
 
   // 2. Upstash Cloud Redis save
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       if (link.id) {
@@ -278,6 +277,7 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
   }
 
   // 2. Upstash Cloud Redis save
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const linkIds = links.map((l) => l.id).filter(Boolean);
@@ -354,6 +354,7 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
   }
 
   // 2. Upstash Cloud Redis deletion
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       // Record in permanent tombstone set
@@ -414,6 +415,7 @@ export async function deleteMultipleLinksFromDatabase(items: Array<{ movieId: nu
   } catch {}
 
   // 2. Upstash Cloud Redis deletion
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const linkIds = items.map((i) => i.linkId);
@@ -462,6 +464,7 @@ export async function deleteMultipleLinksFromDatabase(items: Array<{ movieId: nu
  * Seeds all local links into Upstash Redis
  */
 export async function seedLocalLinksToRedis(): Promise<{ success: boolean; totalTitles: number }> {
+  const redisClient = getRedisClient();
   if (!redisClient) return { success: false, totalTitles: 0 };
   try {
     const local = getLocalFallbackLinks();
@@ -515,6 +518,7 @@ export async function migrateDomainInDatabase(
   }
 
   // 2. Upstash Redis Cloud update
+  const redisClient = getRedisClient();
   if (redisClient) {
     try {
       const allKeys = await redisClient.hgetall(REDIS_HASH_KEY);

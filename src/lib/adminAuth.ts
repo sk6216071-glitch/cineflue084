@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getEnv } from '@/lib/env';
 
 /**
  * Validates whether the incoming request is authorized to perform admin mutations.
@@ -9,7 +10,7 @@ import { NextRequest } from 'next/server';
  * 2. `Authorization: Bearer <key>` header
  */
 export function validateAdminAuth(req: NextRequest): boolean {
-  const adminSecret = process.env.ADMIN_SECRET_KEY || process.env.ADMIN_PASSWORD;
+  const adminSecret = getEnv('ADMIN_SECRET_KEY') || getEnv('ADMIN_PASSWORD');
   
   if (!adminSecret) {
     // Fail-safe: if no secret is configured on the server, reject all admin mutations

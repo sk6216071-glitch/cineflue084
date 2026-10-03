@@ -61,13 +61,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      - name: Deploy to Cloudflare Workers Staging
-        run: npx opennextjs-cloudflare deploy --config wrangler.staging.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
-          OPEN_NEXT_DEPLOY: 'true'
-
       - name: Configure Staging Cloudflare Secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -89,20 +82,27 @@ jobs:
           echo "==========================================="
 
           if [ -n "$STAGE_MONGO" ]; then
-            echo "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --name cinefuel-staging --config wrangler.staging.toml
+            printf '%s' "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_REDIS_URL" ]; then
-            echo "$STAGE_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --name cinefuel-staging --config wrangler.staging.toml
+            printf '%s' "$STAGE_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_REDIS_TOKEN" ]; then
-            echo "$STAGE_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --name cinefuel-staging --config wrangler.staging.toml
+            printf '%s' "$STAGE_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_TELEGRAM_TOKEN" ]; then
-            echo "$STAGE_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --name cinefuel-staging --config wrangler.staging.toml
+            printf '%s' "$STAGE_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_ADMIN_SECRET" ]; then
-            echo "$STAGE_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --name cinefuel-staging --config wrangler.staging.toml
+            printf '%s' "$STAGE_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --name cinefuel-staging --config wrangler.staging.toml
           fi
           if [ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ]; then
-            echo "$STAGE_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name cinefuel-staging --config wrangler.staging.toml
+            printf '%s' "$STAGE_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name cinefuel-staging --config wrangler.staging.toml
           fi
+
+      - name: Deploy to Cloudflare Workers Staging
+        run: npx opennextjs-cloudflare deploy --config wrangler.staging.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
+          OPEN_NEXT_DEPLOY: 'true'
