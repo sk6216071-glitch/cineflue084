@@ -11,5 +11,6 @@ binding = "ASSETS"
 [vars]
 NEXT_PUBLIC_SITE_URL = "https://cinefuel-staging.sk6216071.workers.dev"
 NEXT_PUBLIC_TMDB_API_KEY = "8265bd1679663a7ea12ac168da84d2e8"
-ADMIN_SECRET_KEY = "shyam081"
-TELEGRAM_WEBHOOK_SECRET = "cf_staging_tg_webhook_secret_2026"
+APP_ENV = "staging"
+CINEFUEL_ENV = "staging"
+WORKER_NAME = "cinefuel-staging"

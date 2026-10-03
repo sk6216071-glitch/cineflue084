@@ -23,11 +23,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Pre-Deployment Safety Verification
+        run: |
+          echo "=== VERIFYING DEPLOYMENT TARGET ==="
+          echo "Current Branch: $GITHUB_REF_NAME"
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "::error::CRITICAL VIOLATION: Deployment from main branch is strictly forbidden in staging workflow!"
+            exit 1
+          fi
+          
+          WORKER_NAME=$(grep '^name = ' wrangler.staging.toml | head -n1 | cut -d '"' -f 2)
+          echo "Target Worker Name: $WORKER_NAME"
+          if [ "$WORKER_NAME" != "cinefuel-staging" ]; then
+            echo "::error::CRITICAL VIOLATION: Target worker must be 'cinefuel-staging' but got '$WORKER_NAME'!"
+            exit 1
+          fi
+          echo "Pre-deployment safety checks PASSED. Deploying ONLY to cinefuel-staging."
+
       - name: Build Next.js with OpenNext Cloudflare
         run: npx opennextjs-cloudflare build --config wrangler.staging.toml
         env:
           NEXT_PUBLIC_SITE_URL: "https://cinefuel-staging.sk6216071.workers.dev"
           NEXT_PUBLIC_TMDB_API_KEY: "8265bd1679663a7ea12ac168da84d2e8"
+          APP_ENV: "staging"
+          CINEFUEL_ENV: "staging"
+          WORKER_NAME: "cinefuel-staging"
 
       - name: Verify Cloudflare Authentication Token
         run: |
@@ -55,6 +75,8 @@ jobs:
           STAGE_REDIS_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           STAGE_REDIS_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           STAGE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          STAGE_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET_KEY }}
+          STAGE_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: |
           if [ -n "$STAGE_MONGO" ]; then
             echo "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --config wrangler.staging.toml
@@ -67,4 +89,10 @@ jobs:
           fi
           if [ -n "$STAGE_TELEGRAM_TOKEN" ]; then
             echo "$STAGE_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_ADMIN_SECRET" ]; then
+            echo "$STAGE_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ]; then
+            echo "$STAGE_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --config wrangler.staging.toml
           fi
