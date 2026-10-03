@@ -41,10 +41,18 @@ export function getLocalFallbackUsers(): RegisteredUser[] {
   return [];
 }
 
+function isFileSystemWritable(): boolean {
+  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Writes local JSON fallback users file
  */
 export function saveLocalFallbackUsers(data: RegisteredUser[]): boolean {
+  if (!isFileSystemWritable()) return false;
   try {
     const dir = path.dirname(LOCAL_USERS_FILE);
     if (!fs.existsSync(dir)) {

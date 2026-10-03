@@ -39,10 +39,18 @@ export function getLocalFallbackReports(): DefectiveLinkReport[] {
   return [];
 }
 
+function isFileSystemWritable(): boolean {
+  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Writes local JSON fallback file safely
  */
 export function saveLocalFallbackReports(data: DefectiveLinkReport[]): boolean {
+  if (!isFileSystemWritable()) return false;
   try {
     const dir = path.dirname(LOCAL_REPORTS_FILE);
     if (!fs.existsSync(dir)) {

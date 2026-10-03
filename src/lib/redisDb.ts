@@ -42,10 +42,18 @@ export function getLocalFallbackLinks(): Record<string, any[]> {
   return {};
 }
 
+function isFileSystemWritable(): boolean {
+  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Writes local JSON fallback file safely
  */
 export function saveLocalFallbackLinks(data: Record<string, any[]>) {
+  if (!isFileSystemWritable()) return;
   try {
     const dir = path.dirname(LOCAL_FILE);
     if (!fs.existsSync(dir)) {

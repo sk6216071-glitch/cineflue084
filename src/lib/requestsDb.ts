@@ -39,10 +39,18 @@ export function getLocalFallbackRequests(): UserRequest[] {
   return [];
 }
 
+function isFileSystemWritable(): boolean {
+  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Writes local JSON fallback file safely
  */
 export function saveLocalFallbackRequests(data: UserRequest[]): boolean {
+  if (!isFileSystemWritable()) return false;
   try {
     const dir = path.dirname(LOCAL_REQUESTS_FILE);
     if (!fs.existsSync(dir)) {
