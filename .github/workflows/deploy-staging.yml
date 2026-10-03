@@ -65,21 +65,38 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
-          STAGE_MONGO: ${{ secrets.MONGODB_URI }}
-          STAGE_REDIS_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
-          STAGE_REDIS_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
-          STAGE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          STAGE_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET_KEY }}
-          STAGE_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          STAGE_MONGO: ${{ secrets.MONGODB_URI || secrets.STAGE_MONGODB_URI || secrets.STAGING_MONGODB_URI }}
+          STAGE_REDIS_URL: ${{ secrets.UPSTASH_REDIS_REST_URL || secrets.STAGE_UPSTASH_REDIS_REST_URL || secrets.STAGING_REDIS_URL || secrets.KV_REST_API_URL }}
+          STAGE_REDIS_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN || secrets.STAGE_UPSTASH_REDIS_REST_TOKEN || secrets.STAGING_REDIS_TOKEN || secrets.KV_REST_API_TOKEN }}
+          STAGE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.STAGE_TELEGRAM_BOT_TOKEN }}
+          STAGE_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET_KEY || secrets.STAGE_ADMIN_SECRET_KEY || secrets.STAGING_ADMIN_KEY || secrets.ADMIN_PASSWORD }}
+          STAGE_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET || secrets.STAGE_TELEGRAM_WEBHOOK_SECRET }}
         run: |
           echo "=== AUDITING STAGING SECRETS PRESENCE ==="
-          echo "MONGODB_URI present: $([ -n "$STAGE_MONGO" ] && echo 'YES' || echo 'NO')"
-          echo "UPSTASH_REDIS_REST_URL present: $([ -n "$STAGE_REDIS_URL" ] && echo 'YES' || echo 'NO')"
-          echo "UPSTASH_REDIS_REST_TOKEN present: $([ -n "$STAGE_REDIS_TOKEN" ] && echo 'YES' || echo 'NO')"
-          echo "ADMIN_SECRET_KEY present: $([ -n "$STAGE_ADMIN_SECRET" ] && echo 'YES' || echo 'NO')"
-          echo "TELEGRAM_WEBHOOK_SECRET present: $([ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ] && echo 'YES' || echo 'NO')"
-          echo "TELEGRAM_BOT_TOKEN present: $([ -n "$STAGE_TELEGRAM_TOKEN" ] && echo 'YES' || echo 'NO')"
+          HAS_MONGO=$([ -n "$STAGE_MONGO" ] && echo 'YES' || echo 'NO')
+          HAS_REDIS_URL=$([ -n "$STAGE_REDIS_URL" ] && echo 'YES' || echo 'NO')
+          HAS_REDIS_TOKEN=$([ -n "$STAGE_REDIS_TOKEN" ] && echo 'YES' || echo 'NO')
+          HAS_ADMIN_SECRET=$([ -n "$STAGE_ADMIN_SECRET" ] && echo 'YES' || echo 'NO')
+          HAS_TG_WEBHOOK=$([ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ] && echo 'YES' || echo 'NO')
+          HAS_TG_TOKEN=$([ -n "$STAGE_TELEGRAM_TOKEN" ] && echo 'YES' || echo 'NO')
+
+          echo "MONGODB_URI present: $HAS_MONGO"
+          echo "UPSTASH_REDIS_REST_URL present: $HAS_REDIS_URL"
+          echo "UPSTASH_REDIS_REST_TOKEN present: $HAS_REDIS_TOKEN"
+          echo "ADMIN_SECRET_KEY present: $HAS_ADMIN_SECRET"
+          echo "TELEGRAM_WEBHOOK_SECRET present: $HAS_TG_WEBHOOK"
+          echo "TELEGRAM_BOT_TOKEN present: $HAS_TG_TOKEN"
           echo "==========================================="
+
+          echo "### Staging Secrets Audit" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| MONGODB_URI | $HAS_MONGO |" >> $GITHUB_STEP_SUMMARY
+          echo "| UPSTASH_REDIS_REST_URL | $HAS_REDIS_URL |" >> $GITHUB_STEP_SUMMARY
+          echo "| UPSTASH_REDIS_REST_TOKEN | $HAS_REDIS_TOKEN |" >> $GITHUB_STEP_SUMMARY
+          echo "| ADMIN_SECRET_KEY | $HAS_ADMIN_SECRET |" >> $GITHUB_STEP_SUMMARY
+          echo "| TELEGRAM_WEBHOOK_SECRET | $HAS_TG_WEBHOOK |" >> $GITHUB_STEP_SUMMARY
+          echo "| TELEGRAM_BOT_TOKEN | $HAS_TG_TOKEN |" >> $GITHUB_STEP_SUMMARY
 
           if [ -n "$STAGE_MONGO" ]; then
             printf '%s' "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --name cinefuel-staging --config wrangler.staging.toml
@@ -106,3 +123,33 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
           OPEN_NEXT_DEPLOY: 'true'
+
+      - name: Ensure Staging Secrets Bound Post-Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
+          STAGE_MONGO: ${{ secrets.MONGODB_URI || secrets.STAGE_MONGODB_URI || secrets.STAGING_MONGODB_URI }}
+          STAGE_REDIS_URL: ${{ secrets.UPSTASH_REDIS_REST_URL || secrets.STAGE_UPSTASH_REDIS_REST_URL || secrets.STAGING_REDIS_URL || secrets.KV_REST_API_URL }}
+          STAGE_REDIS_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN || secrets.STAGE_UPSTASH_REDIS_REST_TOKEN || secrets.STAGING_REDIS_TOKEN || secrets.KV_REST_API_TOKEN }}
+          STAGE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.STAGE_TELEGRAM_BOT_TOKEN }}
+          STAGE_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET_KEY || secrets.STAGE_ADMIN_SECRET_KEY || secrets.STAGING_ADMIN_KEY || secrets.ADMIN_PASSWORD }}
+          STAGE_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET || secrets.STAGE_TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          if [ -n "$STAGE_MONGO" ]; then
+            printf '%s' "$STAGE_MONGO" | npx wrangler secret put MONGODB_URI --name cinefuel-staging --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_REDIS_URL" ]; then
+            printf '%s' "$STAGE_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --name cinefuel-staging --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_REDIS_TOKEN" ]; then
+            printf '%s' "$STAGE_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --name cinefuel-staging --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_TELEGRAM_TOKEN" ]; then
+            printf '%s' "$STAGE_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --name cinefuel-staging --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_ADMIN_SECRET" ]; then
+            printf '%s' "$STAGE_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --name cinefuel-staging --config wrangler.staging.toml
+          fi
+          if [ -n "$STAGE_TELEGRAM_WEBHOOK_SECRET" ]; then
+            printf '%s' "$STAGE_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name cinefuel-staging --config wrangler.staging.toml
+          fi

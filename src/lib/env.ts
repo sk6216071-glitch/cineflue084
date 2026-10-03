@@ -9,10 +9,11 @@ export function getEnv(key: string, defaultValue: string = ''): string {
   try {
     const cf = getCloudflareContext();
     if (cf && cf.env && (cf.env as any)[key] !== undefined && (cf.env as any)[key] !== '') {
-      return String((cf.env as any)[key]);
+      return String((cf.env as any)[key]).trim();
     }
   } catch {
     // Expected outside Cloudflare request context
   }
-  return process.env[key] || defaultValue;
+  const val = process.env[key];
+  return val !== undefined && val !== null ? String(val).trim() : defaultValue;
 }
