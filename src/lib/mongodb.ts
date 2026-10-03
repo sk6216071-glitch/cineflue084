@@ -24,25 +24,13 @@ export async function getDatabase(dbName?: string): Promise<Db | null> {
     return null;
   }
   try {
-    if (!clientPromise) {
-      if (process.env.NODE_ENV === 'development') {
-        if (!global._mongoClientPromise) {
-          client = new MongoClient(currentUri, options);
-          global._mongoClientPromise = client.connect();
-        }
-        clientPromise = global._mongoClientPromise;
-      } else {
-        client = new MongoClient(currentUri, options);
-        clientPromise = client.connect();
-      }
-    }
-    const connectedClient = await clientPromise;
+    const client = new MongoClient(currentUri, options);
+    const connectedClient = await client.connect();
     const isStaging = getEnv('APP_ENV') === 'staging' || getEnv('CINEFUEL_ENV') === 'staging';
     const targetDb = dbName || getEnv('MONGODB_DB_NAME') || (isStaging ? 'cinefuel_staging' : 'cinefuel');
     return connectedClient.db(targetDb);
   } catch (err) {
     console.error('Failed to connect to MongoDB Atlas:', err);
-    clientPromise = null;
     return null;
   }
 }
