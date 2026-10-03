@@ -3,6 +3,7 @@ import { getAllRequests, saveNewRequest, updateRequestStatus, deleteRequest } fr
 import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase } from '@/lib/redisDb';
 import { UserRequest, CustomLink } from '@/types';
+import { validateAdminAuth } from '@/lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +83,15 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    await saveNewRequest(newRequest);
+    try {
+      await saveNewRequest(newRequest);
+    } catch (saveErr: any) {
+      console.error('Failed to save user request to persistent storage:', saveErr);
+      return NextResponse.json(
+        { error: 'Database persistence unavailable: could not save request', details: saveErr.message },
+        { status: 503 }
+      );
+    }
 
     // Auto-register / update user account in Central Users Directory
     try {
@@ -118,6 +127,10 @@ export async function POST(req: NextRequest) {
  * Admin fulfills, rejects, or updates a request
  */
 export async function PATCH(req: NextRequest) {
+  if (!validateAdminAuth(req)) {
+    return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const {
@@ -171,9 +184,10 @@ export async function PATCH(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('API /api/requests PATCH error:', error);
+    const isPersistenceErr = error.message && error.message.includes('persistence unavailable');
     return NextResponse.json(
-      { error: 'Failed to update request', details: error.message },
-      { status: 500 }
+      { error: error.message || 'Failed to update request' },
+      { status: isPersistenceErr ? 503 : 500 }
     );
   }
 }
@@ -183,6 +197,10 @@ export async function PATCH(req: NextRequest) {
  * Admin removes a request
  */
 export async function DELETE(req: NextRequest) {
+  if (!validateAdminAuth(req)) {
+    return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     let id = searchParams.get('id');
@@ -204,9 +222,10 @@ export async function DELETE(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('API /api/requests DELETE error:', error);
+    const isPersistenceErr = error.message && error.message.includes('persistence unavailable');
     return NextResponse.json(
-      { error: 'Failed to delete request', details: error.message },
-      { status: 500 }
+      { error: error.message || 'Failed to delete request' },
+      { status: isPersistenceErr ? 503 : 500 }
     );
   }
 }

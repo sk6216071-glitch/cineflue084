@@ -157,13 +157,21 @@ export async function getAllRequests(filterStatus?: string): Promise<{
  * Saves a new user link request to all persistence layers
  */
 export async function saveNewRequest(request: UserRequest): Promise<boolean> {
-  // 1. Local backup
+  let persisted = false;
+
+  // 1. MongoDB Atlas
   try {
-    const local = getLocalFallbackRequests();
-    const updated = [request, ...local.filter((r) => r.id !== request.id)];
-    saveLocalFallbackRequests(updated);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('requests').updateOne(
+        { id: request.id },
+        { $set: { ...request, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      persisted = true;
+    }
   } catch (err: any) {
-    console.error('Local request save failed:', err.message);
+    console.warn('MongoDB Atlas request save warning:', err.message);
   }
 
   // 2. Upstash Redis
@@ -173,23 +181,27 @@ export async function saveNewRequest(request: UserRequest): Promise<boolean> {
       const currentList = Array.isArray(existing) ? existing : [];
       const updated = [request, ...currentList.filter((r) => r.id !== request.id)];
       await redisClient.set(REDIS_REQUESTS_KEY, updated);
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis request save error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('requests').updateOne(
-        { id: request.id },
-        { $set: { ...request, updatedAt: new Date() } },
-        { upsert: true }
-      );
+  // 3. Local backup (only when filesystem is writable)
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackRequests();
+      const updated = [request, ...local.filter((r) => r.id !== request.id)];
+      if (saveLocalFallbackRequests(updated)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local request save failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas request save warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: neither MongoDB nor Redis could persist the request.');
   }
 
   return true;
@@ -207,6 +219,7 @@ export async function updateRequestStatus(
     adminNote?: string;
   }
 ): Promise<boolean> {
+  let persisted = false;
   const updates: Partial<UserRequest> = {
     status,
     ...(status === 'fulfilled' ? { fulfilledAt: new Date().toISOString() } : {}),
@@ -215,13 +228,18 @@ export async function updateRequestStatus(
     ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
   };
 
-  // 1. Local update
+  // 1. MongoDB Atlas
   try {
-    const local = getLocalFallbackRequests();
-    const updated = local.map((r) => (r.id === id ? { ...r, ...updates } : r));
-    saveLocalFallbackRequests(updated);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('requests').updateOne(
+        { id },
+        { $set: { ...updates, updatedAt: new Date() } }
+      );
+      persisted = true;
+    }
   } catch (err: any) {
-    console.error('Local request update failed:', err.message);
+    console.warn('MongoDB Atlas request update warning:', err.message);
   }
 
   // 2. Upstash Redis
@@ -231,22 +249,27 @@ export async function updateRequestStatus(
       const currentList = Array.isArray(existing) ? existing : [];
       const updated = currentList.map((r) => (r.id === id ? { ...r, ...updates } : r));
       await redisClient.set(REDIS_REQUESTS_KEY, updated);
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis request update error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('requests').updateOne(
-        { id },
-        { $set: { ...updates, updatedAt: new Date() } }
-      );
+  // 3. Local update (only if writable)
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackRequests();
+      const updated = local.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      if (saveLocalFallbackRequests(updated)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local request update failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas request update warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not update request status.');
   }
 
   return true;
@@ -256,10 +279,15 @@ export async function updateRequestStatus(
  * Deletes a request by ID
  */
 export async function deleteRequest(id: string): Promise<boolean> {
-  // 1. Local
+  let persisted = false;
+
+  // 1. MongoDB
   try {
-    const local = getLocalFallbackRequests();
-    saveLocalFallbackRequests(local.filter((r) => r.id !== id));
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('requests').deleteOne({ id });
+      persisted = true;
+    }
   } catch {}
 
   // 2. Redis
@@ -268,16 +296,23 @@ export async function deleteRequest(id: string): Promise<boolean> {
       const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
       const currentList = Array.isArray(existing) ? existing : [];
       await redisClient.set(REDIS_REQUESTS_KEY, currentList.filter((r) => r.id !== id));
+      persisted = true;
     } catch {}
   }
 
-  // 3. MongoDB
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('requests').deleteOne({ id });
-    }
-  } catch {}
+  // 3. Local
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackRequests();
+      if (saveLocalFallbackRequests(local.filter((r) => r.id !== id))) {
+        persisted = true;
+      }
+    } catch {}
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not delete request.');
+  }
 
   return true;
 }

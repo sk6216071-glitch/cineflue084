@@ -157,13 +157,21 @@ export async function getAllReports(filterStatus?: string): Promise<{
  * Saves a new defective link report to all persistence layers
  */
 export async function saveNewReport(report: DefectiveLinkReport): Promise<boolean> {
-  // 1. Local backup
+  let persisted = false;
+
+  // 1. MongoDB Atlas
   try {
-    const local = getLocalFallbackReports();
-    const updated = [report, ...local.filter((r) => r.id !== report.id)];
-    saveLocalFallbackReports(updated);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('defective_reports').updateOne(
+        { id: report.id },
+        { $set: { ...report, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      persisted = true;
+    }
   } catch (err: any) {
-    console.error('Local defective report save failed:', err.message);
+    console.warn('MongoDB Atlas defective report save warning:', err.message);
   }
 
   // 2. Upstash Redis
@@ -173,23 +181,27 @@ export async function saveNewReport(report: DefectiveLinkReport): Promise<boolea
       const currentList = Array.isArray(existing) ? existing : [];
       const updated = [report, ...currentList.filter((r) => r.id !== report.id)];
       await redisClient.set(REDIS_REPORTS_KEY, updated);
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis defective report save error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('defective_reports').updateOne(
-        { id: report.id },
-        { $set: { ...report, updatedAt: new Date() } },
-        { upsert: true }
-      );
+  // 3. Local backup (only when filesystem is writable)
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackReports();
+      const updated = [report, ...local.filter((r) => r.id !== report.id)];
+      if (saveLocalFallbackReports(updated)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local defective report save failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas defective report save warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: neither MongoDB nor Redis could persist the report.');
   }
 
   return true;
@@ -206,6 +218,7 @@ export async function updateReportStatus(
     adminNote?: string;
   }
 ): Promise<boolean> {
+  let persisted = false;
   const updates: Partial<DefectiveLinkReport> = {
     status,
     ...(status === 'fixed' || status === 'dismissed' ? { resolvedAt: new Date().toISOString() } : {}),
@@ -213,13 +226,18 @@ export async function updateReportStatus(
     ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
   };
 
-  // 1. Local update
+  // 1. MongoDB Atlas
   try {
-    const local = getLocalFallbackReports();
-    const updated = local.map((r) => (r.id === id ? { ...r, ...updates } : r));
-    saveLocalFallbackReports(updated);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('defective_reports').updateOne(
+        { id },
+        { $set: { ...updates, updatedAt: new Date() } }
+      );
+      persisted = true;
+    }
   } catch (err: any) {
-    console.error('Local defective report update failed:', err.message);
+    console.warn('MongoDB Atlas defective report update warning:', err.message);
   }
 
   // 2. Upstash Redis
@@ -229,22 +247,27 @@ export async function updateReportStatus(
       const currentList = Array.isArray(existing) ? existing : [];
       const updated = currentList.map((r) => (r.id === id ? { ...r, ...updates } : r));
       await redisClient.set(REDIS_REPORTS_KEY, updated);
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis defective report update error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('defective_reports').updateOne(
-        { id },
-        { $set: { ...updates, updatedAt: new Date() } }
-      );
+  // 3. Local update (only if writable)
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackReports();
+      const updated = local.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      if (saveLocalFallbackReports(updated)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local defective report update failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas defective report update warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not update report status.');
   }
 
   return true;
@@ -254,10 +277,15 @@ export async function updateReportStatus(
  * Deletes a defective report by ID
  */
 export async function deleteReport(id: string): Promise<boolean> {
-  // 1. Local
+  let persisted = false;
+
+  // 1. MongoDB
   try {
-    const local = getLocalFallbackReports();
-    saveLocalFallbackReports(local.filter((r) => r.id !== id));
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('defective_reports').deleteOne({ id });
+      persisted = true;
+    }
   } catch {}
 
   // 2. Redis
@@ -266,16 +294,23 @@ export async function deleteReport(id: string): Promise<boolean> {
       const existing = (await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY)) || [];
       const currentList = Array.isArray(existing) ? existing : [];
       await redisClient.set(REDIS_REPORTS_KEY, currentList.filter((r) => r.id !== id));
+      persisted = true;
     } catch {}
   }
 
-  // 3. MongoDB
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('defective_reports').deleteOne({ id });
-    }
-  } catch {}
+  // 3. Local
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackReports();
+      if (saveLocalFallbackReports(local.filter((r) => r.id !== id))) {
+        persisted = true;
+      }
+    } catch {}
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not delete report.');
+  }
 
   return true;
 }

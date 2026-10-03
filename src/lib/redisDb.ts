@@ -52,17 +52,19 @@ function isFileSystemWritable(): boolean {
 /**
  * Writes local JSON fallback file safely
  */
-export function saveLocalFallbackLinks(data: Record<string, any[]>) {
-  if (!isFileSystemWritable()) return;
+export function saveLocalFallbackLinks(data: Record<string, any[]>): boolean {
+  if (!isFileSystemWritable()) return false;
   try {
     const dir = path.dirname(LOCAL_FILE);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(LOCAL_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    return true;
   } catch (e) {
     console.error('Error writing local serverLinks.json:', e);
   }
+  return false;
 }
 
 /**
@@ -169,15 +171,21 @@ export async function getLinksFromDatabase(movieId?: number | string): Promise<{
  */
 export async function saveLinkToDatabase(movieId: number | string, link: any): Promise<boolean> {
   const key = String(movieId);
+  let persisted = false;
 
-  // 1. Local backup
+  // 1. MongoDB Atlas Cloud save
   try {
-    const localData = getLocalFallbackLinks();
-    const existing = localData[key] || [];
-    localData[key] = [link, ...existing.filter((l: any) => l.id !== link.id && l.url !== link.url)];
-    saveLocalFallbackLinks(localData);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('links').updateOne(
+        { movieId: key, url: link.url },
+        { $set: { ...link, movieId: key, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      persisted = true;
+    }
   } catch (err: any) {
-    console.error('Local backup save failed:', err.message);
+    console.warn('MongoDB Atlas save warning:', err.message);
   }
 
   // 2. Upstash Cloud Redis save
@@ -204,23 +212,28 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
 
       const updated = [link, ...current.filter((l: any) => l.id !== link.id && l.url !== link.url)];
       await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis save error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas Cloud save
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('links').updateOne(
-        { movieId: key, url: link.url },
-        { $set: { ...link, movieId: key, updatedAt: new Date() } },
-        { upsert: true }
-      );
+  // 3. Local backup (only when writable)
+  if (isFileSystemWritable()) {
+    try {
+      const localData = getLocalFallbackLinks();
+      const existing = localData[key] || [];
+      localData[key] = [link, ...existing.filter((l: any) => l.id !== link.id && l.url !== link.url)];
+      if (saveLocalFallbackLinks(localData)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local backup save failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas save warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not save link.');
   }
 
   return true;
@@ -242,18 +255,26 @@ export function isLinkAlreadyInDatabase(movieId: number | string, url: string): 
 export async function saveMultipleLinksToDatabase(movieId: number | string, links: any[]): Promise<boolean> {
   if (!links || links.length === 0) return true;
   const key = String(movieId);
+  let persisted = false;
 
-  // 1. Local backup
+  // 1. MongoDB Atlas Cloud batch save
   try {
-    const localData = getLocalFallbackLinks();
-    const existing = localData[key] || [];
-    const newIds = new Set(links.map((l) => l.id).filter(Boolean));
-    const newUrls = new Set(links.map((l) => l.url).filter(Boolean));
-    const filteredExisting = existing.filter((l: any) => !newIds.has(l.id) && !newUrls.has(l.url));
-    localData[key] = [...links, ...filteredExisting];
-    saveLocalFallbackLinks(localData);
+    const db = await getDatabase();
+    if (db) {
+      const ops = links.map((l) => ({
+        updateOne: {
+          filter: { movieId: key, url: l.url },
+          update: { $set: { ...l, movieId: key, updatedAt: new Date() } },
+          upsert: true,
+        },
+      }));
+      if (ops.length > 0) {
+        await db.collection('links').bulkWrite(ops);
+        persisted = true;
+      }
+    }
   } catch (err: any) {
-    console.error('Local backup batch save failed:', err.message);
+    console.warn('MongoDB Atlas batch save warning:', err.message);
   }
 
   // 2. Upstash Cloud Redis save
@@ -284,28 +305,31 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
       const updated = [...links, ...filteredCurrent];
 
       await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis batch save error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas Cloud batch save
-  try {
-    const db = await getDatabase();
-    if (db) {
-      const ops = links.map((l) => ({
-        updateOne: {
-          filter: { movieId: key, url: l.url },
-          update: { $set: { ...l, movieId: key, updatedAt: new Date() } },
-          upsert: true,
-        },
-      }));
-      if (ops.length > 0) {
-        await db.collection('links').bulkWrite(ops);
+  // 3. Local backup
+  if (isFileSystemWritable()) {
+    try {
+      const localData = getLocalFallbackLinks();
+      const existing = localData[key] || [];
+      const newIds = new Set(links.map((l) => l.id).filter(Boolean));
+      const newUrls = new Set(links.map((l) => l.url).filter(Boolean));
+      const filteredExisting = existing.filter((l: any) => !newIds.has(l.id) && !newUrls.has(l.url));
+      localData[key] = [...links, ...filteredExisting];
+      if (saveLocalFallbackLinks(localData)) {
+        persisted = true;
       }
+    } catch (err: any) {
+      console.error('Local backup batch save failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas batch save warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not save batch links.');
   }
 
   return true;
@@ -316,15 +340,18 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
  */
 export async function deleteLinkFromDatabase(movieId: number | string, linkId: string): Promise<boolean> {
   const key = String(movieId);
+  let persisted = false;
 
-  // 1. Local backup deletion
+  // 1. MongoDB Atlas Cloud deletion
   try {
-    const localData = getLocalFallbackLinks();
-    if (localData[key]) {
-      localData[key] = localData[key].filter((l: any) => l.id !== linkId);
-      saveLocalFallbackLinks(localData);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('links').deleteOne({ movieId: key, id: linkId });
+      persisted = true;
     }
-  } catch {}
+  } catch (err: any) {
+    console.warn('MongoDB Atlas delete warning:', err.message);
+  }
 
   // 2. Upstash Cloud Redis deletion
   if (redisClient) {
@@ -341,19 +368,27 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
       }
       const updated = list.filter((l: any) => l.id !== linkId);
       await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis deletion error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas Cloud deletion
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('links').deleteOne({ movieId: key, id: linkId });
-    }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas delete warning:', err.message);
+  // 3. Local backup deletion
+  if (isFileSystemWritable()) {
+    try {
+      const localData = getLocalFallbackLinks();
+      if (localData[key]) {
+        localData[key] = localData[key].filter((l: any) => l.id !== linkId);
+        if (saveLocalFallbackLinks(localData)) {
+          persisted = true;
+        }
+      }
+    } catch {}
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not delete link.');
   }
 
   return true;

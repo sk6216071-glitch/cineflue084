@@ -5,6 +5,15 @@ import {
   pruneCustomLinksCache,
 } from './safeStorage';
 
+function getAdminHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (typeof window !== 'undefined') {
+    const key = localStorage.getItem('cinefuel_admin_key') || localStorage.getItem('cinefuel_admin_pass') || 'shyam081';
+    if (key) headers['x-admin-key'] = key;
+  }
+  return headers;
+}
+
 export const BUILTIN_CURATED_LINKS: Record<number, CustomLink[]> = {};
 
 /**
@@ -118,7 +127,7 @@ export function saveGlobalCustomLink(movieId: number, link: CustomLink): void {
     // Also persist to server database
     fetch('/api/curated-links', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAdminHeaders(),
       body: JSON.stringify({ movieId, link }),
     }).catch(() => {});
   } catch (err) {
@@ -157,7 +166,7 @@ export function saveMultipleGlobalCustomLinks(movieId: number, newLinks: CustomL
     // Persist all links to server database in a single atomic request
     fetch('/api/curated-links', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAdminHeaders(),
       body: JSON.stringify({ movieId, links: newLinks }),
     }).catch(() => {});
   } catch (err) {
@@ -190,7 +199,7 @@ export function updateGlobalCustomLink(movieId: number, updatedLink: CustomLink)
     // Also persist to server database
     fetch('/api/curated-links', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAdminHeaders(),
       body: JSON.stringify({ movieId, link: updatedLink }),
     }).catch(() => {});
   } catch (err) {
@@ -268,6 +277,7 @@ export async function deleteGlobalCustomLink(movieId: number, linkId: string): P
     try {
       await fetch(`/api/curated-links?movieId=${movieId}&linkId=${linkId}`, {
         method: 'DELETE',
+        headers: getAdminHeaders(),
       });
     } catch (netErr) {
       console.warn('Network deletion error:', netErr);
@@ -313,7 +323,7 @@ export async function deleteMultipleGlobalCustomLinks(items: Array<{ movieId: nu
     try {
       await fetch('/api/curated-links', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ items }),
       });
     } catch (netErr) {

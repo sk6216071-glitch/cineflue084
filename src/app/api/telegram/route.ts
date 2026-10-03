@@ -115,6 +115,26 @@ async function sendTelegramPhotoCard(chatId: number, card: any) {
 }
 
 export async function POST(request: NextRequest) {
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const headerSecret = request.headers.get('x-telegram-bot-api-secret-token');
+
+  if (webhookSecret) {
+    if (!headerSecret || headerSecret !== webhookSecret) {
+      return NextResponse.json(
+        { error: 'Unauthorized: invalid or missing telegram webhook secret token' },
+        { status: 401 }
+      );
+    }
+  } else {
+    // Fail-safe: if no secret configured, require secret token header to be present
+    if (!headerSecret) {
+      return NextResponse.json(
+        { error: 'Unauthorized: missing telegram webhook secret token' },
+        { status: 401 }
+      );
+    }
+  }
+
   try {
     const update = await request.json();
 

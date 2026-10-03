@@ -9,6 +9,7 @@ import {
   seedLocalLinksToRedis,
   migrateDomainInDatabase,
 } from '@/lib/redisDb';
+import { validateAdminAuth } from '@/lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,9 @@ export async function GET(request: NextRequest) {
 
     // Admin seed action to sync local links to Upstash cloud
     if (action === 'seed') {
+      if (!validateAdminAuth(request)) {
+        return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+      }
       const seedResult = await seedLocalLinksToRedis();
       return NextResponse.json(seedResult);
     }
@@ -46,6 +50,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!validateAdminAuth(request)) {
+    return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { movieId, link, links, action, oldDomain, newDomain } = body;
@@ -92,11 +100,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, link: linkObj });
   } catch (err: any) {
     console.error('Error in POST /api/curated-links:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const isPersistenceErr = err.message && err.message.includes('persistence unavailable');
+    return NextResponse.json(
+      { error: err.message },
+      { status: isPersistenceErr ? 503 : 500 }
+    );
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  if (!validateAdminAuth(request)) {
+    return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+  }
+
   try {
     // 1. Check for JSON body batch deletion
     let body: any = null;
@@ -135,6 +151,10 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'movieId and linkId required' }, { status: 400 });
   } catch (err: any) {
     console.error('Error in DELETE /api/curated-links:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const isPersistenceErr = err.message && err.message.includes('persistence unavailable');
+    return NextResponse.json(
+      { error: err.message },
+      { status: isPersistenceErr ? 503 : 500 }
+    );
   }
 }

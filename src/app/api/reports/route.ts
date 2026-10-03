@@ -3,6 +3,7 @@ import { getAllReports, saveNewReport, updateReportStatus, deleteReport } from '
 import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
+import { validateAdminAuth } from '@/lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,7 +85,15 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    await saveNewReport(newReport);
+    try {
+      await saveNewReport(newReport);
+    } catch (saveErr: any) {
+      console.error('Failed to save defective report to persistent storage:', saveErr);
+      return NextResponse.json(
+        { error: 'Database persistence unavailable: could not save report', details: saveErr.message },
+        { status: 503 }
+      );
+    }
 
     // Auto-register / update reporter account in Central Users Directory
     try {
@@ -119,6 +128,10 @@ export async function POST(req: NextRequest) {
  * Admin updates report status (fixed, dismissed, pending), optionally replaces or deletes defective link
  */
 export async function PATCH(req: NextRequest) {
+  if (!validateAdminAuth(req)) {
+    return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const {
@@ -179,9 +192,10 @@ export async function PATCH(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('API /api/reports PATCH error:', error);
+    const isPersistenceErr = error.message && error.message.includes('persistence unavailable');
     return NextResponse.json(
-      { error: 'Failed to update report status', details: error.message },
-      { status: 500 }
+      { error: error.message || 'Failed to update report status' },
+      { status: isPersistenceErr ? 503 : 500 }
     );
   }
 }
@@ -191,6 +205,10 @@ export async function PATCH(req: NextRequest) {
  * Admin deletes a report record
  */
 export async function DELETE(req: NextRequest) {
+  if (!validateAdminAuth(req)) {
+    return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
@@ -207,9 +225,10 @@ export async function DELETE(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('API /api/reports DELETE error:', error);
+    const isPersistenceErr = error.message && error.message.includes('persistence unavailable');
     return NextResponse.json(
-      { error: 'Failed to delete report', details: error.message },
-      { status: 500 }
+      { error: error.message || 'Failed to delete report' },
+      { status: isPersistenceErr ? 503 : 500 }
     );
   }
 }

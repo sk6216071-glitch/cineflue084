@@ -85,7 +85,7 @@ export async function getAllUsers(): Promise<{
       const docs = await collection.find({}).sort({ createdAt: -1 }).toArray();
       if (docs && docs.length > 0) {
         userList = docs.map((d: any) => {
-          const { _id, ...rest } = d;
+          const { _id, passwordHash, passwordSalt, ...rest } = d;
           return rest as RegisteredUser;
         });
         source = 'mongodb_atlas';
@@ -100,10 +100,17 @@ export async function getAllUsers(): Promise<{
     try {
       const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
       if (Array.isArray(redisData) && redisData.length > 0) {
-        userList = redisData;
+        userList = redisData.map((u: any) => {
+          const { passwordHash, passwordSalt, ...rest } = u;
+          return rest as RegisteredUser;
+        });
         source = 'upstash_redis';
       } else if (typeof redisData === 'string') {
-        userList = JSON.parse(redisData);
+        const parsed = JSON.parse(redisData);
+        userList = (Array.isArray(parsed) ? parsed : []).map((u: any) => {
+          const { passwordHash, passwordSalt, ...rest } = u;
+          return rest as RegisteredUser;
+        });
         source = 'upstash_redis';
       }
     } catch (redisErr: any) {
@@ -113,15 +120,19 @@ export async function getAllUsers(): Promise<{
 
   // 3. Fallback to local
   if (userList.length === 0) {
-    userList = getLocalFallbackUsers();
+    userList = getLocalFallbackUsers().map((u: any) => {
+      const { passwordHash, passwordSalt, ...rest } = u;
+      return rest as RegisteredUser;
+    });
     source = 'local_json';
   }
 
   // 4. Fetch live requests & reports to correlate user activity
   const usersMap = new Map<string, RegisteredUser>();
-  userList.forEach((u) => {
-    const key = (u.email || u.uid).toLowerCase();
-    usersMap.set(key, { ...u, requestsCount: 0, reportsCount: 0, recentRequests: [] });
+  userList.forEach((u: any) => {
+    const { passwordHash, passwordSalt, ...safeU } = u;
+    const key = (safeU.email || safeU.uid).toLowerCase();
+    usersMap.set(key, { ...safeU, requestsCount: 0, reportsCount: 0, recentRequests: [] });
   });
 
   try {
@@ -280,13 +291,21 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
     recentRequests: existing?.recentRequests || [],
   };
 
-  // 1. Local JSON
+  let persisted = false;
+
+  // 1. MongoDB Atlas
   try {
-    const local = getLocalFallbackUsers();
-    const updated = [finalUser, ...local.filter((u) => u.uid !== finalUser.uid && u.email !== finalUser.email)];
-    saveLocalFallbackUsers(updated);
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('users').updateOne(
+        { $or: [{ email: cleanEmail }, { uid: finalUser.uid }] },
+        { $set: { ...finalUser, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      persisted = true;
+    }
   } catch (err: any) {
-    console.error('Local user save failed:', err.message);
+    console.warn('MongoDB Atlas user save warning:', err.message);
   }
 
   // 2. Upstash Redis
@@ -296,23 +315,27 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
       const currentList = Array.isArray(existingRedis) ? existingRedis : [];
       const updated = [finalUser, ...currentList.filter((u) => u.uid !== finalUser.uid && u.email !== finalUser.email)];
       await redisClient.set(REDIS_USERS_KEY, updated);
+      persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis user save error:', err.message);
     }
   }
 
-  // 3. MongoDB Atlas
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('users').updateOne(
-        { $or: [{ email: cleanEmail }, { uid: finalUser.uid }] },
-        { $set: { ...finalUser, updatedAt: new Date() } },
-        { upsert: true }
-      );
+  // 3. Local JSON (only if writable)
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackUsers();
+      const updated = [finalUser, ...local.filter((u) => u.uid !== finalUser.uid && u.email !== finalUser.email)];
+      if (saveLocalFallbackUsers(updated)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local user save failed:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas user save warning:', err.message);
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not save user.');
   }
 
   return finalUser;
@@ -322,10 +345,15 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
  * Deletes a user by uid
  */
 export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
-  // 1. Local
+  let persisted = false;
+
+  // 1. Mongo
   try {
-    const local = getLocalFallbackUsers();
-    saveLocalFallbackUsers(local.filter((u) => u.uid !== uid));
+    const db = await getDatabase();
+    if (db) {
+      await db.collection('users').deleteOne({ uid });
+      persisted = true;
+    }
   } catch (e) {}
 
   // 2. Redis
@@ -334,17 +362,24 @@ export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
       const existing = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
       if (Array.isArray(existing)) {
         await redisClient.set(REDIS_USERS_KEY, existing.filter((u) => u.uid !== uid));
+        persisted = true;
       }
     } catch (e) {}
   }
 
-  // 3. Mongo
-  try {
-    const db = await getDatabase();
-    if (db) {
-      await db.collection('users').deleteOne({ uid });
-    }
-  } catch (e) {}
+  // 3. Local
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackUsers();
+      if (saveLocalFallbackUsers(local.filter((u) => u.uid !== uid))) {
+        persisted = true;
+      }
+    } catch (e) {}
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not delete user.');
+  }
 
   return true;
 }
