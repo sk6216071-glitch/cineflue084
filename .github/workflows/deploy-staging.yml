@@ -27,10 +27,19 @@ jobs:
         run: npx opennextjs-cloudflare build
         env:
           NEXT_PUBLIC_SITE_URL: "https://cinefuel-staging.sk6216071.workers.dev"
-          NEXT_PUBLIC_TMDB_API_KEY: "8265bd1679663a7ea12ac168da84d2e8"
+      - name: Verify Cloudflare Authentication Token
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN secret is NOT SET in GitHub repository secrets! Go to Settings -> Secrets and variables -> Actions to add it."
+            exit 1
+          else
+            echo "CLOUDFLARE_API_TOKEN is present in GitHub Secrets (length: ${#CLOUDFLARE_API_TOKEN})"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Deploy to Cloudflare Workers Staging
-        run: npx wrangler deploy --config wrangler.staging.toml
+        run: npx wrangler deploy --config wrangler.staging.toml --log-level debug
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
