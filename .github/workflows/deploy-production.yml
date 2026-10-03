@@ -1,0 +1,143 @@
+name: Deploy CineFuel Production to Cloudflare Workers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pre-Deployment Safety Verification
+        run: |
+          echo "=== VERIFYING PRODUCTION DEPLOYMENT TARGET ==="
+          echo "Current Branch: $GITHUB_REF_NAME"
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::CRITICAL VIOLATION: Production workflow may ONLY be triggered from the 'main' branch!"
+            exit 1
+          fi
+          
+          WORKER_NAME=$(grep '^name = ' wrangler.production.toml | head -n1 | cut -d '"' -f 2)
+          echo "Target Worker Name: $WORKER_NAME"
+          if [ "$WORKER_NAME" != "cineflue084" ]; then
+            echo "::error::CRITICAL VIOLATION: Target worker must be 'cineflue084' but got '$WORKER_NAME'!"
+            exit 1
+          fi
+          echo "Pre-deployment safety checks PASSED. Deploying to production worker: cineflue084."
+
+      - name: Build Next.js with OpenNext Cloudflare
+        run: npx opennextjs-cloudflare build --config wrangler.production.toml
+        env:
+          NEXT_PUBLIC_SITE_URL: "https://cineflue084.sk6216071.workers.dev"
+          NEXT_PUBLIC_TMDB_API_KEY: "8265bd1679663a7ea12ac168da84d2e8"
+          APP_ENV: "production"
+          CINEFUEL_ENV: "production"
+          WORKER_NAME: "cineflue084"
+
+      - name: Verify Cloudflare Authentication Token
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN secret is NOT SET in GitHub repository secrets!"
+            exit 1
+          else
+            echo "CLOUDFLARE_API_TOKEN is present in GitHub Secrets (length: ${#CLOUDFLARE_API_TOKEN})"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Configure Production Cloudflare Secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
+          PROD_MONGO: ${{ secrets.PROD_MONGODB_URI || secrets.MONGODB_URI || vars.MONGODB_URI }}
+          PROD_REDIS_URL: ${{ secrets.PROD_UPSTASH_REDIS_REST_URL || secrets.UPSTASH_REDIS_REST_URL || vars.UPSTASH_REDIS_REST_URL }}
+          PROD_REDIS_TOKEN: ${{ secrets.PROD_UPSTASH_REDIS_REST_TOKEN || secrets.UPSTASH_REDIS_REST_TOKEN || vars.UPSTASH_REDIS_REST_TOKEN }}
+          PROD_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || vars.TELEGRAM_BOT_TOKEN }}
+          PROD_ADMIN_SECRET: ${{ secrets.PROD_ADMIN_SECRET_KEY || secrets.ADMIN_SECRET_KEY || vars.ADMIN_SECRET_KEY }}
+          PROD_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.PROD_TELEGRAM_WEBHOOK_SECRET || secrets.TELEGRAM_WEBHOOK_SECRET || vars.TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          echo "=== AUDITING PRODUCTION SECRETS PRESENCE ==="
+          HAS_MONGO=$([ -n "$PROD_MONGO" ] && echo 'YES' || echo 'NO')
+          HAS_REDIS_URL=$([ -n "$PROD_REDIS_URL" ] && echo 'YES' || echo 'NO')
+          HAS_REDIS_TOKEN=$([ -n "$PROD_REDIS_TOKEN" ] && echo 'YES' || echo 'NO')
+          HAS_ADMIN_SECRET=$([ -n "$PROD_ADMIN_SECRET" ] && echo 'YES' || echo 'NO')
+          HAS_TG_WEBHOOK=$([ -n "$PROD_TELEGRAM_WEBHOOK_SECRET" ] && echo 'YES' || echo 'NO')
+          HAS_TG_TOKEN=$([ -n "$PROD_TELEGRAM_TOKEN" ] && echo 'YES' || echo 'NO')
+
+          echo "MONGODB_URI present: $HAS_MONGO"
+          echo "UPSTASH_REDIS_REST_URL present: $HAS_REDIS_URL"
+          echo "UPSTASH_REDIS_REST_TOKEN present: $HAS_REDIS_TOKEN"
+          echo "ADMIN_SECRET_KEY present: $HAS_ADMIN_SECRET"
+          echo "TELEGRAM_WEBHOOK_SECRET present: $HAS_TG_WEBHOOK"
+          echo "TELEGRAM_BOT_TOKEN present: $HAS_TG_TOKEN"
+          echo "==========================================="
+
+          if [ -n "$PROD_MONGO" ]; then
+            printf '%s' "$PROD_MONGO" | npx wrangler secret put MONGODB_URI --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_REDIS_URL" ]; then
+            printf '%s' "$PROD_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_REDIS_TOKEN" ]; then
+            printf '%s' "$PROD_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_TELEGRAM_TOKEN" ]; then
+            printf '%s' "$PROD_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_ADMIN_SECRET" ]; then
+            printf '%s' "$PROD_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_TELEGRAM_WEBHOOK_SECRET" ]; then
+            printf '%s' "$PROD_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name cineflue084 --config wrangler.production.toml
+          fi
+
+      - name: Deploy to Cloudflare Workers Production
+        run: npx opennextjs-cloudflare deploy --config wrangler.production.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
+          OPEN_NEXT_DEPLOY: 'true'
+
+      - name: Ensure Production Secrets Bound Post-Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: '46f7bef008a04d13a6bd134c3a291006'
+          PROD_MONGO: ${{ secrets.PROD_MONGODB_URI || secrets.MONGODB_URI || vars.MONGODB_URI }}
+          PROD_REDIS_URL: ${{ secrets.PROD_UPSTASH_REDIS_REST_URL || secrets.UPSTASH_REDIS_REST_URL || vars.UPSTASH_REDIS_REST_URL }}
+          PROD_REDIS_TOKEN: ${{ secrets.PROD_UPSTASH_REDIS_REST_TOKEN || secrets.UPSTASH_REDIS_REST_TOKEN || vars.UPSTASH_REDIS_REST_TOKEN }}
+          PROD_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || vars.TELEGRAM_BOT_TOKEN }}
+          PROD_ADMIN_SECRET: ${{ secrets.PROD_ADMIN_SECRET_KEY || secrets.ADMIN_SECRET_KEY || vars.ADMIN_SECRET_KEY }}
+          PROD_TELEGRAM_WEBHOOK_SECRET: ${{ secrets.PROD_TELEGRAM_WEBHOOK_SECRET || secrets.TELEGRAM_WEBHOOK_SECRET || vars.TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          if [ -n "$PROD_MONGO" ]; then
+            printf '%s' "$PROD_MONGO" | npx wrangler secret put MONGODB_URI --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_REDIS_URL" ]; then
+            printf '%s' "$PROD_REDIS_URL" | npx wrangler secret put UPSTASH_REDIS_REST_URL --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_REDIS_TOKEN" ]; then
+            printf '%s' "$PROD_REDIS_TOKEN" | npx wrangler secret put UPSTASH_REDIS_REST_TOKEN --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_TELEGRAM_TOKEN" ]; then
+            printf '%s' "$PROD_TELEGRAM_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_ADMIN_SECRET" ]; then
+            printf '%s' "$PROD_ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET_KEY --name cineflue084 --config wrangler.production.toml
+          fi
+          if [ -n "$PROD_TELEGRAM_WEBHOOK_SECRET" ]; then
+            printf '%s' "$PROD_TELEGRAM_WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name cineflue084 --config wrangler.production.toml
+          fi
