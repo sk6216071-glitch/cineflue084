@@ -34,7 +34,7 @@ async function req(method, path, body = null, headers = {}) {
     const text = await res.text();
     let json = null;
     try { json = JSON.parse(text); } catch {}
-    await new Promise(r => setTimeout(r, 250));
+    await new Promise(r => setTimeout(r, 500));
     return {
       status: res.status,
       headers: res.headers,
@@ -70,6 +70,9 @@ async function runRegression() {
     checklist.push({ num, name, passed, metric });
     console.log(`[${passed ? 'PASS' : 'FAIL'}] #${num} ${name}`);
     console.log(`       -> Status: ${metric.status}, TTFB: ${metric.duration}ms, X-Cache: ${metric.xCache}, Size: ${metric.sizeBytes} B, Details: ${metric.details || 'OK'}`);
+    if (!passed && metric.raw) {
+      console.log(`       -> Response Body: ${metric.raw.slice(0, 500)}`);
+    }
   }
 
   // 1. /
@@ -152,16 +155,15 @@ async function runRegression() {
   record(18, 'Credential sanitization', !hasHashes, { ...userCheck, details: hasHashes ? 'Leak detected!' : 'Zero hashes leaked' });
 
   // 19. Secret leakage scan
-  const routesToScan = ['/', '/movies', '/tv', '/api/catalog'];
+  const responsesToScan = [r1.raw, r2.raw, r3.raw, r6.raw];
   let secretsFound = false;
-  for (const r of routesToScan) {
-    const sc = await req('GET', r);
-    if (/mongodb\+srv:\/\//i.test(sc.raw) || /nearby-wren/i.test(sc.raw) || /gQAAAAAA/i.test(sc.raw)) {
+  for (const raw of responsesToScan) {
+    if (/mongodb\+srv:\/\//i.test(raw) || /nearby-wren/i.test(raw) || /gQAAAAAA/i.test(raw)) {
       secretsFound = true;
       break;
     }
   }
-  record(19, 'Secret leakage scan', !secretsFound, { status: 200, duration: 250, xCache: 'N/A', sizeBytes: 0, details: secretsFound ? 'SECRET FOUND' : 'Clean (No URIs, tokens)' });
+  record(19, 'Secret leakage scan', !secretsFound, { status: 200, duration: 1, xCache: 'N/A', sizeBytes: 0, details: secretsFound ? 'SECRET FOUND' : 'Clean (No URIs, tokens)' });
 
   // 20. Error handling
   const errRoute = await req('GET', '/api/catalog?page=-999&limit=999999');
