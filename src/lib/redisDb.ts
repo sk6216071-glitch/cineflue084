@@ -25,6 +25,25 @@ const REDIS_DELETED_KEY = 'cinefuel:deleted_link_ids';
 const LOCAL_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 /**
+ * Invalidates the Redis catalog summary cache for all media types
+ */
+export async function invalidateCatalogCache(): Promise<void> {
+  const redisClient = getRedisClient();
+  if (!redisClient) return;
+  const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
+  const keys = [
+    `cinefuel:${env}:catalog:all`,
+    `cinefuel:${env}:catalog:movie`,
+    `cinefuel:${env}:catalog:tv`,
+  ];
+  try {
+    await redisClient.del(...keys);
+  } catch (err: any) {
+    console.warn('Failed to invalidate catalog cache in Redis:', err.message);
+  }
+}
+
+/**
  * Reads local JSON fallback file safely
  */
 export function getLocalFallbackLinks(): Record<string, any[]> {
@@ -235,6 +254,7 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
     throw new Error('Database persistence unavailable: could not save link.');
   }
 
+  await invalidateCatalogCache().catch(() => {});
   return true;
 }
 
@@ -332,6 +352,7 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
     throw new Error('Database persistence unavailable: could not save batch links.');
   }
 
+  await invalidateCatalogCache().catch(() => {});
   return true;
 }
 
@@ -392,6 +413,7 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
     throw new Error('Database persistence unavailable: could not delete link.');
   }
 
+  await invalidateCatalogCache().catch(() => {});
   return true;
 }
 
@@ -457,6 +479,7 @@ export async function deleteMultipleLinksFromDatabase(items: Array<{ movieId: nu
     console.warn('MongoDB Atlas batch delete warning:', err.message);
   }
 
+  await invalidateCatalogCache().catch(() => {});
   return true;
 }
 
@@ -712,62 +735,132 @@ export async function getPaginatedUploadedTitles(
 
   const allEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc: any; createdAt: string }> = [];
   const seen = new Set<string>();
-  let mongoLoaded = false;
+  let loadedFromCache = false;
 
-  // 1. Try MongoDB Atlas first
-  try {
-    const db = await getDatabase();
-    if (db) {
-      const collection = db.collection('links');
-      const aggResults = await collection
-        .aggregate([
-          { $sort: { createdAt: -1, updatedAt: -1 } },
+  // 1. Try Redis Catalog Summary Cache first (300s TTL)
+  const redisClient = getRedisClient();
+  const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
+  const cacheKey = `cinefuel:${env}:catalog:${type}`;
+
+  if (redisClient) {
+    try {
+      const cached = await redisClient.get<any[]>(cacheKey);
+      let list = cached;
+      if (typeof list === 'string') {
+        try { list = JSON.parse(list); } catch {}
+      }
+      if (Array.isArray(list) && list.length > 0) {
+        for (const item of list) {
+          const mId = String(item.movieId || '');
+          if (!mId || seen.has(mId)) continue;
+          seen.add(mId);
+          allEntries.push(item);
+        }
+        if (allEntries.length > 0) {
+          loadedFromCache = true;
+        }
+      }
+    } catch (cacheErr: any) {
+      console.warn('Redis catalog cache read error:', cacheErr.message);
+    }
+  }
+
+  // 2. Cache Miss: Execute optimized lightweight MongoDB aggregation
+  if (!loadedFromCache) {
+    try {
+      const db = await getDatabase();
+      if (db) {
+        const collection = db.collection('links');
+
+        // Separate movie vs tv early to halve scanned documents
+        const matchStage: any = {};
+        if (type === 'movie') matchStage.mediaType = 'movie';
+        else if (type === 'tv') matchStage.mediaType = 'tv';
+
+        const pipeline: any[] = [];
+        if (Object.keys(matchStage).length > 0) {
+          pipeline.push({ $match: matchStage });
+        }
+
+        // Lightweight projection: keep only catalog display fields (prevents BSON memory bloat)
+        pipeline.push(
+          {
+            $project: {
+              movieId: 1,
+              mediaType: 1,
+              title: 1,
+              movieTitle: 1,
+              posterPath: 1,
+              backdropPath: 1,
+              quality: 1,
+              audioLanguage: 1,
+              category: 1,
+              linkType: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              seasonNumber: 1,
+              episodeNumber: 1,
+              releaseDate: 1,
+              voteAverage: 1,
+            }
+          },
           {
             $group: {
               _id: '$movieId',
+              movieId: { $first: '$movieId' },
+              mediaType: { $first: '$mediaType' },
               latestDoc: { $first: '$$ROOT' },
               linksCount: { $sum: 1 },
             },
           },
           { $sort: { 'latestDoc.createdAt': -1 } },
-          { $limit: 2000 },
-        ])
-        .toArray();
+          { $limit: 300 }
+        );
 
-      if (aggResults && aggResults.length > 0) {
-        mongoLoaded = true;
-        for (const item of aggResults) {
-          const mId = String(item._id || item.latestDoc?.movieId || '');
-          if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
-          if (!item.linksCount || item.linksCount <= 0) continue;
+        const aggResults = await collection.aggregate(pipeline).toArray();
 
-          const doc = item.latestDoc || {};
-          const isTv =
-            doc.mediaType === 'tv' ||
-            (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
-            doc.linkType === 'zip_pack' ||
-            doc.linkType === 'single_episode' ||
-            doc.category === 'ZipPack' ||
-            doc.category === 'SingleEpisode' ||
-            /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
+        if (aggResults && aggResults.length > 0) {
+          const freshEntries: any[] = [];
+          for (const item of aggResults) {
+            const mId = String(item._id || item.latestDoc?.movieId || item.movieId || '');
+            if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
+            if (!item.linksCount || item.linksCount <= 0) continue;
 
-          const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
-          seen.add(mId);
-          allEntries.push({
-            movieId: mId,
-            mediaType,
-            doc,
-            createdAt: doc.createdAt || doc.updatedAt || '',
-          });
+            const doc = item.latestDoc || {};
+            const isTv =
+              doc.mediaType === 'tv' ||
+              (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
+              doc.linkType === 'zip_pack' ||
+              doc.linkType === 'single_episode' ||
+              doc.category === 'ZipPack' ||
+              doc.category === 'SingleEpisode' ||
+              /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
+
+            const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
+            seen.add(mId);
+            const entry = {
+              movieId: mId,
+              mediaType,
+              doc,
+              createdAt: doc.createdAt || doc.updatedAt || '',
+            };
+            allEntries.push(entry);
+            freshEntries.push(entry);
+          }
+
+          // Populate Redis catalog cache with 300s TTL
+          if (redisClient && freshEntries.length > 0) {
+            redisClient.set(cacheKey, JSON.stringify(freshEntries), { ex: 300 }).catch(() => {});
+          }
         }
       }
+    } catch (err: any) {
+      console.warn('MongoDB Atlas getPaginatedUploadedTitles error:', err.message);
     }
-  } catch (err: any) {
-    console.warn('MongoDB Atlas getPaginatedUploadedTitles error:', err.message);
   }
 
-  // 2. Fallback to local serverLinks.json if MongoDB was empty or offline
-  if (!mongoLoaded || allEntries.length === 0) {
+  // 3. Fallback to local serverLinks.json if both Redis and MongoDB were empty or offline
+  if (allEntries.length === 0) {
     try {
       const localData = getLocalFallbackLinks();
       const localList: Array<{ movieId: string; createdAt: string; link: any }> = [];
