@@ -948,7 +948,7 @@ export async function getPaginatedUploadedTitles(
             const distinctMovieIds = await collection.distinct('movieId', matchStage).catch(() => []);
             total = distinctMovieIds.length;
             if (redisClient && total > 0) {
-              redisClient.set(countCacheKey, total, { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
+              await redisClient.set(countCacheKey, total, { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
             }
           }
         }
@@ -1058,7 +1058,7 @@ export async function getPaginatedUploadedTitles(
 
         // Cache in Redis with 300s TTL
         if (redisClient && items.length > 0) {
-          redisClient.set(cacheKey, JSON.stringify(resultPayload), { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
+          await redisClient.set(cacheKey, JSON.stringify(resultPayload), { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
         }
 
         return { ...resultPayload, source: 'database' as any };
