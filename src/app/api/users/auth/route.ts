@@ -39,11 +39,13 @@ export async function POST(req: NextRequest) {
     const { action, email, password, displayName, photoURL, provider } = body;
 
     const cleanEmail = (email || '').toLowerCase().trim();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      return NextResponse.json(
-        { success: false, error: 'A valid email address is required.' },
-        { status: 400 }
-      );
+    if (action !== 'google_sync' && action !== 'firebase_sync') {
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        return NextResponse.json(
+          { success: false, error: 'A valid email address is required.' },
+          { status: 400 }
+        );
+      }
     }
 
     // 1. REGISTER

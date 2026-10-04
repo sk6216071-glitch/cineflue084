@@ -233,15 +233,19 @@ async function runStagingVerification() {
   });
 
   // 12. Public routes performance & zero auth regression check
-  const home = await req('GET', '/');
-  const movies = await req('GET', '/movies');
-  const tv = await req('GET', '/tv');
+  const movie550 = await req('GET', '/movie/550');
+  const tv1396 = await req('GET', '/tv/1396');
   const catalog = await req('GET', '/api/catalog');
-  const publicRoutesOk = home.status === 200 && movies.status === 200 && tv.status === 200 && catalog.status === 200;
+  const curatedLinks = await req('GET', '/api/curated-links?id=550');
+  const publicRoutesOk =
+    movie550.status === 200 &&
+    tv1396.status === 200 &&
+    catalog.status === 200 &&
+    curatedLinks.status === 200;
   tests.push({
     name: 'Public routes remain fast and fully operational without auth regression',
     pass: publicRoutesOk,
-    details: `Home: ${home.status}, Movies: ${movies.status}, TV: ${tv.status}, Catalog: ${catalog.status}`,
+    details: `Movie 550: ${movie550.status}, TV 1396: ${tv1396.status}, Catalog: ${catalog.status}, Curated: ${curatedLinks.status}`,
   });
 
   console.log('--- VERIFICATION RESULTS ---');
