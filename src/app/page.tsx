@@ -5,15 +5,9 @@ import LatestUploadsGrid from '@/components/LatestUploadsGrid';
 export const revalidate = 60; // ISR cache 60s for immediate link updates
 
 export default async function HomePage() {
-  const [
-    recentAll,
-    recentMovies,
-    recentSeries,
-  ] = await Promise.all([
-    getRecentlyAddedTitles(24, 'all'),
-    getRecentlyAddedTitles(24, 'movie'),
-    getRecentlyAddedTitles(24, 'tv'),
-  ]);
+  const recentAll = await getRecentlyAddedTitles(24, 'all');
+  const recentMovies = await getRecentlyAddedTitles(24, 'movie');
+  const recentSeries = await getRecentlyAddedTitles(24, 'tv');
 
   return (
     <div className="min-h-screen pb-16 space-y-8 pt-6">

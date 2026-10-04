@@ -2,11 +2,11 @@ import { MongoClient, Db } from 'mongodb';
 import { getEnv } from '@/lib/env';
 
 const options = {
-  maxPoolSize: 1,
+  maxPoolSize: 10,
   minPoolSize: 0,
-  maxIdleTimeMS: 5000,
-  serverSelectionTimeoutMS: 5000,
-  connectTimeoutMS: 5000,
+  maxIdleTimeMS: 10000,
+  serverSelectionTimeoutMS: 8000,
+  connectTimeoutMS: 8000,
   socketTimeoutMS: 10000,
 };
 
