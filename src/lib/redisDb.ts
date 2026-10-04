@@ -171,23 +171,21 @@ export async function getLinksFromDatabase(
       } else {
         const page = Math.max(1, pagination?.page || 1);
         const limit = Math.max(1, Math.min(200, pagination?.limit || 50));
-        const total = await collection.countDocuments().catch(() => 0);
+        const total = await collection.estimatedDocumentCount().catch(() => 0);
         const docs = await collection
           .find({})
           .sort({ createdAt: -1 })
           .skip((page - 1) * limit)
           .limit(limit)
           .toArray();
-        if (docs && docs.length > 0) {
-          const grouped: Record<string, any[]> = {};
-          for (const doc of docs) {
-            const { _id, movieId: mId, ...rest } = doc;
-            const k = String(mId || rest.movieId);
-            if (!grouped[k]) grouped[k] = [];
-            grouped[k].push(rest);
-          }
-          return { allLinks: grouped, total, source: 'mongodb_atlas' };
+        const grouped: Record<string, any[]> = {};
+        for (const doc of docs || []) {
+          const { _id, movieId: mId, ...rest } = doc;
+          const k = String(mId || rest.movieId);
+          if (!grouped[k]) grouped[k] = [];
+          grouped[k].push(rest);
         }
+        return { allLinks: grouped, total, source: 'mongodb_atlas' };
       }
     }
   } catch (mongoErr: any) {
@@ -792,6 +790,7 @@ export interface PaginatedUploadedResult {
   nextCursor?: string | null;
   prevCursor?: string | null;
   hasMore?: boolean;
+  source?: 'cache' | 'database';
 }
 
 /**
@@ -844,7 +843,7 @@ export async function getPaginatedUploadedTitles(
         data = cached as PaginatedUploadedResult;
       }
       if (data && Array.isArray(data.items)) {
-        return data;
+        return { ...data, source: 'cache' as any };
       }
     } catch (cacheErr: any) {
       console.warn('Redis catalog page cache read error (continuing with DB fallback):', cacheErr.message);
@@ -874,6 +873,8 @@ export async function getPaginatedUploadedTitles(
             { category: { $in: ['ZipPack', 'SingleEpisode'] } },
             { seasonNumber: { $gt: 0 } },
           ];
+        } else {
+          matchStage.mediaType = { $in: ['movie', 'tv'] };
         }
 
         // Quality filter
@@ -968,7 +969,7 @@ export async function getPaginatedUploadedTitles(
         }
 
         pipeline.push(
-          { $sort: { createdAt: -1, movieId: 1 } },
+          { $sort: { createdAt: -1, updatedAt: -1, movieId: 1 } },
           {
             $project: {
               movieId: 1,
@@ -1053,7 +1054,7 @@ export async function getPaginatedUploadedTitles(
           redisClient.set(cacheKey, JSON.stringify(resultPayload), { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
         }
 
-        return resultPayload;
+        return { ...resultPayload, source: 'database' as any };
       }
     } catch (mongoErr: any) {
       console.warn('MongoDB Atlas getPaginatedUploadedTitles error (using local fallback):', mongoErr.message);

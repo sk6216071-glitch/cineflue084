@@ -2,13 +2,14 @@ import React from 'react';
 import { getPaginatedUploadedTitles } from '@/lib/redisDb';
 import LatestUploadsGrid from '@/components/LatestUploadsGrid';
 
-export const revalidate = 60; // ISR cache 60s for immediate link updates
+export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
   const result = await getPaginatedUploadedTitles({
     type: 'all',
     page: 1,
     limit: 24,
+    skipCount: true,
   });
 
   const allTitles = result.items || [];

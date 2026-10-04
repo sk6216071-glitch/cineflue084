@@ -28,10 +28,13 @@ export async function GET(request: NextRequest) {
       page,
     });
 
-    return NextResponse.json({
+    const isCacheHit = (result as any).source === 'cache';
+    const response = NextResponse.json({
       success: true,
       ...result,
     });
+    response.headers.set('X-Cache', isCacheHit ? 'HIT' : 'MISS');
+    return response;
   } catch (err: any) {
     console.error('Error in /api/catalog:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
