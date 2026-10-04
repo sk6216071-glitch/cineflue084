@@ -376,3 +376,119 @@ export async function getPersonDetails(id: number | string): Promise<PersonDetai
     },
   };
 }
+
+const FALLBACK_POSTERS = [
+  '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg', // Dune 2
+  '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', // Interstellar
+  '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg', // Breaking Bad
+  '/qJ2tW6WMUDux911r6m7haRef0WH.jpg', // Dark Knight
+  '/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg', // Inception
+  '/NNxYkU70HPurnNCSiCjYAmacwm.jpg', // Mission Impossible
+  '/nEufeZlyAOLqO2brrs0yeBEoo0R.jpg', // RRR
+  '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', // Oppenheimer
+  '/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg', // Avengers
+  '/bOGkgRGdhrBYJSLpXaxhXVstNsV.jpg', // Stranger Things
+];
+
+export function cleanTitleString(raw?: string): string {
+  if (!raw) return 'Featured Title';
+  return raw
+    .replace(/^Name\s*:\s*/i, '')
+    .replace(/\.S\d{1,2}(?:E\d{1,2})?.*$/i, '')
+    .replace(/\s+S\d{1,2}(?:E\d{1,2})?.*$/i, '')
+    .replace(/Season\s*\d+.*$/i, '')
+    .replace(/(?:2160p|1080p|720p|480p|BluRay|WEB-DL|REMUX|HDR|DV|Dovi|HEVC|x264|x265|DDP\d\.\d|AAC).*$/i, '')
+    .replace(/HUBCLOUD.*$/i, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\./g, ' ')
+    .trim();
+}
+
+/**
+ * Returns a lightweight, safe TitleDetails object optimized for catalog card rendering.
+ * Does NOT perform expensive subrequests, and avoids serializing giant cast/crew/video trees into SSR HTML.
+ */
+export function getLightweightTitleCard(
+  mediaType: 'movie' | 'tv',
+  id: number | string,
+  doc: any = {},
+  linksCount = 1
+): TitleDetails {
+  const numId = Number(id) || 1;
+  const strId = String(id);
+  const key = `${mediaType}-${numId}`;
+
+  // 1. Direct mock lookup
+  const mock = MOCK_TITLES[key];
+  if (mock) {
+    return {
+      id: numId,
+      title: mock.title || mock.name || 'Untitled',
+      name: mock.name || mock.title || 'Untitled',
+      overview: mock.overview || 'Available for streaming & high-speed download on CineFuel.',
+      poster_path: mock.poster_path || '/placeholder-poster.svg',
+      backdrop_path: mock.backdrop_path || mock.poster_path || '/placeholder-backdrop.svg',
+      release_date: mock.release_date || '',
+      first_air_date: mock.first_air_date || mock.release_date || '',
+      vote_average: mock.vote_average || 8.0,
+      vote_count: mock.vote_count || 1000,
+      media_type: mediaType,
+      original_language: mock.original_language || 'en',
+      genres: mock.genres || [{ id: 28, name: 'Featured' }],
+      uploadMeta: doc?.uploadMeta || {},
+      linksCount,
+    } as TitleDetails;
+  }
+
+  // 2. Curated lists lookup
+  const allCurated = [
+    ...TRENDING_LIST,
+    ...TOP_RATED_LIST,
+    ...UPCOMING_LIST,
+  ];
+  const found = allCurated.find((item) => String(item.id) === strId);
+  if (found) {
+    return {
+      id: numId,
+      title: found.title || found.name || 'Untitled',
+      name: found.name || found.title || 'Untitled',
+      overview: found.overview || 'Available for streaming & high-speed download on CineFuel.',
+      poster_path: found.poster_path || '/placeholder-poster.svg',
+      backdrop_path: found.backdrop_path || found.poster_path || '/placeholder-backdrop.svg',
+      release_date: found.release_date || '',
+      first_air_date: found.first_air_date || found.release_date || '',
+      vote_average: found.vote_average || 8.0,
+      vote_count: found.vote_count || 1000,
+      media_type: mediaType,
+      original_language: found.original_language || 'en',
+      genres: found.genres || [{ id: 28, name: 'Featured' }],
+      uploadMeta: doc?.uploadMeta || {},
+      linksCount,
+    } as TitleDetails;
+  }
+
+  // 3. Metadata from stored document
+  const rawTitle = doc.movieTitle || cleanTitleString(doc.title) || 'Featured Title';
+  const posterIdx = Math.abs(numId) % FALLBACK_POSTERS.length;
+  const poster = doc.posterPath || FALLBACK_POSTERS[posterIdx];
+  const backdrop = doc.backdropPath || poster;
+
+  return {
+    id: numId,
+    title: rawTitle,
+    name: rawTitle,
+    overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
+    poster_path: poster,
+    backdrop_path: backdrop,
+    release_date: doc.releaseDate || '2024-01-01',
+    first_air_date: doc.releaseDate || '2024-01-01',
+    vote_average: doc.voteAverage || 7.8,
+    vote_count: 1000,
+    media_type: mediaType,
+    original_language: doc.originalLanguage || 'en',
+    genres: [{ id: 28, name: 'Featured' }],
+    uploadMeta: doc?.uploadMeta || {},
+    linksCount,
+  } as TitleDetails;
+}
+

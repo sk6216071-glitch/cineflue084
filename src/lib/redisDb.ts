@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getDatabase } from '@/lib/mongodb';
 import { TitleDetails } from '@/types';
-import { getTitleDetails } from '@/lib/tmdb';
+import { getTitleDetails, getLightweightTitleCard } from '@/lib/tmdb';
 import { detectShowPlatform, stripWatermarks } from '@/lib/seasonParser';
 
 import { getEnv } from '@/lib/env';
@@ -999,99 +999,26 @@ export async function getPaginatedUploadedTitles(
 
         const aggResults = await collection.aggregate(pipeline).toArray();
 
-        // Enrich the current page entries (at most safeLimit records)
-        const enrichedResults = await Promise.all(
-          aggResults.map(async (item: any) => {
-            const mId = String(item._id || item.latestDoc?.movieId || '');
-            const doc = item.latestDoc || {};
-            const isTv =
-              doc.mediaType === 'tv' ||
-              (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
-              doc.linkType === 'zip_pack' ||
-              doc.linkType === 'single_episode' ||
-              doc.category === 'ZipPack' ||
-              doc.category === 'SingleEpisode' ||
-              /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
+        // Enrich the current page entries (at most safeLimit records) into lightweight card objects
+        const items = aggResults.map((item: any) => {
+          const mId = String(item._id || item.latestDoc?.movieId || '');
+          const doc = item.latestDoc || {};
+          const isTv =
+            doc.mediaType === 'tv' ||
+            (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||
+            doc.linkType === 'zip_pack' ||
+            doc.linkType === 'single_episode' ||
+            doc.category === 'ZipPack' ||
+            doc.category === 'SingleEpisode' ||
+            /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
 
-            const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
-
-            // Fast path: stored title metadata
-            if (doc?.movieTitle && doc?.posterPath && !isDummyTitle(doc.movieTitle)) {
-              return {
-                id: Number(mId) || (mId as any),
-                title: doc.movieTitle,
-                name: doc.movieTitle,
-                overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
-                poster_path: doc.posterPath,
-                backdrop_path: doc.backdropPath || doc.posterPath,
-                release_date: doc.releaseDate || '',
-                first_air_date: doc.releaseDate || '',
-                vote_average: doc.voteAverage || 7.8,
-                vote_count: 1500,
-                media_type: doc.mediaType || mediaType,
-                original_language: doc.originalLanguage || '',
-                genres: [{ id: 28, name: 'Featured' }],
-                uploadMeta: extractUploadMeta(doc, mediaType, doc),
-                linksCount: item.linksCount,
-              } as TitleDetails;
-            }
-
-            // Live TMDB fetch fallback
-            try {
-              let details = await getTitleDetails(mediaType, mId);
-              if (isDummyTitle(details?.title || details?.name)) {
-                const altType = mediaType === 'movie' ? 'tv' : 'movie';
-                const altDetails = await getTitleDetails(altType, mId);
-                if (!isDummyTitle(altDetails?.title || altDetails?.name)) {
-                  details = altDetails;
-                }
-              }
-
-              if (details && !isDummyTitle(details.title || details.name)) {
-                return {
-                  ...details,
-                  media_type: mediaType,
-                  uploadMeta: extractUploadMeta(doc, mediaType, details),
-                  linksCount: item.linksCount,
-                } as TitleDetails;
-              }
-
-              const cleanName = (doc?.title || '')
-                .replace(/^Name\s*:\s*/i, '')
-                .replace(/\.S\d{1,2}(?:E\d{1,2})?.*$/i, '')
-                .replace(/\s+S\d{1,2}(?:E\d{1,2})?.*$/i, '')
-                .replace(/Season\s*\d+.*$/i, '')
-                .replace(/\./g, ' ')
-                .replace(/HUBCLOUD.*$/i, '')
-                .trim();
-
-              if (cleanName && cleanName.length > 1) {
-                return {
-                  id: Number(mId) || (mId as any),
-                  title: cleanName,
-                  name: cleanName,
-                  overview: 'Available for streaming & download on CineFuel.',
-                  poster_path: details?.poster_path || '/placeholder-poster.svg',
-                  backdrop_path: details?.backdrop_path || details?.poster_path || '/placeholder-backdrop.svg',
-                  release_date: details?.release_date || '',
-                  first_air_date: details?.first_air_date || '',
-                  vote_average: details?.vote_average || 8.0,
-                  vote_count: 1000,
-                  media_type: mediaType,
-                  genres: [{ id: 18, name: 'Featured' }],
-                  uploadMeta: extractUploadMeta(doc, mediaType, details),
-                  linksCount: item.linksCount,
-                } as TitleDetails;
-              }
-            } catch (e) {
-              // ignore
-            }
-
-            return null;
-          })
-        );
-
-        const items = enrichedResults.filter(Boolean) as TitleDetails[];
+          const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
+          const card = getLightweightTitleCard(mediaType, mId, doc, item.linksCount || 1);
+          return {
+            ...card,
+            uploadMeta: extractUploadMeta(doc, mediaType, card),
+          };
+        }).filter(Boolean) as TitleDetails[];
         const hasMore = safePage < totalPages;
         const lastItem = aggResults[aggResults.length - 1];
         const nextCursor =

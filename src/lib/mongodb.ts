@@ -10,13 +10,8 @@ const options = {
   socketTimeoutMS: 10000,
 };
 
-let client: MongoClient | null = null;
-let clientPromise: Promise<MongoClient> | null = null;
-
-declare global {
-  // eslint-disable-next-line no-var
-  var _mongoClientPromise: Promise<MongoClient> | undefined;
-}
+let cachedClientPromise: Promise<MongoClient> | null = null;
+let cachedUri: string | null = null;
 
 export async function getDatabase(dbName?: string): Promise<Db | null> {
   const currentUri = getEnv('MONGODB_URI');
@@ -24,15 +19,23 @@ export async function getDatabase(dbName?: string): Promise<Db | null> {
     return null;
   }
   try {
-    const client = new MongoClient(currentUri, options);
-    const connectedClient = await client.connect();
+    if (!cachedClientPromise || cachedUri !== currentUri) {
+      cachedUri = currentUri;
+      const clientInstance = new MongoClient(currentUri, options);
+      cachedClientPromise = clientInstance.connect().catch((err) => {
+        cachedClientPromise = null;
+        throw err;
+      });
+    }
+    const connectedClient = await cachedClientPromise;
     const isStaging = getEnv('APP_ENV') === 'staging' || getEnv('CINEFUEL_ENV') === 'staging';
     const targetDb = dbName || getEnv('MONGODB_DB_NAME') || (isStaging ? 'cinefuel_staging' : 'cinefuel');
     return connectedClient.db(targetDb);
   } catch (err) {
     console.error('Failed to connect to MongoDB Atlas:', err);
+    cachedClientPromise = null;
     return null;
   }
 }
 
-export default clientPromise;
+export default cachedClientPromise;
