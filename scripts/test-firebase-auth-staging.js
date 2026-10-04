@@ -63,7 +63,7 @@ async function createSignedToken(payloadOverrides = {}) {
   return { token: `${signedData}.${sigB64}`, payload };
 }
 
-async function req(method, path, body = null, headers = {}) {
+async function req(method, path, body = null, headers = {}, retries = 2) {
   const url = new URL(path, TARGET_URL).toString();
   const reqHeaders = { ...headers };
   let reqBody = null;
@@ -73,14 +73,23 @@ async function req(method, path, body = null, headers = {}) {
     }
     reqBody = typeof body === 'string' ? body : JSON.stringify(body);
   }
-  try {
-    const res = await fetch(url, { method, headers: reqHeaders, body: reqBody });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch {}
-    return { status: res.status, headers: res.headers, raw: text, data: json };
-  } catch (err) {
-    return { status: 0, error: err.message, raw: '', data: null };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+      const res = await fetch(url, { method, headers: reqHeaders, body: reqBody });
+      if ((res.status === 502 || res.status === 503) && attempt < retries) {
+        continue;
+      }
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch {}
+      return { status: res.status, headers: res.headers, raw: text, data: json };
+    } catch (err) {
+      if (attempt < retries) continue;
+      return { status: 0, error: err.message, raw: '', data: null };
+    }
   }
 }
 
