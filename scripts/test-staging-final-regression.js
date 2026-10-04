@@ -9,7 +9,7 @@ const REDIS_TOKEN = 'gQAAAAAAAs8yAAIgcDJjOWYwZjkyNzlhNmQ0NTk2YTE2ZTAwNGFhODA0NGI
 
 const redis = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
 
-async function req(method, path, body = null, headers = {}) {
+async function req(method, path, body = null, headers = {}, retries = 2) {
   const url = new URL(path, STAGING_URL).toString();
   const reqHeaders = {
     'User-Agent': 'CineFuel-RegressionRunner/1.0',
@@ -27,35 +27,45 @@ async function req(method, path, body = null, headers = {}) {
     fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
 
-  const t0 = Date.now();
-  try {
-    const res = await fetch(url, fetchOptions);
-    const duration = Date.now() - t0;
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch {}
-    await new Promise(r => setTimeout(r, 500));
-    return {
-      status: res.status,
-      headers: res.headers,
-      duration,
-      sizeBytes: Buffer.byteLength(text, 'utf8'),
-      xCache: res.headers.get('x-cache') || 'N/A',
-      raw: text,
-      data: json,
-      error: null
-    };
-  } catch (err) {
-    return {
-      status: 0,
-      headers: null,
-      duration: Date.now() - t0,
-      sizeBytes: 0,
-      xCache: 'N/A',
-      raw: '',
-      data: null,
-      error: err.message
-    };
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(url, fetchOptions);
+      const duration = Date.now() - t0;
+      if ((res.status === 500 || res.status === 502 || res.status === 503) && attempt < retries) {
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch {}
+      await new Promise(r => setTimeout(r, 500));
+      return {
+        status: res.status,
+        headers: res.headers,
+        duration,
+        sizeBytes: Buffer.byteLength(text, 'utf8'),
+        xCache: res.headers.get('x-cache') || 'N/A',
+        raw: text,
+        data: json,
+        error: null
+      };
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+      return {
+        status: 0,
+        headers: null,
+        duration: Date.now() - t0,
+        sizeBytes: 0,
+        xCache: 'N/A',
+        raw: '',
+        data: null,
+        error: err.message
+      };
+    }
   }
 }
 
