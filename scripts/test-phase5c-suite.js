@@ -23,7 +23,7 @@ async function req(method, path, body = null, headers = {}, retries = 2) {
       const t0 = Date.now();
       const res = await fetch(url, { method, headers: reqHeaders, body: reqBody });
       const duration = Date.now() - t0;
-      if ((res.status === 502 || res.status === 503) && attempt < retries) {
+      if ((res.status === 500 || res.status === 502 || res.status === 503) && attempt < retries) {
         continue;
       }
       const text = await res.text();
