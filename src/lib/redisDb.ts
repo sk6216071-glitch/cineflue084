@@ -872,7 +872,15 @@ export async function getPaginatedUploadedTitles(
         // Build Match Stage
         const matchStage: any = {};
         if (type === 'movie') {
-          matchStage.mediaType = 'movie';
+          matchStage.$or = [
+            { mediaType: 'movie' },
+            {
+              mediaType: { $ne: 'tv' },
+              seasonNumber: { $in: [null, 0] },
+              linkType: { $nin: ['zip_pack', 'single_episode'] },
+              category: { $nin: ['ZipPack', 'SingleEpisode'] },
+            },
+          ];
         } else if (type === 'tv') {
           matchStage.$or = [
             { mediaType: 'tv' },
@@ -880,9 +888,8 @@ export async function getPaginatedUploadedTitles(
             { category: { $in: ['ZipPack', 'SingleEpisode'] } },
             { seasonNumber: { $gt: 0 } },
           ];
-        } else {
-          matchStage.mediaType = { $in: ['movie', 'tv'] };
         }
+        // When type === 'all', no mediaType filter needed
 
         // Quality filter
         if (quality) {
