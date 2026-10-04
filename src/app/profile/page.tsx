@@ -61,20 +61,36 @@ export default function ProfilePage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
             {/* Avatar */}
-            <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-amber-500 via-orange-500 to-red-600 p-1 shadow-xl shadow-amber-500/20 shrink-0">
-              <div className="w-full h-full bg-[#090b0e] rounded-full flex items-center justify-center text-white font-black text-3xl">
-                {userProfile.displayName ? userProfile.displayName[0].toUpperCase() : 'U'}
+            <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-gradient-to-tr from-amber-500 via-orange-500 to-red-600 p-1 shadow-xl shadow-amber-500/20 shrink-0">
+              <div className="w-full h-full bg-[#090b0e] rounded-full overflow-hidden flex items-center justify-center text-white font-black text-3xl">
+                {userProfile.photoURL ? (
+                  <img
+                    src={userProfile.photoURL}
+                    alt={userProfile.displayName || 'Profile'}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  userProfile.displayName ? userProfile.displayName[0].toUpperCase() : 'U'
+                )}
               </div>
             </div>
 
             {/* Name & Bio */}
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-3xl font-black text-white">{userProfile.displayName}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-black text-white">
+                  Welcome, {userProfile.displayName || userProfile.name || 'Cinema Explorer'}
+                </h1>
                 {isLoggedIn ? (
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3" /> Cloud Synced
-                  </span>
+                  <>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3" /> Cloud Synced
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-bold">
+                      {userProfile.provider === 'google' || userProfile.provider === 'google.com' ? 'Google Account' : 'Verified Identity'}
+                    </span>
+                  </>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 text-[10px] font-bold">
                     Guest Mode

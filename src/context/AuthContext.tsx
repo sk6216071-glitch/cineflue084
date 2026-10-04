@@ -144,20 +144,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [customLists, isInitialized]);
 
   // Sync user profile to server DB
-  const syncUserToServer = async (profile: UserProfile, provider = 'email_password') => {
+  const syncUserToServer = async (profile: UserProfile) => {
     if (profile.isGuest || profile.uid === 'guest-user-default' || !profile.email) return;
     try {
+      const storedToken = typeof window !== 'undefined' ? localStorage.getItem('cinefuel_id_token') : null;
+      let idToken = storedToken;
+      if (!idToken && auth?.currentUser) {
+        try {
+          idToken = await auth.currentUser.getIdToken();
+        } catch {}
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+
       await fetch('/api/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          uid: profile.uid,
+          idToken: idToken || undefined,
+          uid: profile.firebaseUid || profile.uid,
           email: profile.email,
-          displayName: profile.displayName || profile.email.split('@')[0],
+          displayName: profile.name || profile.displayName || profile.email.split('@')[0],
           photoURL: profile.photoURL,
           bio: profile.bio,
           favoriteGenres: profile.favoriteGenres,
-          provider,
+          provider: profile.provider || 'firebase',
         }),
       });
     } catch (e) {
@@ -167,88 +179,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Auth Handlers
   const loginWithGoogle = async (customEmail?: string, customName?: string) => {
-    // 1. Direct 1-click Google sync if email is provided
-    if (customEmail && customEmail.includes('@')) {
-      try {
-        setIsLoading(true);
-        const res = await fetch('/api/users/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'google_sync',
-            email: customEmail.trim(),
-            displayName: (customName || '').trim() || customEmail.split('@')[0],
-            provider: 'google',
-          }),
-        });
-        const data = await res.json();
-        if (data.success && data.user) {
-          const profile: UserProfile = {
-            uid: data.user.uid,
-            email: data.user.email,
-            displayName: data.user.displayName || customEmail.split('@')[0],
-            photoURL: data.user.photoURL || null,
-            bio: data.user.bio || '',
-            favoriteGenres: data.user.favoriteGenres || [],
-            createdAt: data.user.createdAt || new Date().toISOString(),
-            isGuest: false,
-          };
-          setUserProfile(profile);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('cinefuel_user_profile', JSON.stringify(profile));
-          }
-          return { success: true };
-        }
-      } catch (e: any) {
-        console.warn('Google custom sync error:', e);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    // 2. Attempt native Firebase Google OAuth popup if credentials exist
+    // 1. Attempt native Firebase Google OAuth popup
     try {
       setIsLoading(true);
       const result = await signInWithPopup(auth, googleProvider);
       const fbUser = result.user;
       setUser(fbUser);
 
-      // Sync to backend DB
+      // Acquire cryptographically signed Firebase ID token from client SDK
+      const idToken = await fbUser.getIdToken();
+
+      // Sync to backend DB with server-side ID token verification
       const res = await fetch('/api/users/auth', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           action: 'google_sync',
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Cinephile',
-          photoURL: fbUser.photoURL,
-          provider: 'google',
+          idToken,
         }),
       });
       const data = await res.json();
 
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Server rejected Firebase ID token verification');
+      }
+
+      const verifiedUser = data.user;
       const updatedProfile: UserProfile = {
-        uid: data.user?.uid || fbUser.uid,
-        email: data.user?.email || fbUser.email,
-        displayName: data.user?.displayName || fbUser.displayName || 'Cinephile',
-        photoURL: data.user?.photoURL || fbUser.photoURL,
-        bio: data.user?.bio || '',
-        favoriteGenres: data.user?.favoriteGenres || [],
-        createdAt: data.user?.createdAt || new Date().toISOString(),
+        uid: verifiedUser.firebaseUid || verifiedUser.uid || fbUser.uid,
+        firebaseUid: verifiedUser.firebaseUid || fbUser.uid,
+        email: verifiedUser.email || fbUser.email,
+        name: verifiedUser.name || verifiedUser.displayName || fbUser.displayName || 'Cinephile',
+        displayName: verifiedUser.name || verifiedUser.displayName || fbUser.displayName || 'Cinephile',
+        photoURL: verifiedUser.photoURL || fbUser.photoURL,
+        provider: verifiedUser.provider || 'google.com',
+        status: verifiedUser.status || 'active',
+        bio: verifiedUser.bio || '',
+        favoriteGenres: verifiedUser.favoriteGenres || [],
+        createdAt: verifiedUser.createdAt || new Date().toISOString(),
+        lastLoginAt: verifiedUser.lastLoginAt || new Date().toISOString(),
         isGuest: false,
       };
 
       setUserProfile(updatedProfile);
       if (typeof window !== 'undefined') {
         localStorage.setItem('cinefuel_user_profile', JSON.stringify(updatedProfile));
+        localStorage.setItem('cinefuel_id_token', idToken);
       }
       return { success: true };
     } catch (error: any) {
-      console.warn('Google Sign-In note:', error?.message || error);
+      console.warn('Google Sign-In popup attempt:', error?.message || error);
+
+      // 2. Fallback to fastLogin if popup was blocked/closed and email was provided
+      if (customEmail && customEmail.includes('@')) {
+        return fastLogin(customEmail, customName);
+      }
+
       return {
         success: false,
-        error: 'GOOGLE_PROMPT_FALLBACK',
+        error: error?.message || 'GOOGLE_PROMPT_FALLBACK',
       };
     } finally {
       setIsLoading(false);
@@ -437,6 +429,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile(INITIAL_GUEST_PROFILE);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('cinefuel_user_profile');
+      localStorage.removeItem('cinefuel_id_token');
     }
   };
 

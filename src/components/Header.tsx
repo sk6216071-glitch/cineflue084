@@ -282,13 +282,22 @@ export const Header: React.FC = () => {
             <Link
               href="/profile"
               className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 transition-all hover:border-amber-400/50"
-              title={isLoggedIn ? `Profile: ${userProfile.displayName}` : 'Sign In / Profile'}
+              title={isLoggedIn ? `Welcome, ${userProfile.displayName || userProfile.name || 'User'} (${userProfile.email})` : 'Sign In / Profile'}
             >
-              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-xs shrink-0">
-                {userProfile.displayName ? userProfile.displayName[0].toUpperCase() : 'U'}
+              <div className="w-6 h-6 rounded-full overflow-hidden bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-xs shrink-0">
+                {userProfile.photoURL ? (
+                  <img
+                    src={userProfile.photoURL}
+                    alt={userProfile.displayName || 'Profile'}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span>{userProfile.displayName ? userProfile.displayName[0].toUpperCase() : 'U'}</span>
+                )}
               </div>
               <span className="hidden md:inline text-xs font-semibold max-w-[90px] truncate">
-                {userProfile.displayName}
+                {userProfile.displayName || userProfile.name || 'User'}
               </span>
             </Link>
 

@@ -52,6 +52,32 @@ export function saveLocalFallbackUsers(data: RegisteredUser[]): boolean {
 }
 
 /**
+ * Formats and sanitizes a raw user document from database/redis
+ * Ensures firebaseUid, name, and status are always populated
+ * STRICT RULE: Strips passwordHash and passwordSalt
+ */
+function sanitizeUserDocument(raw: any): RegisteredUser {
+  const { _id, passwordHash, passwordSalt, ...rest } = raw;
+  const cleanEmail = (rest.email || '').toLowerCase().trim();
+  const uid = rest.firebaseUid || rest.uid || `usr_${Date.now()}`;
+  const name = rest.name || rest.displayName || (cleanEmail ? cleanEmail.split('@')[0] : 'Cinephile User');
+
+  return {
+    ...rest,
+    firebaseUid: uid,
+    uid,
+    name,
+    displayName: name,
+    email: cleanEmail,
+    photoURL: rest.photoURL || null,
+    provider: rest.provider || 'firebase',
+    status: rest.status || 'active',
+    createdAt: rest.createdAt || new Date().toISOString(),
+    lastLoginAt: rest.lastLoginAt || rest.createdAt || new Date().toISOString(),
+  } as RegisteredUser;
+}
+
+/**
  * Fetches all users from DB and merges live request/report activity
  */
 export async function getAllUsers(): Promise<{
@@ -69,10 +95,7 @@ export async function getAllUsers(): Promise<{
       const collection = db.collection('users');
       const docs = await collection.find({}).sort({ createdAt: -1 }).toArray();
       if (docs && docs.length > 0) {
-        userList = docs.map((d: any) => {
-          const { _id, passwordHash, passwordSalt, ...rest } = d;
-          return rest as RegisteredUser;
-        });
+        userList = docs.map((d: any) => sanitizeUserDocument(d));
         source = 'mongodb_atlas';
       }
     }
@@ -86,17 +109,11 @@ export async function getAllUsers(): Promise<{
     try {
       const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
       if (Array.isArray(redisData) && redisData.length > 0) {
-        userList = redisData.map((u: any) => {
-          const { passwordHash, passwordSalt, ...rest } = u;
-          return rest as RegisteredUser;
-        });
+        userList = redisData.map((u: any) => sanitizeUserDocument(u));
         source = 'upstash_redis';
       } else if (typeof redisData === 'string') {
         const parsed = JSON.parse(redisData);
-        userList = (Array.isArray(parsed) ? parsed : []).map((u: any) => {
-          const { passwordHash, passwordSalt, ...rest } = u;
-          return rest as RegisteredUser;
-        });
+        userList = (Array.isArray(parsed) ? parsed : []).map((u: any) => sanitizeUserDocument(u));
         source = 'upstash_redis';
       }
     } catch (redisErr: any) {
@@ -106,19 +123,15 @@ export async function getAllUsers(): Promise<{
 
   // 3. Fallback to local
   if (userList.length === 0) {
-    userList = getLocalFallbackUsers().map((u: any) => {
-      const { passwordHash, passwordSalt, ...rest } = u;
-      return rest as RegisteredUser;
-    });
+    userList = getLocalFallbackUsers().map((u: any) => sanitizeUserDocument(u));
     source = 'local_json';
   }
 
   // 4. Fetch live requests & reports to correlate user activity
   const usersMap = new Map<string, RegisteredUser>();
   userList.forEach((u: any) => {
-    const { passwordHash, passwordSalt, ...safeU } = u;
-    const key = (safeU.email || safeU.uid).toLowerCase();
-    usersMap.set(key, { ...safeU, requestsCount: 0, reportsCount: 0, recentRequests: [] });
+    const key = (u.email || u.firebaseUid || u.uid).toLowerCase();
+    usersMap.set(key, { ...u, requestsCount: 0, reportsCount: 0, recentRequests: [] });
   });
 
   try {
@@ -130,8 +143,10 @@ export async function getAllUsers(): Promise<{
 
       if (!usersMap.has(key)) {
         usersMap.set(key, {
+          firebaseUid: req.userId || `usr-${Math.random().toString(36).substring(2, 9)}`,
           uid: req.userId || `usr-${Math.random().toString(36).substring(2, 9)}`,
           email: email || 'No email provided',
+          name: req.userName || email.split('@')[0] || 'Cinephile User',
           displayName: req.userName || email.split('@')[0] || 'Cinephile User',
           createdAt: req.createdAt,
           lastLoginAt: req.createdAt,
@@ -139,6 +154,7 @@ export async function getAllUsers(): Promise<{
           reportsCount: 0,
           recentRequests: [],
           provider: 'request_submitter',
+          status: 'active',
         });
       }
 
@@ -162,8 +178,10 @@ export async function getAllUsers(): Promise<{
 
       if (!usersMap.has(key)) {
         usersMap.set(key, {
+          firebaseUid: rep.userId || `usr-${Math.random().toString(36).substring(2, 9)}`,
           uid: rep.userId || `usr-${Math.random().toString(36).substring(2, 9)}`,
           email: email || 'No email provided',
+          name: rep.userName || email.split('@')[0] || 'Cinephile User',
           displayName: rep.userName || email.split('@')[0] || 'Cinephile User',
           createdAt: rep.createdAt,
           lastLoginAt: rep.createdAt,
@@ -171,6 +189,7 @@ export async function getAllUsers(): Promise<{
           reportsCount: 0,
           recentRequests: [],
           provider: 'report_submitter',
+          status: 'active',
         });
       }
 
@@ -192,7 +211,7 @@ export async function getAllUsers(): Promise<{
 }
 
 /**
- * Hashes a password using crypto.pbkdf2Sync
+ * Hashes a password using crypto.pbkdf2Sync (legacy password auth)
  */
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const userSalt = salt || crypto.randomBytes(16).toString('hex');
@@ -201,7 +220,7 @@ export function hashPassword(password: string, salt?: string): { hash: string; s
 }
 
 /**
- * Verifies a password against a stored hash and salt
+ * Verifies a password against a stored hash and salt (legacy password auth)
  */
 export function verifyPassword(password: string, storedHash: string, salt: string): boolean {
   try {
@@ -210,6 +229,49 @@ export function verifyPassword(password: string, storedHash: string, salt: strin
   } catch {
     return false;
   }
+}
+
+/**
+ * Finds a user by Firebase UID across persistence layers
+ */
+export async function getUserByFirebaseUid(firebaseUid: string): Promise<RegisteredUser | null> {
+  const cleanUid = (firebaseUid || '').trim();
+  if (!cleanUid) return null;
+
+  // 1. Try MongoDB
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const doc = await db.collection('users').findOne({
+        $or: [{ firebaseUid: cleanUid }, { uid: cleanUid }],
+      });
+      if (doc) {
+        return sanitizeUserDocument(doc);
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB getUserByFirebaseUid warning:', err.message);
+  }
+
+  // 2. Try Redis
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
+      const list = Array.isArray(redisData) ? redisData : (typeof redisData === 'string' ? JSON.parse(redisData) : []);
+      const found = list.find((u: RegisteredUser) => (u.firebaseUid === cleanUid || u.uid === cleanUid));
+      if (found) return sanitizeUserDocument(found);
+    } catch (e) {}
+  }
+
+  // 3. Try Local JSON
+  try {
+    const local = getLocalFallbackUsers();
+    const found = local.find((u) => (u.firebaseUid === cleanUid || u.uid === cleanUid));
+    if (found) return sanitizeUserDocument(found);
+  } catch (e) {}
+
+  return null;
 }
 
 /**
@@ -225,8 +287,7 @@ export async function getUserByEmail(email: string): Promise<RegisteredUser | nu
     if (db) {
       const doc = await db.collection('users').findOne({ email: cleanEmail });
       if (doc) {
-        const { _id, ...rest } = doc;
-        return rest as RegisteredUser;
+        return sanitizeUserDocument(doc);
       }
     }
   } catch (err: any) {
@@ -240,7 +301,7 @@ export async function getUserByEmail(email: string): Promise<RegisteredUser | nu
       const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
       const list = Array.isArray(redisData) ? redisData : (typeof redisData === 'string' ? JSON.parse(redisData) : []);
       const found = list.find((u: RegisteredUser) => u.email.toLowerCase() === cleanEmail);
-      if (found) return found;
+      if (found) return sanitizeUserDocument(found);
     } catch (e) {}
   }
 
@@ -248,29 +309,148 @@ export async function getUserByEmail(email: string): Promise<RegisteredUser | nu
   try {
     const local = getLocalFallbackUsers();
     const found = local.find((u) => u.email.toLowerCase() === cleanEmail);
-    if (found) return found;
+    if (found) return sanitizeUserDocument(found);
   } catch (e) {}
 
   return null;
 }
 
 /**
- * Saves or updates a registered user across persistence layers
+ * Saves or updates a Firebase authenticated user profile across persistence layers.
+ * STRICT SECURITY RULES:
+ * 1. UID comes strictly from verified Firebase identity (firebaseUid).
+ * 2. Email comes strictly from verified Firebase identity.
+ * 3. Name comes strictly from verified Firebase display name (with graceful fallback).
+ * 4. NEVER stores passwordHash or passwordSalt.
+ * 5. Guarantees unique firebaseUid indexing in MongoDB.
+ */
+export async function saveFirebaseUserToDatabase(profile: {
+  firebaseUid: string;
+  name: string;
+  email: string;
+  photoURL?: string | null;
+  provider?: string;
+  createdAt?: string;
+  lastLoginAt?: string;
+  status?: string;
+}): Promise<RegisteredUser> {
+  const cleanEmail = (profile.email || '').toLowerCase().trim();
+  const cleanUid = (profile.firebaseUid || '').trim();
+  if (!cleanUid) {
+    throw new Error('firebaseUid is required');
+  }
+
+  const existing = (await getUserByFirebaseUid(cleanUid)) || (cleanEmail ? await getUserByEmail(cleanEmail) : null);
+  const finalName = profile.name ? profile.name.trim() : (cleanEmail ? cleanEmail.split('@')[0] : 'Cinephile User');
+
+  const finalUser: RegisteredUser = {
+    firebaseUid: cleanUid,
+    uid: cleanUid,
+    name: finalName,
+    displayName: finalName,
+    email: cleanEmail,
+    photoURL: profile.photoURL !== undefined ? profile.photoURL : (existing?.photoURL || null),
+    bio: existing?.bio || '',
+    favoriteGenres: existing?.favoriteGenres || [],
+    provider: profile.provider || existing?.provider || 'google.com',
+    status: (profile.status as any) || existing?.status || 'active',
+    createdAt: existing?.createdAt || profile.createdAt || new Date().toISOString(),
+    lastLoginAt: profile.lastLoginAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    requestsCount: existing?.requestsCount || 0,
+    reportsCount: existing?.reportsCount || 0,
+    recentRequests: existing?.recentRequests || [],
+  };
+
+  let persisted = false;
+
+  // 1. MongoDB Atlas
+  try {
+    const db = await getDatabase();
+    if (db) {
+      try {
+        await db.collection('users').createIndex(
+          { firebaseUid: 1 },
+          { unique: true, sparse: true, background: true }
+        );
+      } catch {}
+
+      await db.collection('users').updateOne(
+        { $or: [{ firebaseUid: cleanUid }, { uid: cleanUid }, ...(cleanEmail ? [{ email: cleanEmail }] : [])] },
+        {
+          $set: finalUser,
+          $unset: { passwordHash: '', passwordSalt: '' },
+        },
+        { upsert: true }
+      );
+      persisted = true;
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas Firebase user save warning:', err.message);
+  }
+
+  // 2. Upstash Redis
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      const existingRedis = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
+      const currentList = Array.isArray(existingRedis) ? existingRedis : [];
+      const updated = [
+        finalUser,
+        ...currentList.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid && (!cleanEmail || u.email !== cleanEmail)),
+      ];
+      await redisClient.set(REDIS_USERS_KEY, updated);
+      persisted = true;
+    } catch (err: any) {
+      console.error('Upstash Redis Firebase user save error:', err.message);
+    }
+  }
+
+  // 3. Local JSON (only if writable)
+  if (isFileSystemWritable()) {
+    try {
+      const local = getLocalFallbackUsers();
+      const updated = [
+        finalUser,
+        ...local.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid && (!cleanEmail || u.email !== cleanEmail)),
+      ];
+      if (saveLocalFallbackUsers(updated)) {
+        persisted = true;
+      }
+    } catch (err: any) {
+      console.error('Local Firebase user save failed:', err.message);
+    }
+  }
+
+  if (!persisted) {
+    throw new Error('Database persistence unavailable: could not save Firebase user profile.');
+  }
+
+  return finalUser;
+}
+
+/**
+ * Saves or updates a registered user across persistence layers (legacy password auth)
  */
 export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?: string; email: string }): Promise<RegisteredUser> {
   const cleanEmail = user.email.toLowerCase().trim();
   const existing = await getUserByEmail(cleanEmail);
+  const uid = user.firebaseUid || user.uid || existing?.firebaseUid || existing?.uid || `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const name = user.name || user.displayName || existing?.name || existing?.displayName || cleanEmail.split('@')[0] || 'Cinephile User';
 
   const finalUser: RegisteredUser = {
-    uid: user.uid || existing?.uid || `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    firebaseUid: uid,
+    uid,
+    name,
+    displayName: name,
     email: cleanEmail,
-    displayName: user.displayName || existing?.displayName || cleanEmail.split('@')[0] || 'Cinephile User',
     photoURL: user.photoURL !== undefined ? user.photoURL : (existing?.photoURL || null),
     bio: user.bio || existing?.bio || '',
     favoriteGenres: user.favoriteGenres || existing?.favoriteGenres || [],
     createdAt: user.createdAt || existing?.createdAt || new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
     provider: user.provider || existing?.provider || 'email_password',
+    status: user.status || existing?.status || 'active',
     passwordHash: user.passwordHash || existing?.passwordHash,
     passwordSalt: user.passwordSalt || existing?.passwordSalt,
     requestsCount: existing?.requestsCount || 0,
@@ -285,7 +465,7 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
     const db = await getDatabase();
     if (db) {
       await db.collection('users').updateOne(
-        { $or: [{ email: cleanEmail }, { uid: finalUser.uid }] },
+        { $or: [{ email: cleanEmail }, { firebaseUid: finalUser.uid }, { uid: finalUser.uid }] },
         { $set: { ...finalUser, updatedAt: new Date() } },
         { upsert: true }
       );
@@ -330,16 +510,20 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
 }
 
 /**
- * Deletes a user by uid
+ * Deletes a user by uid or firebaseUid
  */
 export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
+  const cleanUid = (uid || '').trim();
+  if (!cleanUid) return false;
   let persisted = false;
 
   // 1. Mongo
   try {
     const db = await getDatabase();
     if (db) {
-      await db.collection('users').deleteOne({ uid });
+      await db.collection('users').deleteOne({
+        $or: [{ firebaseUid: cleanUid }, { uid: cleanUid }],
+      });
       persisted = true;
     }
   } catch (e) {}
@@ -350,7 +534,10 @@ export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
     try {
       const existing = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
       if (Array.isArray(existing)) {
-        await redisClient.set(REDIS_USERS_KEY, existing.filter((u) => u.uid !== uid));
+        await redisClient.set(
+          REDIS_USERS_KEY,
+          existing.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid)
+        );
         persisted = true;
       }
     } catch (e) {}
@@ -360,7 +547,7 @@ export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
   if (isFileSystemWritable()) {
     try {
       const local = getLocalFallbackUsers();
-      if (saveLocalFallbackUsers(local.filter((u) => u.uid !== uid))) {
+      if (saveLocalFallbackUsers(local.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid))) {
         persisted = true;
       }
     } catch (e) {}

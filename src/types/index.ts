@@ -230,26 +230,35 @@ export interface CustomList {
 
 export interface UserProfile {
   uid: string;
+  firebaseUid?: string;
   email: string | null;
   displayName: string | null;
+  name?: string | null;
   photoURL: string | null;
+  provider?: string;
+  status?: string;
   bio?: string;
   favoriteGenres?: string[];
   createdAt: string;
+  lastLoginAt?: string;
   isGuest?: boolean;
 }
 
 export interface RegisteredUser {
+  firebaseUid?: string;
   uid: string;
-  email: string;
+  name?: string;
   displayName: string;
+  email: string;
   photoURL?: string | null;
+  provider?: string;
+  status?: string;
   createdAt: string;
   lastLoginAt?: string;
+  updatedAt?: string;
   requestsCount?: number;
   reportsCount?: number;
   recentRequests?: string[];
-  provider?: string;
   passwordHash?: string;
   passwordSalt?: string;
   bio?: string;

@@ -162,8 +162,72 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3. FAST LOGIN OR GOOGLE SYNC
-    if (action === 'fast_login' || action === 'google_sync') {
+    // 3. FIREBASE / GOOGLE SYNC (Strict ID Token Verification)
+    if (action === 'google_sync' || action === 'firebase_sync') {
+      const authHeader = req.headers.get('authorization');
+      let token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : body.idToken;
+
+      if (!token) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Unauthorized: A verified Firebase ID token is required for Google Sign-In.',
+          },
+          { status: 401 }
+        );
+      }
+
+      let verifiedClaims;
+      try {
+        const { verifyFirebaseIdToken } = await import('@/lib/firebaseTokenVerifier');
+        verifiedClaims = await verifyFirebaseIdToken(token);
+      } catch (tokenErr: any) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Unauthorized: Invalid Firebase ID token.',
+            details: tokenErr.message,
+          },
+          { status: 401 }
+        );
+      }
+
+      // Persist profile strictly derived from verified claims
+      const { saveFirebaseUserToDatabase } = await import('@/lib/usersDb');
+      const savedUser = await saveFirebaseUserToDatabase({
+        firebaseUid: verifiedClaims.firebaseUid,
+        name: verifiedClaims.name,
+        email: verifiedClaims.email,
+        photoURL: verifiedClaims.photoURL,
+        provider: verifiedClaims.provider || 'google.com',
+        createdAt: verifiedClaims.createdAt,
+        lastLoginAt: verifiedClaims.lastLoginAt,
+        status: verifiedClaims.status,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Signed in with Firebase successfully!',
+        user: {
+          firebaseUid: savedUser.firebaseUid,
+          uid: savedUser.uid,
+          name: savedUser.name,
+          displayName: savedUser.displayName,
+          email: savedUser.email,
+          photoURL: savedUser.photoURL,
+          bio: savedUser.bio,
+          favoriteGenres: savedUser.favoriteGenres,
+          provider: savedUser.provider,
+          status: savedUser.status,
+          createdAt: savedUser.createdAt,
+          lastLoginAt: savedUser.lastLoginAt,
+          isGuest: false,
+        },
+      });
+    }
+
+    // 4. FAST LOGIN
+    if (action === 'fast_login') {
       const name = (displayName || '').trim() || cleanEmail.split('@')[0] || 'Cinephile';
       const existingUser = await getUserByEmail(cleanEmail);
 
@@ -172,20 +236,25 @@ export async function POST(req: NextRequest) {
         email: cleanEmail,
         displayName: existingUser?.displayName || name,
         photoURL: photoURL || existingUser?.photoURL || null,
-        provider: provider || (action === 'google_sync' ? 'google' : 'fast_login'),
+        provider: 'fast_login',
       });
 
       return NextResponse.json({
         success: true,
         message: 'Signed in successfully!',
         user: {
+          firebaseUid: savedUser.firebaseUid,
           uid: savedUser.uid,
-          email: savedUser.email,
+          name: savedUser.name,
           displayName: savedUser.displayName,
+          email: savedUser.email,
           photoURL: savedUser.photoURL,
           bio: savedUser.bio,
           favoriteGenres: savedUser.favoriteGenres,
+          provider: savedUser.provider,
+          status: savedUser.status,
           createdAt: savedUser.createdAt,
+          lastLoginAt: savedUser.lastLoginAt,
           isGuest: false,
         },
       });

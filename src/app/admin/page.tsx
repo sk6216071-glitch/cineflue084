@@ -27,6 +27,7 @@ import {
   Lock,
   Unlock,
   Check,
+  Copy,
   Sparkles,
   Server,
   Activity,
@@ -211,6 +212,15 @@ export default function AdminPage() {
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userFilterCategory, setUserFilterCategory] = useState<'all' | 'requesters' | 'reporters'>('all');
+  const [copiedUid, setCopiedUid] = useState<string | null>(null);
+
+  const handleCopyUid = (uid: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(uid);
+      setCopiedUid(uid);
+      setTimeout(() => setCopiedUid(null), 2000);
+    }
+  };
 
   // Links Moderation Filter, Search & Pagination
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
@@ -861,7 +871,12 @@ export default function AdminPage() {
   const fetchAdminUsers = async () => {
     try {
       setIsLoadingUsers(true);
-      const res = await fetch(`/api/users?_t=${Date.now()}`, { cache: 'no-store' });
+      const res = await fetch(`/api/users?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'x-admin-key': adminPass || 'shyam081',
+        },
+      });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.users)) {
@@ -878,9 +893,14 @@ export default function AdminPage() {
   const handleDeleteUser = async (uid: string, email: string) => {
     if (!confirm(`Are you sure you want to remove user "${email || uid}" from the system?`)) return;
     try {
-      const res = await fetch(`/api/users?uid=${encodeURIComponent(uid)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/users?uid=${encodeURIComponent(uid)}`, {
+        method: 'DELETE',
+        headers: {
+          'x-admin-key': adminPass || 'shyam081',
+        },
+      });
       if (res.ok) {
-        setRegisteredUsers((prev) => prev.filter((u) => u.uid !== uid));
+        setRegisteredUsers((prev) => prev.filter((u) => u.uid !== uid && u.firebaseUid !== uid));
         addLog(`Deleted user account: ${email || uid}`, 'info');
       }
     } catch (e: any) {
@@ -5421,33 +5441,47 @@ export default function AdminPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredRegisteredUsers.map((user) => {
-                const initial = (user.displayName || user.email || 'U')[0].toUpperCase();
-                const providerLabel =
-                  user.provider === 'google'
-                    ? 'Google Auth'
-                    : user.provider === 'password'
-                    ? 'Password'
-                    : user.provider === 'request_submitter'
-                    ? 'Request Submitter'
-                    : user.provider === 'report_submitter'
-                    ? 'Report Submitter'
-                    : 'Registered User';
+                const userName = user.name || user.displayName || 'Cinema Explorer';
+                const initial = (userName || user.email || 'U')[0].toUpperCase();
+                const userUid = user.firebaseUid || user.uid;
+                const isCopied = copiedUid === userUid;
+                const isGoogle = user.provider === 'google' || user.provider === 'google.com';
+                const providerLabel = isGoogle
+                  ? 'Google Auth'
+                  : user.provider === 'password' || user.provider === 'email_password'
+                  ? 'Email / Password'
+                  : user.provider === 'request_submitter'
+                  ? 'Request Submitter'
+                  : user.provider === 'report_submitter'
+                  ? 'Report Submitter'
+                  : user.provider === 'fast_login'
+                  ? 'Fast Login'
+                  : 'Firebase User';
 
                 return (
                   <div
-                    key={user.uid}
+                    key={userUid}
                     className="p-5 rounded-2xl bg-zinc-900/75 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-all space-y-4 flex flex-col justify-between group shadow-sm"
                   >
                     <div className="space-y-3.5">
                       {/* User Identity Header */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-base shrink-0 shadow-md">
-                            {initial}
+                          <div className="w-11 h-11 rounded-full overflow-hidden bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-black font-black text-base shrink-0 shadow-md">
+                            {user.photoURL ? (
+                              <img
+                                src={user.photoURL}
+                                alt={userName}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              initial
+                            )}
                           </div>
                           <div className="min-w-0">
                             <h4 className="text-sm font-bold text-white truncate flex items-center gap-1.5">
-                              <span className="truncate">{user.displayName || 'Cinema Explorer'}</span>
+                              <span className="truncate">{userName}</span>
                             </h4>
                             <span className="text-xs text-zinc-400 truncate block font-mono">
                               {user.email || 'No email registered'}
@@ -5455,32 +5489,55 @@ export default function AdminPage() {
                           </div>
                         </div>
 
-                        {/* Provider Pill */}
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 border ${
-                            user.provider === 'google'
-                              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                              : user.provider === 'password'
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          }`}
-                        >
-                          {providerLabel}
-                        </span>
+                        {/* Provider & Status Badges */}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              isGoogle
+                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            }`}
+                          >
+                            {providerLabel}
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700/60 uppercase">
+                            {user.status || 'active'}
+                          </span>
+                        </div>
                       </div>
 
                       {/* UID & Date Info */}
                       <div className="grid grid-cols-1 gap-1 text-[11px] text-zinc-400 font-mono bg-black/40 p-2.5 rounded-xl border border-zinc-800/80">
                         <div className="flex items-center justify-between text-zinc-400">
-                          <span className="text-zinc-500">UID:</span>
-                          <span className="truncate max-w-[190px] text-zinc-300" title={user.uid}>
-                            {user.uid}
-                          </span>
+                          <span className="text-zinc-500">Firebase UID:</span>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate max-w-[140px] text-zinc-300 font-mono text-[10px]" title={userUid}>
+                              {userUid}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyUid(userUid)}
+                              className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 transition-colors"
+                              title="Copy Firebase UID"
+                            >
+                              {isCopied ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
                         </div>
                         <div className="flex items-center justify-between text-zinc-400">
                           <span className="text-zinc-500">Joined:</span>
                           <span className="text-zinc-300">
                             {formatDateSafe(user.createdAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-zinc-400">
+                          <span className="text-zinc-500">Last Active:</span>
+                          <span className="text-zinc-300">
+                            {formatRelativeTime(user.lastLoginAt || user.createdAt)}
                           </span>
                         </div>
                       </div>

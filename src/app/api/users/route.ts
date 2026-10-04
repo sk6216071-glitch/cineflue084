@@ -1,27 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllUsers, saveUserToDatabase, deleteUserFromDatabase } from '@/lib/usersDb';
+import { getAllUsers, saveFirebaseUserToDatabase, deleteUserFromDatabase } from '@/lib/usersDb';
 import { validateAdminAuth } from '@/lib/adminAuth';
+import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/users
- * Fetch all registered users with request & report activity metrics
- * NEVER exposes passwordHash or passwordSalt
+ * Restricted strictly to administrators.
+ * Returns 401 unauthenticated, 403 forbidden for normal non-admin users.
+ * NEVER exposes passwordHash or passwordSalt.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const result = await getAllUsers();
-    // Defense-in-depth sanitization: ensure no password fields ever leak to public API
-    const sanitizedUsers = (result.users || []).map((u: any) => {
-      const { passwordHash, passwordSalt, ...safeUser } = u;
-      return safeUser;
-    });
+    // 1. Check admin authorization
+    if (validateAdminAuth(req)) {
+      const result = await getAllUsers();
+      return NextResponse.json({
+        ...result,
+      });
+    }
 
-    return NextResponse.json({
-      ...result,
-      users: sanitizedUsers,
-    });
+    // 2. If not admin, check if caller supplied a user Bearer token
+    const userToken = extractBearerToken(req);
+    if (userToken) {
+      try {
+        await verifyFirebaseIdToken(userToken);
+        // Valid user token, but lacking admin privileges
+        return NextResponse.json(
+          { error: 'Forbidden: Admin authorization required to view registered users directory' },
+          { status: 403 }
+        );
+      } catch {
+        return NextResponse.json(
+          { error: 'Unauthorized: Invalid authentication credentials' },
+          { status: 401 }
+        );
+      }
+    }
+
+    return NextResponse.json(
+      { error: 'Unauthorized: Admin authentication required' },
+      { status: 401 }
+    );
   } catch (error: any) {
     console.error('API /api/users GET error:', error);
     return NextResponse.json(
@@ -33,36 +54,57 @@ export async function GET() {
 
 /**
  * POST /api/users
- * Register or sync a user profile to persistent database
+ * Synchronizes user profile to persistent database using verified Firebase ID token.
+ * Rejects unverified client-supplied name/email.
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { uid, email, displayName, photoURL, bio, favoriteGenres, provider } = body;
-
-    if (!uid || !email) {
-      return NextResponse.json(
-        { error: 'User UID and Email are required' },
-        { status: 400 }
-      );
-    }
-
-    if (uid === 'guest-user-default' || email === 'cinephile@cinefuel.app') {
-      return NextResponse.json(
-        { error: 'Guest session profiles are not stored in registered users directory' },
-        { status: 400 }
-      );
-    }
-
+    let token = extractBearerToken(req);
+    let body: any = null;
     try {
-      await saveUserToDatabase({
-        uid,
-        email,
-        displayName: displayName || email.split('@')[0],
-        photoURL,
-        bio,
-        favoriteGenres,
-        provider: provider || 'auth',
+      body = await req.json();
+      if (!token && body && typeof body.idToken === 'string') {
+        token = body.idToken;
+      }
+    } catch {
+      // Body may be empty if token passed in Authorization header
+    }
+
+    if (!token) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Firebase ID token is required to synchronize user profile' },
+        { status: 401 }
+      );
+    }
+
+    // Server-side cryptographic token verification
+    let verifiedClaims;
+    try {
+      verifiedClaims = await verifyFirebaseIdToken(token);
+    } catch (tokenErr: any) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Invalid Firebase ID token', details: tokenErr.message },
+        { status: 401 }
+      );
+    }
+
+    // Save strictly using verified token claims
+    try {
+      const savedUser = await saveFirebaseUserToDatabase({
+        firebaseUid: verifiedClaims.firebaseUid,
+        name: verifiedClaims.name,
+        email: verifiedClaims.email,
+        photoURL: verifiedClaims.photoURL,
+        provider: verifiedClaims.provider,
+        createdAt: verifiedClaims.createdAt,
+        lastLoginAt: verifiedClaims.lastLoginAt,
+        status: verifiedClaims.status,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: 'User profile synchronized in database successfully',
+        user: savedUser,
       });
     } catch (saveErr: any) {
       console.error('Failed to save user to storage:', saveErr);
@@ -71,11 +113,6 @@ export async function POST(req: NextRequest) {
         { status: 503 }
       );
     }
-
-    return NextResponse.json({
-      success: true,
-      message: 'User registered in central database successfully',
-    });
   } catch (error: any) {
     console.error('API /api/users POST error:', error);
     return NextResponse.json(
