@@ -5,7 +5,7 @@ import { getPaginatedUploadedTitles } from '@/lib/redisDb';
 import MovieCard from '@/components/MovieCard';
 import Pagination from '@/components/Pagination';
 
-export const revalidate = 60; // Fresh 60s updates
+export const dynamic = 'force-dynamic';
 
 interface TVShowsPageProps {
   searchParams: Promise<{

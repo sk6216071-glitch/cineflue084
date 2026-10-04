@@ -831,11 +831,18 @@ export async function getPaginatedUploadedTitles(
   const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
   const version = await getCatalogCacheVersion();
   const filterKey = `${quality || '_'}:${audio || '_'}:${category || '_'}:${ott || '_'}:${query || '_'}`.toLowerCase();
-  const cacheKey = `cinefuel:${env}:catalog:v${version}:${type}:p${safePage}:l${safeLimit}:${filterKey}`;
+  const countTag = options.skipCount ? 'fast' : 'full';
+  const cacheKey = `cinefuel:${env}:catalog:v${version}:${type}:p${safePage}:l${safeLimit}:${countTag}:${filterKey}`;
+  const fullCacheKey = `cinefuel:${env}:catalog:v${version}:${type}:p${safePage}:l${safeLimit}:full:${filterKey}`;
 
   if (redisClient) {
     try {
-      const cached = await redisClient.get<PaginatedUploadedResult>(cacheKey);
+      let cached: any = null;
+      if (options.skipCount) {
+        cached = (await redisClient.get<PaginatedUploadedResult>(fullCacheKey)) || (await redisClient.get<PaginatedUploadedResult>(cacheKey));
+      } else {
+        cached = await redisClient.get<PaginatedUploadedResult>(cacheKey);
+      }
       let data: PaginatedUploadedResult | null = null;
       if (typeof cached === 'string') {
         try { data = JSON.parse(cached); } catch {}
