@@ -10,9 +10,9 @@ export default async function HomePage() {
     recentMovies,
     recentSeries,
   ] = await Promise.all([
-    getRecentlyAddedTitles(96, 'all'),
-    getRecentlyAddedTitles(72, 'movie'),
-    getRecentlyAddedTitles(72, 'tv'),
+    getRecentlyAddedTitles(24, 'all'),
+    getRecentlyAddedTitles(24, 'movie'),
+    getRecentlyAddedTitles(24, 'tv'),
   ]);
 
   return (

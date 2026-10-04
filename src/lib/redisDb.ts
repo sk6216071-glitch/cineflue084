@@ -25,23 +25,85 @@ const REDIS_DELETED_KEY = 'cinefuel:deleted_link_ids';
 const LOCAL_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 /**
+ * Configurable catalog cache TTL in seconds (default 300s / 5 minutes)
+ */
+export const CATALOG_CACHE_TTL_SECONDS = 300;
+
+let localCachedCatalogVersion = 1;
+let localCatalogVersionExpiresAt = 0;
+
+/**
+ * Returns current catalog cache version from Redis (versioned namespace)
+ */
+export async function getCatalogCacheVersion(): Promise<number> {
+  const now = Date.now();
+  if (localCatalogVersionExpiresAt > now) {
+    return localCachedCatalogVersion;
+  }
+  const redisClient = getRedisClient();
+  if (!redisClient) return 1;
+  const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
+  try {
+    const v = await redisClient.get<number>(`cinefuel:${env}:catalog:version`);
+    const num = Number(v) || 1;
+    localCachedCatalogVersion = num;
+    localCatalogVersionExpiresAt = now + 10000; // 10s local TTL
+    return num;
+  } catch {
+    return 1;
+  }
+}
+
+/**
  * Invalidates the Redis catalog summary cache for all media types
+ * Uses an atomic version counter in Redis so all previous page caches become obsolete
+ * without needing FLUSHDB or deleting unrelated keys.
  */
 export async function invalidateCatalogCache(): Promise<void> {
   const redisClient = getRedisClient();
   if (!redisClient) return;
   const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
-  const keys = [
-    `cinefuel:${env}:catalog:all`,
-    `cinefuel:${env}:catalog:movie`,
-    `cinefuel:${env}:catalog:tv`,
-  ];
   try {
-    await redisClient.del(...keys);
+    const nextVer = await redisClient.incr(`cinefuel:${env}:catalog:version`);
+    localCachedCatalogVersion = Number(nextVer) || (localCachedCatalogVersion + 1);
+    localCatalogVersionExpiresAt = Date.now() + 10000;
+
+    // Delete legacy unversioned root keys
+    const keys = [
+      `cinefuel:${env}:catalog:all`,
+      `cinefuel:${env}:catalog:movie`,
+      `cinefuel:${env}:catalog:tv`,
+    ];
+    await redisClient.del(...keys).catch(() => {});
   } catch (err: any) {
     console.warn('Failed to invalidate catalog cache in Redis:', err.message);
   }
 }
+
+export interface CatalogCursorData {
+  page: number;
+  sortDate?: string;
+  movieId?: string;
+}
+
+export function encodeCatalogCursor(data: CatalogCursorData): string {
+  return Buffer.from(JSON.stringify(data)).toString('base64url');
+}
+
+export function decodeCatalogCursor(token?: string | null): CatalogCursorData | null {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const raw = Buffer.from(token, 'base64url').toString('utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.page === 'number' && parsed.page >= 1) {
+      return parsed as CatalogCursorData;
+    }
+  } catch {}
+  return null;
+}
+
+// In-memory single-flight promise map to prevent cache stampedes in Cloudflare Worker runtime
+const inFlightCatalogRequests = new Map<string, Promise<PaginatedUploadedResult>>();
 
 /**
  * Reads local JSON fallback file safely
@@ -86,9 +148,13 @@ export function saveLocalFallbackLinks(data: Record<string, any[]>): boolean {
 /**
  * Fetches all links or links for a specific movie from Upstash Redis (with local fallback)
  */
-export async function getLinksFromDatabase(movieId?: number | string): Promise<{
+export async function getLinksFromDatabase(
+  movieId?: number | string,
+  pagination?: { page?: number; limit?: number }
+): Promise<{
   links?: any[];
   allLinks?: Record<string, any[]>;
+  total?: number;
   source: 'mongodb_atlas' | 'upstash_redis' | 'local_json';
 }> {
   // 1. Try MongoDB Atlas if connected
@@ -103,16 +169,24 @@ export async function getLinksFromDatabase(movieId?: number | string): Promise<{
           return { links: cleaned, source: 'mongodb_atlas' };
         }
       } else {
-        const allDocs = await collection.find({}).toArray();
-        if (allDocs && allDocs.length > 0) {
+        const page = Math.max(1, pagination?.page || 1);
+        const limit = Math.max(1, Math.min(200, pagination?.limit || 50));
+        const total = await collection.countDocuments().catch(() => 0);
+        const docs = await collection
+          .find({})
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .toArray();
+        if (docs && docs.length > 0) {
           const grouped: Record<string, any[]> = {};
-          for (const doc of allDocs) {
+          for (const doc of docs) {
             const { _id, movieId: mId, ...rest } = doc;
             const k = String(mId || rest.movieId);
             if (!grouped[k]) grouped[k] = [];
             grouped[k].push(rest);
           }
-          return { allLinks: grouped, source: 'mongodb_atlas' };
+          return { allLinks: grouped, total, source: 'mongodb_atlas' };
         }
       }
     }
@@ -698,6 +772,7 @@ export const extractUploadMeta = (docItem: any, mType: 'movie' | 'tv', details?:
 export interface PaginatedUploadedOptions {
   page?: number;
   limit?: number;
+  cursor?: string;
   type?: 'all' | 'movie' | 'tv';
   quality?: string;
   category?: string;
@@ -713,18 +788,23 @@ export interface PaginatedUploadedResult {
   page: number;
   totalPages: number;
   limit: number;
+  nextCursor?: string | null;
+  prevCursor?: string | null;
+  hasMore?: boolean;
 }
 
 /**
  * Fetches paginated titles that CONTAIN CUSTOM LINKS exclusively.
- * Supports filtering by type (movie/tv/all), quality, audio, category, search query, and genre.
+ * Implements TRUE DATABASE-LEVEL PAGINATION, PROJECTION, and REDIS PAGE CACHING.
+ * Retrieves only the requested page (e.g. 24 titles) rather than thousands of documents.
  */
 export async function getPaginatedUploadedTitles(
   options: PaginatedUploadedOptions = {}
 ): Promise<PaginatedUploadedResult> {
   const {
-    page = 1,
-    limit = 24,
+    cursor,
+    page: rawPage = 1,
+    limit: rawLimit = 24,
     type = 'all',
     quality,
     category,
@@ -733,57 +813,157 @@ export async function getPaginatedUploadedTitles(
     query,
   } = options;
 
-  const allEntries: Array<{ movieId: string; mediaType: 'movie' | 'tv'; doc: any; createdAt: string }> = [];
-  const seen = new Set<string>();
-  let loadedFromCache = false;
-
-  // 1. Try Redis Catalog Summary Cache first (300s TTL)
-  const redisClient = getRedisClient();
-  const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
-  const cacheKey = `cinefuel:${env}:catalog:${type}`;
-
-  if (redisClient) {
-    try {
-      const cached = await redisClient.get<any[]>(cacheKey);
-      let list = cached;
-      if (typeof list === 'string') {
-        try { list = JSON.parse(list); } catch {}
-      }
-      if (Array.isArray(list) && list.length > 0) {
-        for (const item of list) {
-          const mId = String(item.movieId || '');
-          if (!mId || seen.has(mId)) continue;
-          seen.add(mId);
-          allEntries.push(item);
-        }
-        if (allEntries.length > 0) {
-          loadedFromCache = true;
-        }
-      }
-    } catch (cacheErr: any) {
-      console.warn('Redis catalog cache read error:', cacheErr.message);
+  let page = rawPage;
+  if (cursor) {
+    const decoded = decodeCatalogCursor(cursor);
+    if (decoded && typeof decoded.page === 'number') {
+      page = decoded.page;
+    } else {
+      page = 1;
     }
   }
 
-  // 2. Cache Miss: Execute optimized lightweight MongoDB aggregation
-  if (!loadedFromCache) {
+  const safeLimit = Math.max(1, Math.min(100, rawLimit));
+  const safePage = Math.max(1, page);
+
+  // 1. Try Redis Page Cache First (300s TTL)
+  const redisClient = getRedisClient();
+  const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
+  const version = await getCatalogCacheVersion();
+  const filterKey = `${quality || '_'}:${audio || '_'}:${category || '_'}:${ott || '_'}:${query || '_'}`.toLowerCase();
+  const cacheKey = `cinefuel:${env}:catalog:v${version}:${type}:p${safePage}:l${safeLimit}:${filterKey}`;
+
+  if (redisClient) {
+    try {
+      const cached = await redisClient.get<PaginatedUploadedResult>(cacheKey);
+      let data: PaginatedUploadedResult | null = null;
+      if (typeof cached === 'string') {
+        try { data = JSON.parse(cached); } catch {}
+      } else if (cached && typeof cached === 'object' && Array.isArray((cached as any).items)) {
+        data = cached as PaginatedUploadedResult;
+      }
+      if (data && Array.isArray(data.items)) {
+        return data;
+      }
+    } catch (cacheErr: any) {
+      console.warn('Redis catalog page cache read error (continuing with DB fallback):', cacheErr.message);
+    }
+  }
+
+  // 2. Prevent Cache Stampedes via In-Flight Single-Flight Promise
+  if (inFlightCatalogRequests.has(cacheKey)) {
+    return await inFlightCatalogRequests.get(cacheKey)!;
+  }
+
+  const queryPromise = (async (): Promise<PaginatedUploadedResult> => {
+    // 3. Database-Level Query on MongoDB Atlas
     try {
       const db = await getDatabase();
       if (db) {
         const collection = db.collection('links');
 
-        // Separate movie vs tv early to halve scanned documents
+        // Build Match Stage
         const matchStage: any = {};
-        if (type === 'movie') matchStage.mediaType = 'movie';
-        else if (type === 'tv') matchStage.mediaType = 'tv';
+        if (type === 'movie') {
+          matchStage.mediaType = 'movie';
+        } else if (type === 'tv') {
+          matchStage.$or = [
+            { mediaType: 'tv' },
+            { linkType: { $in: ['zip_pack', 'single_episode'] } },
+            { category: { $in: ['ZipPack', 'SingleEpisode'] } },
+            { seasonNumber: { $gt: 0 } },
+          ];
+        }
 
+        // Quality filter
+        if (quality) {
+          const qLower = quality.toLowerCase();
+          if (qLower === '4k' || qLower === '2160p') {
+            matchStage.$or = [{ quality: /4k|2160p|uhd/i }, { title: /4k|2160p|uhd/i }];
+          } else if (qLower === 'remux') {
+            matchStage.$or = [{ quality: /remux/i }, { title: /remux/i }];
+          } else if (qLower === 'hdr' || qLower === '4k_hdr') {
+            matchStage.$or = [{ quality: /hdr|dovi|dolby\s*vision/i }, { title: /hdr|dovi|dolby\s*vision/i }];
+          } else if (qLower === '1080p') {
+            matchStage.$or = [{ quality: /1080p|fhd/i }, { title: /1080p|fhd/i }];
+          } else if (qLower === '720p') {
+            matchStage.$or = [{ quality: /720p/i }, { title: /720p/i }];
+          }
+        }
+
+        // Audio filter
+        if (audio) {
+          const aLower = audio.toLowerCase();
+          if (aLower === 'hindi') {
+            matchStage.$or = [{ audioLanguage: /hindi/i }, { title: /hindi/i }];
+          } else if (aLower === 'dual') {
+            matchStage.$or = [{ audioLanguage: /dual|\+|hindi.*eng/i }, { title: /dual|\+|hindi.*eng/i }];
+          } else if (aLower === 'english') {
+            matchStage.$or = [{ audioLanguage: /english|eng/i }, { title: /english|eng/i }];
+          }
+        }
+
+        // Category filter
+        if (category) {
+          const cLower = category.toLowerCase();
+          if (cLower === 'zippack' || cLower === 'zip') {
+            matchStage.$or = [
+              { linkType: 'zip_pack' },
+              { category: 'ZipPack' },
+              { title: /season.*complete|zip.*pack/i },
+            ];
+          }
+        }
+
+        // Query filter
+        if (query && query.trim()) {
+          const words = query.trim().split(/\s+/).map((w) => new RegExp(w, 'i'));
+          matchStage.$and = words.map((w) => ({
+            $or: [{ title: w }, { movieTitle: w }],
+          }));
+        }
+
+        // Distinct titles count (cached in Redis with 300s TTL)
+        const countCacheKey = `cinefuel:${env}:catalog:v${version}:count:${type}:${filterKey}`;
+        let total = 0;
+        if (redisClient) {
+          try {
+            const cachedCount = await redisClient.get<number>(countCacheKey);
+            if (typeof cachedCount === 'number') total = cachedCount;
+          } catch {}
+        }
+        if (!total) {
+          const distinctMovieIds = await collection.distinct('movieId', matchStage).catch(() => []);
+          total = distinctMovieIds.length;
+          if (redisClient && total > 0) {
+            redisClient.set(countCacheKey, total, { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
+          }
+        }
+
+        const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+
+        if (safePage > totalPages && total > 0) {
+          const emptyResult: PaginatedUploadedResult = {
+            items: [],
+            total,
+            page: safePage,
+            totalPages,
+            limit: safeLimit,
+            nextCursor: null,
+            prevCursor: encodeCatalogCursor({ page: safePage - 1 }),
+            hasMore: false,
+          };
+          return emptyResult;
+        }
+
+        // Pipeline with Projection & Limit before transfer
         const pipeline: any[] = [];
         if (Object.keys(matchStage).length > 0) {
           pipeline.push({ $match: matchStage });
         }
 
-        // Lightweight projection: keep only catalog display fields (prevents BSON memory bloat)
         pipeline.push(
+          { $sort: { createdAt: -1, movieId: 1 } },
           {
             $project: {
               movieId: 1,
@@ -802,30 +982,27 @@ export async function getPaginatedUploadedTitles(
               episodeNumber: 1,
               releaseDate: 1,
               voteAverage: 1,
-            }
+            },
           },
           {
             $group: {
               _id: '$movieId',
-              movieId: { $first: '$movieId' },
-              mediaType: { $first: '$mediaType' },
               latestDoc: { $first: '$$ROOT' },
               linksCount: { $sum: 1 },
+              sortDate: { $first: '$createdAt' },
             },
           },
-          { $sort: { 'latestDoc.createdAt': -1 } },
-          { $limit: 300 }
+          { $sort: { sortDate: -1, _id: 1 } },
+          { $skip: (safePage - 1) * safeLimit },
+          { $limit: safeLimit }
         );
 
         const aggResults = await collection.aggregate(pipeline).toArray();
 
-        if (aggResults && aggResults.length > 0) {
-          const freshEntries: any[] = [];
-          for (const item of aggResults) {
-            const mId = String(item._id || item.latestDoc?.movieId || item.movieId || '');
-            if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
-            if (!item.linksCount || item.linksCount <= 0) continue;
-
+        // Enrich the current page entries (at most safeLimit records)
+        const enrichedResults = await Promise.all(
+          aggResults.map(async (item: any) => {
+            const mId = String(item._id || item.latestDoc?.movieId || '');
             const doc = item.latestDoc || {};
             const isTv =
               doc.mediaType === 'tv' ||
@@ -837,234 +1014,194 @@ export async function getPaginatedUploadedTitles(
               /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(doc.title || '');
 
             const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
-            seen.add(mId);
-            const entry = {
-              movieId: mId,
-              mediaType,
-              doc,
-              createdAt: doc.createdAt || doc.updatedAt || '',
-            };
-            allEntries.push(entry);
-            freshEntries.push(entry);
-          }
 
-          // Populate Redis catalog cache with 300s TTL
-          if (redisClient && freshEntries.length > 0) {
-            redisClient.set(cacheKey, JSON.stringify(freshEntries), { ex: 300 }).catch(() => {});
-          }
+            // Fast path: stored title metadata
+            if (doc?.movieTitle && doc?.posterPath && !isDummyTitle(doc.movieTitle)) {
+              return {
+                id: Number(mId) || (mId as any),
+                title: doc.movieTitle,
+                name: doc.movieTitle,
+                overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
+                poster_path: doc.posterPath,
+                backdrop_path: doc.backdropPath || doc.posterPath,
+                release_date: doc.releaseDate || '',
+                first_air_date: doc.releaseDate || '',
+                vote_average: doc.voteAverage || 7.8,
+                vote_count: 1500,
+                media_type: doc.mediaType || mediaType,
+                original_language: doc.originalLanguage || '',
+                genres: [{ id: 28, name: 'Featured' }],
+                uploadMeta: extractUploadMeta(doc, mediaType, doc),
+                linksCount: item.linksCount,
+              } as TitleDetails;
+            }
+
+            // Live TMDB fetch fallback
+            try {
+              let details = await getTitleDetails(mediaType, mId);
+              if (isDummyTitle(details?.title || details?.name)) {
+                const altType = mediaType === 'movie' ? 'tv' : 'movie';
+                const altDetails = await getTitleDetails(altType, mId);
+                if (!isDummyTitle(altDetails?.title || altDetails?.name)) {
+                  details = altDetails;
+                }
+              }
+
+              if (details && !isDummyTitle(details.title || details.name)) {
+                return {
+                  ...details,
+                  media_type: mediaType,
+                  uploadMeta: extractUploadMeta(doc, mediaType, details),
+                  linksCount: item.linksCount,
+                } as TitleDetails;
+              }
+
+              const cleanName = (doc?.title || '')
+                .replace(/^Name\s*:\s*/i, '')
+                .replace(/\.S\d{1,2}(?:E\d{1,2})?.*$/i, '')
+                .replace(/\s+S\d{1,2}(?:E\d{1,2})?.*$/i, '')
+                .replace(/Season\s*\d+.*$/i, '')
+                .replace(/\./g, ' ')
+                .replace(/HUBCLOUD.*$/i, '')
+                .trim();
+
+              if (cleanName && cleanName.length > 1) {
+                return {
+                  id: Number(mId) || (mId as any),
+                  title: cleanName,
+                  name: cleanName,
+                  overview: 'Available for streaming & download on CineFuel.',
+                  poster_path: details?.poster_path || '/placeholder-poster.svg',
+                  backdrop_path: details?.backdrop_path || details?.poster_path || '/placeholder-backdrop.svg',
+                  release_date: details?.release_date || '',
+                  first_air_date: details?.first_air_date || '',
+                  vote_average: details?.vote_average || 8.0,
+                  vote_count: 1000,
+                  media_type: mediaType,
+                  genres: [{ id: 18, name: 'Featured' }],
+                  uploadMeta: extractUploadMeta(doc, mediaType, details),
+                  linksCount: item.linksCount,
+                } as TitleDetails;
+              }
+            } catch (e) {
+              // ignore
+            }
+
+            return null;
+          })
+        );
+
+        const items = enrichedResults.filter(Boolean) as TitleDetails[];
+        const hasMore = safePage < totalPages;
+        const lastItem = aggResults[aggResults.length - 1];
+        const nextCursor =
+          hasMore && lastItem
+            ? encodeCatalogCursor({
+                page: safePage + 1,
+                sortDate: lastItem.sortDate,
+                movieId: String(lastItem._id),
+              })
+            : null;
+
+        const prevCursor = safePage > 1 ? encodeCatalogCursor({ page: safePage - 1 }) : null;
+
+        const resultPayload: PaginatedUploadedResult = {
+          items,
+          total,
+          page: safePage,
+          totalPages,
+          limit: safeLimit,
+          nextCursor,
+          prevCursor,
+          hasMore,
+        };
+
+        // Cache in Redis with 300s TTL
+        if (redisClient && items.length > 0) {
+          redisClient.set(cacheKey, JSON.stringify(resultPayload), { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
         }
+
+        return resultPayload;
       }
-    } catch (err: any) {
-      console.warn('MongoDB Atlas getPaginatedUploadedTitles error:', err.message);
+    } catch (mongoErr: any) {
+      console.warn('MongoDB Atlas getPaginatedUploadedTitles error (using local fallback):', mongoErr.message);
     }
+
+    // 4. Local Fallback if MongoDB is offline
+    const localData = getLocalFallbackLinks();
+    const localList: Array<{ movieId: string; createdAt: string; link: any }> = [];
+    const seen = new Set<string>();
+
+    for (const [mId, links] of Object.entries(localData)) {
+      if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
+      if (Array.isArray(links) && links.length > 0) {
+        const latest = links.reduce((a, b) =>
+          new Date(a.createdAt || 0) > new Date(b.createdAt || 0) ? a : b
+        );
+        seen.add(mId);
+        localList.push({ movieId: mId, createdAt: latest.createdAt || '', link: latest });
+      }
+    }
+
+    localList.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    const filtered = localList.filter((item) => {
+      const isTv =
+        item.link?.mediaType === 'tv' ||
+        (typeof item.link?.seasonNumber === 'number' && item.link?.seasonNumber > 0) ||
+        item.link?.linkType === 'zip_pack' ||
+        item.link?.linkType === 'single_episode' ||
+        item.link?.category === 'ZipPack' ||
+        item.link?.category === 'SingleEpisode' ||
+        /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(item.link?.title || '');
+
+      const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
+      if (type === 'movie' && mediaType !== 'movie') return false;
+      if (type === 'tv' && mediaType !== 'tv') return false;
+      return true;
+    });
+
+    const localTotal = filtered.length;
+    const localTotalPages = Math.max(1, Math.ceil(localTotal / safeLimit));
+    const pagedEntries = filtered.slice((safePage - 1) * safeLimit, safePage * safeLimit);
+
+    const localItems: TitleDetails[] = pagedEntries.map(({ movieId, link }) => ({
+      id: Number(movieId) || (movieId as any),
+      title: link?.title || 'Unknown Title',
+      name: link?.title || 'Unknown Title',
+      overview: 'Available on CineFuel.',
+      poster_path: link?.posterPath || '/placeholder-poster.svg',
+      backdrop_path: link?.backdropPath || '/placeholder-backdrop.svg',
+      release_date: link?.releaseDate || '',
+      first_air_date: link?.releaseDate || '',
+      vote_average: 7.5,
+      vote_count: 500,
+      media_type: type === 'tv' ? 'tv' : 'movie',
+      genres: [{ id: 28, name: 'Featured' }],
+      uploadMeta: extractUploadMeta(link, type === 'tv' ? 'tv' : 'movie', link),
+    }));
+
+    const hasMore = safePage < localTotalPages;
+    return {
+      items: localItems,
+      total: localTotal,
+      page: safePage,
+      totalPages: localTotalPages,
+      limit: safeLimit,
+      nextCursor: hasMore ? encodeCatalogCursor({ page: safePage + 1 }) : null,
+      prevCursor: safePage > 1 ? encodeCatalogCursor({ page: safePage - 1 }) : null,
+      hasMore,
+    };
+  })();
+
+  inFlightCatalogRequests.set(cacheKey, queryPromise);
+  try {
+    return await queryPromise;
+  } finally {
+    inFlightCatalogRequests.delete(cacheKey);
   }
-
-  // 3. Fallback to local serverLinks.json if both Redis and MongoDB were empty or offline
-  if (allEntries.length === 0) {
-    try {
-      const localData = getLocalFallbackLinks();
-      const localList: Array<{ movieId: string; createdAt: string; link: any }> = [];
-      for (const [mId, links] of Object.entries(localData)) {
-        if (!mId || mId === 'undefined' || mId === 'null' || seen.has(mId)) continue;
-        if (Array.isArray(links) && links.length > 0) {
-          const latest = links.reduce((a, b) =>
-            new Date(a.createdAt || 0) > new Date(b.createdAt || 0) ? a : b
-          );
-          localList.push({ movieId: mId, createdAt: latest.createdAt || '', link: latest });
-        }
-      }
-
-      localList.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-
-      for (const item of localList) {
-        if (seen.has(item.movieId)) continue;
-        const isTv =
-          item.link?.mediaType === 'tv' ||
-          (typeof item.link?.seasonNumber === 'number' && item.link?.seasonNumber > 0) ||
-          item.link?.linkType === 'zip_pack' ||
-          item.link?.linkType === 'single_episode' ||
-          item.link?.category === 'ZipPack' ||
-          item.link?.category === 'SingleEpisode' ||
-          /s\d{1,2}e\d{1,2}|season\s*\d+/i.test(item.link?.title || '');
-
-        const mediaType: 'movie' | 'tv' = isTv ? 'tv' : 'movie';
-        seen.add(item.movieId);
-        allEntries.push({
-          movieId: item.movieId,
-          mediaType,
-          doc: item.link,
-          createdAt: item.createdAt,
-        });
-      }
-    } catch (err) {
-      console.warn('Local fallback error in getPaginatedUploadedTitles:', err);
-    }
-  }
-
-  // 3. Filter entries based on user request (type, quality, audio, category, search query)
-  const filtered = allEntries.filter(({ mediaType, doc }) => {
-    // Type filter
-    if (type === 'movie' && mediaType !== 'movie') return false;
-    if (type === 'tv' && mediaType !== 'tv') return false;
-
-    const fullText = `${doc?.title || ''} ${doc?.movieTitle || ''} ${doc?.quality || ''} ${doc?.audioLanguage || ''}`.toLowerCase();
-
-    // Quality filter
-    if (quality) {
-      const qLower = quality.toLowerCase();
-      if (qLower === '4k' || qLower === '2160p') {
-        if (!/(?:4k|2160p|uhd)/i.test(fullText)) return false;
-      } else if (qLower === 'remux') {
-        if (!/remux/i.test(fullText)) return false;
-      } else if (qLower === 'hdr' || qLower === '4k_hdr') {
-        if (!/(?:hdr|dovi|dolby\s*vision)/i.test(fullText)) return false;
-      } else if (qLower === '1080p' || qLower === 'fhd') {
-        if (!/(?:1080p|fhd)/i.test(fullText)) return false;
-      } else if (qLower === '720p') {
-        if (!/720p/i.test(fullText)) return false;
-      }
-    }
-
-    // Category filter (e.g. zippack)
-    if (category) {
-      const cLower = category.toLowerCase();
-      if (cLower === 'zippack' || cLower === 'zip') {
-        const isZip =
-          doc?.linkType === 'zip_pack' ||
-          doc?.category === 'ZipPack' ||
-          /season.*complete|zip.*pack/i.test(doc?.title || '');
-        if (!isZip) return false;
-      }
-    }
-
-    // Audio filter
-    if (audio) {
-      const aLower = audio.toLowerCase();
-      if (aLower === 'hindi') {
-        if (!/hindi/i.test(fullText)) return false;
-      } else if (aLower === 'dual') {
-        if (!/(?:dual|\+|hindi.*eng)/i.test(fullText)) return false;
-      } else if (aLower === 'english') {
-        if (!/english|eng/i.test(fullText)) return false;
-      }
-    }
-
-    // OTT filter
-    if (ott) {
-      const oLower = ott.toLowerCase();
-      if (oLower === 'netflix' && !/\b(nf|netflix)\b/i.test(fullText)) return false;
-      if ((oLower === 'prime' || oLower === 'amazon') && !/\b(amzn|amazon|prime)\b/i.test(fullText)) return false;
-      if (oLower === 'hotstar' && !/\b(hs|hotstar|disney|dsnp)\b/i.test(fullText)) return false;
-      if (oLower === 'jiocinema' && !/\b(jio|jiocinema)\b/i.test(fullText)) return false;
-      if (oLower === 'sonyliv' && !/\b(sony|sonyliv|liv)\b/i.test(fullText)) return false;
-      if (oLower === 'zee5' && !/\b(zee|zee5)\b/i.test(fullText)) return false;
-      if (oLower === 'appletv' && !/\b(atvp|apple)\b/i.test(fullText)) return false;
-    }
-
-    // Search query filter
-    if (query && query.trim()) {
-      const qWords = query.trim().toLowerCase().split(/\s+/);
-      const isMatch = qWords.every((word) => fullText.includes(word));
-      if (!isMatch) return false;
-    }
-
-    return true;
-  });
-
-  const total = filtered.length;
-  const safeLimit = Math.max(1, limit);
-  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
-  const safePage = Math.max(1, Math.min(page, totalPages));
-
-  // Slice the current page
-  const pageEntries = filtered.slice((safePage - 1) * safeLimit, safePage * safeLimit);
-
-  // Enrich metadata for current page entries
-  const enrichedResults = await Promise.all(
-    pageEntries.map(async ({ movieId, mediaType, doc }) => {
-      // 3A. Stored doc fast path
-      if (doc?.movieTitle && doc?.posterPath && !isDummyTitle(doc.movieTitle)) {
-        return {
-          id: Number(movieId) || (movieId as any),
-          title: doc.movieTitle,
-          name: doc.movieTitle,
-          overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
-          poster_path: doc.posterPath,
-          backdrop_path: doc.backdropPath || doc.posterPath,
-          release_date: doc.releaseDate || '',
-          first_air_date: doc.releaseDate || '',
-          vote_average: doc.voteAverage || 7.8,
-          vote_count: 1500,
-          media_type: doc.mediaType || mediaType,
-          original_language: doc.originalLanguage || (doc.original_language || ''),
-          genres: [{ id: 28, name: 'Featured' }],
-          uploadMeta: extractUploadMeta(doc, mediaType, doc),
-        } as TitleDetails;
-      }
-
-      // 3B. Live TMDB fetch
-      try {
-        let details = await getTitleDetails(mediaType, movieId);
-        if (isDummyTitle(details?.title || details?.name)) {
-          const altType = mediaType === 'movie' ? 'tv' : 'movie';
-          const altDetails = await getTitleDetails(altType, movieId);
-          if (!isDummyTitle(altDetails?.title || altDetails?.name)) {
-            details = altDetails;
-            mediaType = altType;
-          }
-        }
-
-        if (details && !isDummyTitle(details.title || details.name)) {
-          return {
-            ...details,
-            media_type: mediaType,
-            uploadMeta: extractUploadMeta(doc, mediaType, details),
-          };
-        }
-
-        const cleanName = (doc?.title || '')
-          .replace(/^Name\s*:\s*/i, '')
-          .replace(/\.S\d{1,2}(?:E\d{1,2})?.*$/i, '')
-          .replace(/\s+S\d{1,2}(?:E\d{1,2})?.*$/i, '')
-          .replace(/Season\s*\d+.*$/i, '')
-          .replace(/\./g, ' ')
-          .replace(/HUBCLOUD.*$/i, '')
-          .trim();
-
-        if (cleanName && cleanName.length > 1) {
-          return {
-            id: Number(movieId) || (movieId as any),
-            title: cleanName,
-            name: cleanName,
-            overview: 'Available for streaming & download on CineFuel.',
-            poster_path: details?.poster_path || '/placeholder-poster.svg',
-            backdrop_path: details?.backdrop_path || details?.poster_path || '/placeholder-backdrop.svg',
-            release_date: details?.release_date || '',
-            first_air_date: details?.first_air_date || '',
-            vote_average: details?.vote_average || 8.0,
-            vote_count: 1000,
-            media_type: mediaType,
-            genres: [{ id: 18, name: 'Featured' }],
-            uploadMeta: extractUploadMeta(doc, mediaType, details),
-          } as TitleDetails;
-        }
-      } catch (e) {
-        // ignore error
-      }
-
-      return null;
-    })
-  );
-
-  return {
-    items: enrichedResults.filter(Boolean) as TitleDetails[],
-    total,
-    page: safePage,
-    totalPages,
-    limit: safeLimit,
-  };
 }
 
 /**

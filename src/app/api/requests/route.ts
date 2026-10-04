@@ -15,8 +15,10 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') || 'all';
+    const page = searchParams.get('page') ? Math.max(1, parseInt(searchParams.get('page')!, 10)) : undefined;
+    const limit = searchParams.get('limit') ? Math.max(1, Math.min(100, parseInt(searchParams.get('limit')!, 10))) : undefined;
 
-    const result = await getAllRequests(status);
+    const result = await getAllRequests(status, { page, limit });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('API /api/requests GET error:', error);

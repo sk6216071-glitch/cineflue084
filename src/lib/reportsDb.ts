@@ -51,25 +51,36 @@ export function saveLocalFallbackReports(data: DefectiveLinkReport[]): boolean {
 /**
  * Fetches all defective link reports from MongoDB Atlas, Redis, or local JSON file
  */
-export async function getAllReports(filterStatus?: string): Promise<{
+export async function getAllReports(
+  filterStatus?: string,
+  options?: { page?: number; limit?: number }
+): Promise<{
   reports: DefectiveLinkReport[];
   total: number;
   pendingCount: number;
+  page?: number;
+  totalPages?: number;
+  limit?: number;
   source: 'mongodb_atlas' | 'upstash_redis' | 'local_json';
 }> {
+  const hasPagination = typeof options?.page === 'number' || typeof options?.limit === 'number';
+  const page = Math.max(1, options?.page || 1);
+  const limit = Math.max(1, Math.min(100, options?.limit || 50));
+
   // 1. Try MongoDB Atlas first
   try {
     const db = await getDatabase();
     if (db) {
       const collection = db.collection('defective_reports');
       const query = filterStatus && filterStatus !== 'all' ? { status: filterStatus } : {};
-      const docs = await collection.find(query).sort({ createdAt: -1 }).toArray();
-
-      const allDocs = filterStatus && filterStatus !== 'all'
-        ? await collection.find({}).toArray()
-        : docs;
-
-      const pendingCount = allDocs.filter((d: any) => d.status === 'pending').length;
+      const total = await collection.countDocuments(query).catch(() => 0);
+      const pendingCount = await collection.countDocuments({ status: 'pending' }).catch(() => 0);
+      
+      let cursor = collection.find(query).sort({ createdAt: -1 });
+      if (hasPagination) {
+        cursor = cursor.skip((page - 1) * limit).limit(limit);
+      }
+      const docs = await cursor.toArray();
 
       const reports: DefectiveLinkReport[] = docs.map((d: any) => {
         const { _id, ...rest } = d;
@@ -78,8 +89,11 @@ export async function getAllReports(filterStatus?: string): Promise<{
 
       return {
         reports,
-        total: allDocs.length,
+        total,
         pendingCount,
+        page: hasPagination ? page : 1,
+        totalPages: hasPagination ? Math.max(1, Math.ceil(total / limit)) : 1,
+        limit: hasPagination ? limit : total,
         source: 'mongodb_atlas',
       };
     }

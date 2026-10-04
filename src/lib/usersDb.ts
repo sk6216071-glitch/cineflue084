@@ -78,22 +78,34 @@ function sanitizeUserDocument(raw: any): RegisteredUser {
 }
 
 /**
- * Fetches all users from DB and merges live request/report activity
+ * Fetches all users from DB and merges live request/report activity (supports optional pagination)
  */
-export async function getAllUsers(): Promise<{
+export async function getAllUsers(options?: { page?: number; limit?: number }): Promise<{
   users: RegisteredUser[];
   total: number;
+  page?: number;
+  totalPages?: number;
+  limit?: number;
   source: 'mongodb_atlas' | 'upstash_redis' | 'local_json';
 }> {
   let userList: RegisteredUser[] = [];
+  let total = 0;
   let source: 'mongodb_atlas' | 'upstash_redis' | 'local_json' = 'local_json';
+  const hasPagination = typeof options?.page === 'number' || typeof options?.limit === 'number';
+  const page = Math.max(1, options?.page || 1);
+  const limit = Math.max(1, Math.min(100, options?.limit || 50));
 
   // 1. Try MongoDB
   try {
     const db = await getDatabase();
     if (db) {
       const collection = db.collection('users');
-      const docs = await collection.find({}).sort({ createdAt: -1 }).toArray();
+      total = await collection.countDocuments().catch(() => 0);
+      let query = collection.find({}).sort({ createdAt: -1 });
+      if (hasPagination) {
+        query = query.skip((page - 1) * limit).limit(limit);
+      }
+      const docs = await query.toArray();
       if (docs && docs.length > 0) {
         userList = docs.map((d: any) => sanitizeUserDocument(d));
         source = 'mongodb_atlas';
@@ -205,7 +217,10 @@ export async function getAllUsers(): Promise<{
 
   return {
     users: finalUsers,
-    total: finalUsers.length,
+    total: total || finalUsers.length,
+    page: hasPagination ? page : 1,
+    totalPages: hasPagination ? Math.max(1, Math.ceil((total || finalUsers.length) / limit)) : 1,
+    limit: hasPagination ? limit : finalUsers.length,
     source,
   };
 }

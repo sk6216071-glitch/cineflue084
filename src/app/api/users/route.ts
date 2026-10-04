@@ -15,7 +15,10 @@ export async function GET(req: NextRequest) {
   try {
     // 1. Check admin authorization
     if (validateAdminAuth(req)) {
-      const result = await getAllUsers();
+      const { searchParams } = new URL(req.url);
+      const page = searchParams.get('page') ? Math.max(1, parseInt(searchParams.get('page')!, 10)) : undefined;
+      const limit = searchParams.get('limit') ? Math.max(1, Math.min(100, parseInt(searchParams.get('limit')!, 10))) : undefined;
+      const result = await getAllUsers({ page, limit });
       return NextResponse.json({
         ...result,
       });

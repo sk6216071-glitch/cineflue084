@@ -12,10 +12,12 @@ export async function GET(request: NextRequest) {
     const audio = searchParams.get('audio') || undefined;
     const ott = searchParams.get('ott') || undefined;
     const query = searchParams.get('q') || searchParams.get('query') || undefined;
+    const cursor = searchParams.get('cursor') || undefined;
     const limit = Number(searchParams.get('limit')) || 24;
     const page = Number(searchParams.get('page')) || 1;
 
     const result = await getPaginatedUploadedTitles({
+      cursor,
       type,
       quality,
       category,
