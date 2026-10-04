@@ -7,6 +7,8 @@ import { ChevronRight, ChevronLeft } from 'lucide-react';
 export interface PaginationProps {
   currentPage: number;
   totalPages: number;
+  basePath?: string;
+  extraParams?: Record<string, string | number | undefined>;
   createPageUrl?: (page: number) => string;
   onPageChange?: (page: number) => void;
   className?: string;
@@ -38,6 +40,8 @@ export function generatePaginationRange(
 export const Pagination: React.FC<PaginationProps> = ({
   currentPage,
   totalPages,
+  basePath,
+  extraParams,
   createPageUrl,
   onPageChange,
   className = '',
@@ -47,6 +51,30 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   const validCurrent = Math.max(1, Math.min(currentPage, totalPages));
   const pages = generatePaginationRange(validCurrent, totalPages);
+
+  const getUrl = (pageNum: number): string | null => {
+    if (createPageUrl) {
+      try {
+        return createPageUrl(pageNum);
+      } catch {
+        return null;
+      }
+    }
+    if (basePath) {
+      const params = new URLSearchParams();
+      if (pageNum > 1) params.set('page', String(pageNum));
+      if (extraParams) {
+        Object.entries(extraParams).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== '') {
+            params.set(k, String(v));
+          }
+        });
+      }
+      const qs = params.toString();
+      return `${basePath}${qs ? `?${qs}` : ''}`;
+    }
+    return null;
+  };
 
   const renderButton = (
     pageNum: number,
@@ -62,12 +90,13 @@ export const Pagination: React.FC<PaginationProps> = ({
       isActive ? activeClasses : inactiveClasses
     }`;
 
-    if (createPageUrl) {
+    const url = getUrl(pageNum);
+    if (url) {
       return (
         <Link
           key={`page-${pageNum}`}
-          href={createPageUrl(pageNum)}
-          onClick={(e) => {
+          href={url}
+          onClick={() => {
             if (onPageChange) {
               onPageChange(pageNum);
             }
@@ -105,10 +134,11 @@ export const Pagination: React.FC<PaginationProps> = ({
         : 'bg-[#121319] hover:bg-zinc-800 hover:text-white hover:border-zinc-700'
     }`;
 
-    if (createPageUrl && !isDisabled) {
+    const url = !isDisabled ? getUrl(targetPage) : null;
+    if (url) {
       return (
         <Link
-          href={createPageUrl(targetPage)}
+          href={url}
           onClick={() => onPageChange?.(targetPage)}
           className={baseClasses}
           aria-label={label}

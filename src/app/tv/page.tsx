@@ -35,17 +35,6 @@ export default async function TVShowsPage({ searchParams }: TVShowsPageProps) {
     query: q || undefined,
   });
 
-  const buildUrl = (p: number) => {
-    const params = new URLSearchParams();
-    if (p > 1) params.set('page', String(p));
-    if (quality) params.set('quality', quality);
-    if (category) params.set('category', category);
-    if (audio) params.set('audio', audio);
-    if (q) params.set('q', q);
-    const qs = params.toString();
-    return `/tv${qs ? `?${qs}` : ''}`;
-  };
-
   const hasFilter = Boolean(quality || category || audio || q);
 
   return (
@@ -160,7 +149,8 @@ export default async function TVShowsPage({ searchParams }: TVShowsPageProps) {
           <Pagination
             currentPage={result.page}
             totalPages={result.totalPages}
-            createPageUrl={buildUrl}
+            basePath="/tv"
+            extraParams={{ quality, category, audio, q }}
           />
         </section>
       ) : (

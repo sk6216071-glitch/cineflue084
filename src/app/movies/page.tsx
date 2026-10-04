@@ -35,17 +35,6 @@ export default async function MoviesPage({ searchParams }: MoviesPageProps) {
     query: q || undefined,
   });
 
-  const buildUrl = (p: number) => {
-    const params = new URLSearchParams();
-    if (p > 1) params.set('page', String(p));
-    if (quality) params.set('quality', quality);
-    if (audio) params.set('audio', audio);
-    if (genre) params.set('genre', genre);
-    if (q) params.set('q', q);
-    const qs = params.toString();
-    return `/movies${qs ? `?${qs}` : ''}`;
-  };
-
   const hasFilter = Boolean(quality || audio || genre || q);
 
   return (
@@ -160,7 +149,8 @@ export default async function MoviesPage({ searchParams }: MoviesPageProps) {
           <Pagination
             currentPage={result.page}
             totalPages={result.totalPages}
-            createPageUrl={buildUrl}
+            basePath="/movies"
+            extraParams={{ quality, audio, genre, q }}
           />
         </section>
       ) : (

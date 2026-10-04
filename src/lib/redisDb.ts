@@ -780,6 +780,7 @@ export interface PaginatedUploadedOptions {
   ott?: string;
   query?: string;
   genre?: string | number;
+  skipCount?: boolean;
 }
 
 export interface PaginatedUploadedResult {
@@ -926,17 +927,21 @@ export async function getPaginatedUploadedTitles(
         // Distinct titles count (cached in Redis with 300s TTL)
         const countCacheKey = `cinefuel:${env}:catalog:v${version}:count:${type}:${filterKey}`;
         let total = 0;
-        if (redisClient) {
-          try {
-            const cachedCount = await redisClient.get<number>(countCacheKey);
-            if (typeof cachedCount === 'number') total = cachedCount;
-          } catch {}
-        }
-        if (!total) {
-          const distinctMovieIds = await collection.distinct('movieId', matchStage).catch(() => []);
-          total = distinctMovieIds.length;
-          if (redisClient && total > 0) {
-            redisClient.set(countCacheKey, total, { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
+        if (options.skipCount) {
+          total = safeLimit;
+        } else {
+          if (redisClient) {
+            try {
+              const cachedCount = await redisClient.get<number>(countCacheKey);
+              if (typeof cachedCount === 'number') total = cachedCount;
+            } catch {}
+          }
+          if (!total) {
+            const distinctMovieIds = await collection.distinct('movieId', matchStage).catch(() => []);
+            total = distinctMovieIds.length;
+            if (redisClient && total > 0) {
+              redisClient.set(countCacheKey, total, { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
+            }
           }
         }
 
@@ -1143,6 +1148,7 @@ export async function getRecentlyAddedTitles(
     limit,
     type: mediaTypeFilter,
     page: 1,
+    skipCount: true,
   });
   return paginated.items;
 }
