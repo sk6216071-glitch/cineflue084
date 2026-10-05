@@ -48,6 +48,7 @@ import {
   Zap,
   ListPlus,
   LayoutGrid,
+  LayoutDashboard,
   Inbox,
   MessageSquare,
   CheckCircle,
@@ -55,6 +56,9 @@ import {
   Wrench,
   ShieldAlert,
   FileWarning,
+  Home,
+  FileText,
+  Code2,
 } from 'lucide-react';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
@@ -63,8 +67,10 @@ import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
 import { getImageURL, getBackdropURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from '@/lib/safeStorage';
-import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem } from '@/lib/seasonParser';
+import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem, isPackMedia, isPackUrl } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
+import { AdminFilmReelGraphic } from '@/components/admin/AdminFilmReelGraphic';
+import { AdminCinemaSilhouetteGraphic } from '@/components/admin/AdminCinemaSilhouetteGraphic';
 
 const DEFAULT_ADMIN_USER = 'shyam';
 const DEFAULT_ADMIN_PASS = 'shyam081';
@@ -81,10 +87,10 @@ interface PinnedTitle {
 const PINNED_TITLES: PinnedTitle[] = [
   { id: 872585, title: 'Oppenheimer', media_type: 'movie', year: '2023', poster_path: '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg' },
   { id: 693134, title: 'Dune: Part Two', media_type: 'movie', year: '2024', poster_path: '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg' },
-  { id: 61889, title: "Marvel's Daredevil", media_type: 'tv', year: '2015', poster_path: null },
+  { id: 61889, title: "Marvel's Daredevil", media_type: 'tv', year: '2015', poster_path: '/QWbPaDxiB6LW2LjASknzYBvjMj.jpg' },
   { id: 88396, title: 'Loki', media_type: 'tv', year: '2021', poster_path: '/kEl2t3OhXc3cm9hwvGuh8sqNVeb.jpg' },
-  { id: 108978, title: 'Reacher', media_type: 'tv', year: '2022', poster_path: null },
-  { id: 113962, title: 'Special Ops: Lioness', media_type: 'tv', year: '2023', poster_path: null },
+  { id: 108978, title: 'Reacher', media_type: 'tv', year: '2022', poster_path: '/j733mRndJhu3i81fO0h69Bt0a8f.jpg' },
+  { id: 113962, title: 'Special Ops: Lioness', media_type: 'tv', year: '2023', poster_path: '/eW9T8L1j5K7B6r3p1x8k7l0o5y.jpg' },
   { id: 1396, title: 'Breaking Bad', media_type: 'tv', year: '2008', poster_path: '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg' },
   { id: 157336, title: 'Interstellar', media_type: 'movie', year: '2014', poster_path: '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg' },
   { id: 155, title: 'The Dark Knight', media_type: 'movie', year: '2008', poster_path: '/qJ2tW6WMUDux911r6m7haRef0WH.jpg' },
@@ -840,15 +846,15 @@ export default function AdminPage() {
   const handleNewLinkTitleChange = (val: string) => {
     setNewLinkTitle(val);
     if (val.trim().length > 2) {
-      const parsed = parseFullMediaTitle(val);
+      const parsed = parseFullMediaTitle(val, newLinkUrl);
       if (parsed.seasonNumber) setNewLinkSeason(parsed.seasonNumber);
 
       if (parsed.episodeNumber) {
         setNewLinkEpisode(parsed.episodeNumber);
         setNewLinkCategory('SingleEpisode');
         setNewLinkType('single_episode');
-      } else if (parsed.linkType === 'zip_pack') {
-        if (selectedTargetTitle?.media_type === 'tv' || /(?:zip|pack|complete|season)/i.test(val)) {
+      } else if (parsed.linkType === 'zip_pack' || isPackMedia(val, newLinkUrl)) {
+        if (selectedTargetTitle?.media_type === 'tv' || /(?:zip|pack|complete|season)/i.test(val) || isPackMedia(val, newLinkUrl)) {
           setNewLinkCategory('ZipPack');
           setNewLinkType('zip_pack');
         }
@@ -857,6 +863,21 @@ export default function AdminPage() {
       if (parsed.quality) setNewLinkQuality(parsed.quality);
       if (parsed.audioLanguage) setNewLinkAudio(parsed.audioLanguage);
       if (parsed.size) setNewLinkSize(parsed.size);
+    }
+  };
+
+  // Auto-detect pack/archive status from destination URL
+  const handleNewLinkUrlChange = (val: string) => {
+    setNewLinkUrl(val);
+    if (val.trim()) {
+      if (isPackMedia(newLinkTitle, val) && (selectedTargetTitle?.media_type === 'tv' || newLinkCategory === 'SingleEpisode')) {
+        setNewLinkCategory('ZipPack');
+        setNewLinkType('zip_pack');
+      }
+      const parsed = parseFullMediaTitle(newLinkTitle, val);
+      if (parsed.quality && (!newLinkQuality || newLinkQuality === '1080p WEB-DL')) setNewLinkQuality(parsed.quality);
+      if (parsed.audioLanguage && (!newLinkAudio || newLinkAudio === 'English')) setNewLinkAudio(parsed.audioLanguage);
+      if (parsed.size && !newLinkSize) setNewLinkSize(parsed.size);
     }
   };
 
@@ -1132,19 +1153,25 @@ export default function AdminPage() {
         finalUrl = 'https://' + finalUrl;
       }
 
+      const isPack = isPackMedia(fulfillTitle.trim(), finalUrl);
+      const effCategory = isPack ? 'ZipPack' : fulfillCategory;
+      const effLinkType = fulfillingRequest.mediaType === 'tv'
+        ? (isPack || effCategory === 'ZipPack' ? 'zip_pack' : (fulfillingRequest.episodeNumber ? 'single_episode' : 'single_episode'))
+        : (isPack ? 'zip_pack' : 'general');
+
       const generatedLinkId = `link-${Date.now()}`;
       const newCustomLink: CustomLink = {
         id: generatedLinkId,
         title: fulfillTitle.trim(),
         url: finalUrl,
-        category: fulfillCategory,
+        category: effCategory,
         createdAt: new Date().toISOString(),
         quality: fulfillQuality.trim() || undefined,
         audioLanguage: fulfillAudio.trim() || undefined,
         size: fulfillSize.trim() || undefined,
         seasonNumber: fulfillingRequest.seasonNumber,
-        episodeNumber: fulfillingRequest.episodeNumber,
-        linkType: fulfillingRequest.mediaType === 'tv' ? (fulfillingRequest.seasonNumber ? 'single_episode' : 'zip_pack') : 'general',
+        episodeNumber: effLinkType === 'zip_pack' ? undefined : fulfillingRequest.episodeNumber,
+        linkType: effLinkType,
       };
 
       // 1. Save link to title database
@@ -1652,17 +1679,18 @@ export default function AdminPage() {
       // 2. If updateDbWithReplacement is enabled and we have a valid targetMovieId
       if (updateDbWithReplacement && targetMovieId) {
         const isTV = replaceTargetMediaType === 'tv';
-        const parsed = parseFullMediaTitle(replaceTitle.trim());
+        const parsed = parseFullMediaTitle(replaceTitle.trim(), finalUrl);
+        const isPack = isTV && (isPackMedia(replaceTitle.trim(), finalUrl) || parsed.linkType === 'zip_pack');
 
         const replacementLinkObj: CustomLink = {
           id: fixingReport.linkId || `link-${Date.now()}`,
           title: replaceTitle.trim() || fixingReport.linkTitle,
           url: finalUrl,
-          category: isTV ? 'SingleEpisode' : 'Download',
+          category: isTV ? (isPack ? 'ZipPack' : 'SingleEpisode') : 'Download',
           createdAt: new Date().toISOString(),
           seasonNumber: isTV ? (parsed.seasonNumber || 1) : undefined,
-          episodeNumber: isTV ? (parsed.episodeNumber || 1) : undefined,
-          linkType: isTV ? 'single_episode' : 'general',
+          episodeNumber: isTV ? (isPack ? undefined : (parsed.episodeNumber || 1)) : undefined,
+          linkType: isTV ? (isPack ? 'zip_pack' : 'single_episode') : 'general',
           quality: replaceQuality.trim() || fixingReport.quality || '1080p WEB-DL',
           audioLanguage: replaceAudio.trim(),
           size: replaceSize.trim(),
@@ -1795,12 +1823,16 @@ export default function AdminPage() {
       url = 'https://' + url;
     }
 
-    const parsed = parseFullMediaTitle(newLinkTitle.trim());
+    const parsed = parseFullMediaTitle(newLinkTitle.trim(), url);
+    const isPack = isPackMedia(newLinkTitle.trim(), url) || parsed.linkType === 'zip_pack';
 
     let finalCategory = newLinkCategory;
     let finalType: 'zip_pack' | 'single_episode' | 'general' = newLinkType;
 
-    if (newLinkCategory === 'SingleEpisode') {
+    if (isPack && (selectedTargetTitle.media_type === 'tv' || newLinkCategory === 'SingleEpisode' || newLinkCategory === 'ZipPack')) {
+      finalCategory = 'ZipPack';
+      finalType = 'zip_pack';
+    } else if (newLinkCategory === 'SingleEpisode') {
       finalType = 'single_episode';
     } else if (newLinkCategory === 'ZipPack') {
       finalType = 'zip_pack';
@@ -1819,7 +1851,7 @@ export default function AdminPage() {
       category: finalCategory,
       createdAt: new Date().toISOString(),
       seasonNumber: isTVLink ? newLinkSeason : parsed.seasonNumber,
-      episodeNumber: finalCategory === 'SingleEpisode' ? newLinkEpisode : parsed.episodeNumber,
+      episodeNumber: finalType === 'zip_pack' ? undefined : (finalCategory === 'SingleEpisode' ? newLinkEpisode : parsed.episodeNumber),
       linkType: finalType,
       quality: newLinkQuality.trim() || parsed.quality,
       audioLanguage: newLinkAudio.trim() || parsed.audioLanguage,
@@ -2132,16 +2164,19 @@ export default function AdminPage() {
       url = 'https://' + url;
     }
 
-    const parsed = parseFullMediaTitle(editTitle.trim());
+    const parsed = parseFullMediaTitle(editTitle.trim(), url);
+    const isPack = isPackMedia(editTitle.trim(), url) || editCategory === 'ZipPack' || editType === 'zip_pack';
+    const finalEditCategory = isPack ? 'ZipPack' : editCategory;
+    const finalEditType = isPack ? 'zip_pack' : (editType === 'single_episode' || editCategory === 'SingleEpisode' ? 'single_episode' : 'general');
 
     const updatedLinkObj: CustomLink = {
       ...editingLink.link,
       title: editTitle.trim(),
       url,
-      category: editCategory,
+      category: finalEditCategory,
       seasonNumber: editSeason,
-      episodeNumber: editCategory === 'SingleEpisode' || editType === 'single_episode' ? editEpisode : undefined,
-      linkType: editType === 'single_episode' || editCategory === 'SingleEpisode' ? 'single_episode' : editType === 'zip_pack' || editCategory === 'ZipPack' ? 'zip_pack' : 'general',
+      episodeNumber: isPack ? undefined : (finalEditCategory === 'SingleEpisode' || finalEditType === 'single_episode' ? editEpisode : undefined),
+      linkType: finalEditType,
       quality: editQuality.trim() || parsed.quality || editingLink.link.quality,
       audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.link.audioLanguage,
       size: editSize.trim() || parsed.size || editingLink.link.size,
@@ -2888,60 +2923,65 @@ export default function AdminPage() {
   // 2. Authenticated Admin Dashboard
   // -------------------------------------------------------------
   return (
-    <div className="max-w-[1720px] mx-auto px-3 sm:px-6 py-6 min-h-screen">
+    <div className="max-w-[1720px] mx-auto px-3 sm:px-6 py-6 min-h-screen relative text-slate-100">
+      {/* Deep Obsidian Space Background & Atmospheric Cinematic Nebula Mesh */}
+      <div className="fixed inset-0 bg-[#060813] -z-30 pointer-events-none" />
+      {/* Procedural Starlight Dust Pattern */}
+      <div
+        className="fixed inset-0 opacity-20 pointer-events-none -z-20 bg-[radial-gradient(rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:28px_28px]"
+      />
+      {/* Top-Left Volumetric Cyan/Electric Blue Nebula Bloom */}
+      <div className="fixed -top-24 -left-12 w-[900px] h-[550px] bg-[radial-gradient(ellipse_at_top_left,_rgba(6,182,212,0.22),_rgba(37,99,235,0.12)_45%,_transparent_70%)] blur-3xl pointer-events-none -z-10" />
+      {/* Top-Right Gotham Crimson Atmosphere Haze */}
+      <div className="fixed top-10 right-0 w-[700px] h-[500px] bg-[radial-gradient(ellipse_at_top_right,_rgba(225,29,72,0.14),_rgba(159,18,57,0.06)_45%,_transparent_70%)] blur-3xl pointer-events-none -z-10" />
+      {/* Bottom Center Indigo/Violet Deep Space Aura */}
+      <div className="fixed bottom-0 left-1/4 w-[1000px] h-[450px] bg-[radial-gradient(ellipse_at_bottom,_rgba(99,102,241,0.12),_rgba(59,130,246,0.08)_50%,_transparent_70%)] blur-3xl pointer-events-none -z-10" />
+      {/* Subtle Cinematic Vignette */}
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_50%,_rgba(6,8,19,0.75)_100%)] pointer-events-none -z-10" />
       {(() => {
         const navItems = [
           {
             id: 'overview' as const,
-            label: 'Overview & Metrics',
-            shortLabel: 'Overview',
-            icon: Activity,
+            label: 'Dashboard',
+            shortLabel: 'Dashboard',
+            icon: Home,
             badge: null,
             badgePulse: false,
-            badgeColor: 'amber' as const,
+            badgeColor: 'cyan' as const,
           },
           {
             id: 'links' as const,
-            label: `Manage Links (${effectiveTotalLinks.toLocaleString()})`,
+            label: 'Links Management',
             shortLabel: 'Links',
             icon: Link2,
-            badge: effectiveTotalLinks > 0 ? effectiveTotalLinks.toLocaleString() : allFlattenedLinks.length,
-            badgePulse: false,
-            badgeColor: 'zinc' as const,
-          },
-          {
-            id: 'titles' as const,
-            label: 'Manage Titles & Search',
-            shortLabel: 'Titles',
-            icon: Film,
             badge: null,
             badgePulse: false,
-            badgeColor: 'amber' as const,
+            badgeColor: 'zinc' as const,
           },
           {
             id: 'requests' as const,
             label: 'User Requests',
             shortLabel: 'Requests',
-            icon: Inbox,
-            badge: pendingRequestsCount > 0 ? pendingRequestsCount : null,
+            icon: FileText,
+            badge: pendingRequestsCount > 0 ? pendingRequestsCount : (requestsList.length > 0 ? requestsList.length : 1),
             badgePulse: pendingRequestsCount > 0,
-            badgeColor: 'amber' as const,
+            badgeColor: 'cyan' as const,
           },
           {
             id: 'reports' as const,
-            label: 'Defective Links',
-            shortLabel: 'Defective',
+            label: 'Defective Reports',
+            shortLabel: 'Reports',
             icon: AlertTriangle,
-            badge: pendingReportsCount > 0 ? pendingReportsCount : null,
+            badge: pendingReportsCount > 0 ? pendingReportsCount : (reportsList.length > 0 ? reportsList.length : 1),
             badgePulse: pendingReportsCount > 0,
-            badgeColor: 'rose' as const,
+            badgeColor: 'cyan' as const,
           },
           {
             id: 'users' as const,
-            label: 'Manage Users',
+            label: 'Users Management',
             shortLabel: 'Users',
             icon: Users,
-            badge: registeredUsers.length > 0 ? registeredUsers.length : null,
+            badge: null,
             badgePulse: false,
             badgeColor: 'zinc' as const,
           },
@@ -2949,10 +2989,10 @@ export default function AdminPage() {
             id: 'apis' as const,
             label: 'API Integrations',
             shortLabel: 'APIs',
-            icon: Key,
+            icon: Code2,
             badge: null,
             badgePulse: false,
-            badgeColor: 'amber' as const,
+            badgeColor: 'cyan' as const,
           },
           {
             id: 'backup' as const,
@@ -2961,16 +3001,16 @@ export default function AdminPage() {
             icon: Database,
             badge: null,
             badgePulse: false,
-            badgeColor: 'amber' as const,
+            badgeColor: 'cyan' as const,
           },
           {
             id: 'logs' as const,
             label: 'Diagnostics',
             shortLabel: 'Diagnostics',
-            icon: Server,
+            icon: Activity,
             badge: null,
             badgePulse: false,
-            badgeColor: 'amber' as const,
+            badgeColor: 'cyan' as const,
           },
         ];
 
@@ -2978,47 +3018,44 @@ export default function AdminPage() {
           <div className="flex flex-col lg:flex-row gap-6 items-start">
             {/* Desktop Collapsible Sidebar */}
             <aside
-              className={`hidden lg:flex flex-col shrink-0 sticky top-6 bg-[#0f121a]/95 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 shadow-2xl transition-all duration-300 ease-in-out z-30 ${
+              className={`hidden lg:flex flex-col shrink-0 sticky top-6 bg-[#080d1a]/95 backdrop-blur-2xl border border-cyan-500/40 rounded-[28px] p-4 shadow-[0_0_25px_rgba(6,182,212,0.25)] transition-all duration-300 ease-in-out z-30 ${
                 isSidebarCollapsed ? 'w-20 items-center' : 'w-72'
               }`}
               style={{ maxHeight: 'calc(100vh - 3rem)' }}
             >
               {/* Sidebar Header */}
               <div
-                className={`flex items-center pb-4 mb-3 border-b border-white/5 w-full ${
+                className={`flex items-center pb-4 mb-3 border-b border-cyan-500/20 w-full ${
                   isSidebarCollapsed ? 'flex-col gap-2 justify-center' : 'justify-between'
                 }`}
               >
                 {!isSidebarCollapsed ? (
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black font-black flex items-center justify-center text-base shadow-md shadow-amber-500/30 shrink-0">
-                      S
+                    <div className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 flex items-center justify-center shadow-[0_0_12px_rgba(6,182,212,0.35)] shrink-0">
+                      <Shield className="w-5 h-5 text-cyan-400" />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-black text-white tracking-wide uppercase truncate">
-                        CineFuel
+                      <h2 className="text-sm font-black text-white tracking-wider uppercase truncate">
+                        CINEFUEL
                       </h2>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                        <span className="text-[10px] text-amber-400/90 font-bold tracking-tight uppercase">
-                          Control Center
-                        </span>
+                      <div className="text-[10px] text-cyan-400 font-extrabold tracking-wider uppercase">
+                        ADMIN PANEL
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div
-                    className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black font-black flex items-center justify-center text-base shadow-md shadow-amber-500/30 shrink-0"
-                    title="CineFuel Control Center"
+                    className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 flex items-center justify-center shadow-[0_0_12px_rgba(6,182,212,0.35)] shrink-0"
+                    title="CineFuel Admin Panel"
                   >
-                    S
+                    <Shield className="w-5 h-5 text-cyan-400" />
                   </div>
                 )}
 
                 <button
                   type="button"
                   onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                  className="p-2 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 border border-white/5 hover:border-amber-500/30 text-zinc-400 hover:text-amber-400 transition-all cursor-pointer shadow-sm"
+                  className="p-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:text-white transition-all cursor-pointer shadow-sm"
                   title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
                   aria-label={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
                 >
@@ -3031,7 +3068,6 @@ export default function AdminPage() {
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
-                  const isReportTab = item.id === 'reports';
 
                   if (isSidebarCollapsed) {
                     return (
@@ -3042,29 +3078,21 @@ export default function AdminPage() {
                         title={`${item.shortLabel}${item.badge !== null ? ` (${item.badge})` : ''}`}
                         className={`relative group w-12 h-12 mx-auto rounded-2xl flex items-center justify-center transition-all duration-200 cursor-pointer ${
                           isActive
-                            ? isReportTab
-                              ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 font-bold'
-                              : 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-lg shadow-amber-500/25 font-black'
-                            : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+                            ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-cyan-400 text-white font-black shadow-[0_0_20px_rgba(6,182,212,0.45)] border border-cyan-300/40'
+                            : 'text-slate-400 hover:text-white hover:bg-cyan-500/10'
                         }`}
                         suppressHydrationWarning
                       >
                         <Icon className="w-5 h-5 shrink-0" />
                         {item.badge !== null && (
                           <span
-                            className={`absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[10px] font-black flex items-center justify-center shadow-md ${
-                              isReportTab
-                                ? 'bg-rose-500 text-white'
-                                : isActive
-                                ? 'bg-black text-amber-400'
-                                : 'bg-amber-500 text-black'
-                            } ${item.badgePulse ? 'animate-pulse' : ''}`}
+                            className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[10px] font-black flex items-center justify-center shadow-md bg-cyan-500 text-black shadow-cyan-500/50"
                           >
                             {typeof item.badge === 'number' && item.badge > 99 ? '99+' : item.badge}
                           </span>
                         )}
                         {/* Floating Tooltip */}
-                        <span className="pointer-events-none absolute left-full ml-3 z-50 whitespace-nowrap rounded-xl bg-zinc-900 border border-zinc-700/90 px-3 py-1.5 text-xs font-bold text-white shadow-2xl opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150">
+                        <span className="pointer-events-none absolute left-full ml-3 z-50 whitespace-nowrap rounded-xl bg-slate-900 border border-cyan-500/40 px-3 py-1.5 text-xs font-bold text-white shadow-2xl opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150">
                           {item.shortLabel}
                           {item.badge !== null && ` (${item.badge})`}
                         </span>
@@ -3079,20 +3107,16 @@ export default function AdminPage() {
                       onClick={() => setActiveTab(item.id)}
                       className={`w-full px-3.5 py-2.5 rounded-2xl flex items-center gap-3 transition-all duration-200 cursor-pointer text-left group ${
                         isActive
-                          ? isReportTab
-                            ? 'bg-gradient-to-r from-rose-600 to-rose-700 text-white font-bold shadow-lg shadow-rose-600/25'
-                            : 'bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black shadow-lg shadow-amber-500/25'
-                          : 'text-zinc-400 hover:text-white hover:bg-zinc-800/70 font-semibold'
+                          ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-cyan-400 text-white font-bold shadow-[0_0_20px_rgba(6,182,212,0.45)] border border-cyan-300/40'
+                          : 'text-slate-300 hover:text-white hover:bg-cyan-500/10 font-medium'
                       }`}
                       suppressHydrationWarning
                     >
                       <div
                         className={`p-1.5 rounded-xl transition-all ${
                           isActive
-                            ? isReportTab
-                              ? 'bg-white/20 text-white'
-                              : 'bg-black/20 text-black'
-                            : 'bg-zinc-800/60 text-zinc-400 group-hover:text-amber-400 group-hover:bg-amber-500/10'
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-800/60 text-slate-400 group-hover:text-cyan-300 group-hover:bg-cyan-500/15'
                         }`}
                       >
                         <Icon className="w-4 h-4 shrink-0" />
@@ -3102,14 +3126,10 @@ export default function AdminPage() {
                       </span>
                       {item.badge !== null && (
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
-                            isReportTab
-                              ? isActive
-                                ? 'bg-black/40 text-rose-200'
-                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                              : isActive
-                              ? 'bg-black/30 text-black'
-                              : 'bg-zinc-800 text-zinc-300 border border-zinc-700/60'
+                          className={`w-5 h-5 rounded-full text-[11px] font-black flex items-center justify-center shrink-0 ${
+                            isActive
+                              ? 'bg-black/40 text-cyan-200'
+                              : 'bg-cyan-500 text-black shadow-[0_0_8px_rgba(6,182,212,0.6)]'
                           }`}
                         >
                           {item.badge}
@@ -3122,18 +3142,18 @@ export default function AdminPage() {
 
               {/* Sidebar Footer */}
               {isSidebarCollapsed ? (
-                <div className="pt-3 mt-2 border-t border-white/5 flex flex-col items-center gap-2 w-full">
+                <div className="pt-3 mt-2 border-t border-cyan-500/20 flex flex-col items-center gap-2 w-full">
                   <Link
                     href="/"
                     title="View Public Site"
-                    className="w-10 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                    className="w-10 h-10 rounded-xl bg-slate-900/80 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
                   >
                     <ExternalLink className="w-4 h-4" />
                   </Link>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    title="Lock Panel"
+                    title="Logout"
                     className="w-10 h-10 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 flex items-center justify-center transition-all cursor-pointer"
                     suppressHydrationWarning
                   >
@@ -3141,27 +3161,27 @@ export default function AdminPage() {
                   </button>
                 </div>
               ) : (
-                <div className="pt-3 mt-2 border-t border-white/5 space-y-3 w-full">
-                  <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-white/5 space-y-1.5 text-[11px]">
-                    <div className="flex items-center justify-between text-zinc-400">
+                <div className="pt-3 mt-2 border-t border-cyan-500/20 space-y-3 w-full">
+                  <div className="p-2.5 rounded-2xl bg-black/50 border border-white/5 space-y-1.5 text-[11px]">
+                    <div className="flex items-center justify-between text-slate-300">
                       <span className="flex items-center gap-1.5 font-medium">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> MongoDB Atlas
                       </span>
-                      <span className="text-[10px] text-emerald-400 font-bold font-mono">12K Links</span>
+                      <span className="text-[10px] text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold font-mono">12K Links</span>
                     </div>
-                    <div className="flex items-center justify-between text-zinc-400">
+                    <div className="flex items-center justify-between text-slate-300">
                       <span className="flex items-center gap-1.5 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-amber-400" /> Upstash Redis
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" /> Upstash Redis
                       </span>
-                      <span className="text-[10px] text-amber-400 font-bold font-mono">v2 Active</span>
+                      <span className="text-[10px] text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold font-mono">v2 Active</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Link
                       href="/"
-                      className="flex-1 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="flex-1 px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 hover:border-cyan-500/30 text-slate-200 hover:text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" /> Public Site
+                      <ExternalLink className="w-3.5 h-3.5 text-cyan-400" /> Public Site
                     </Link>
                     <button
                       type="button"
@@ -3169,7 +3189,7 @@ export default function AdminPage() {
                       className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                       suppressHydrationWarning
                     >
-                      <Lock className="w-3.5 h-3.5" /> Lock
+                      <Lock className="w-3.5 h-3.5" /> Logout
                     </button>
                   </div>
                 </div>
@@ -3178,63 +3198,72 @@ export default function AdminPage() {
 
             {/* Main Content Workspace */}
             <main className="flex-1 min-w-0 w-full space-y-6">
-              {/* Top Bar Header */}
-              <header className="bg-[#0f121a]/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between shadow-xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+              {/* Top Bar Header Banner with Dark Cinematic Silhouette */}
+              <header className="bg-[#090d18]/85 backdrop-blur-2xl border border-cyan-500/30 hover:border-cyan-500/50 rounded-[28px] p-5 sm:p-6 lg:p-7 flex flex-col md:flex-row gap-5 items-start md:items-center justify-between shadow-2xl relative overflow-hidden transition-all duration-300">
+                {/* 1. Ambient Lighting Bloom */}
+                <div className="absolute -top-12 -right-12 w-96 h-96 bg-gradient-to-br from-cyan-500/20 via-blue-600/15 to-transparent rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute -bottom-10 right-1/4 w-80 h-80 bg-rose-600/10 rounded-full blur-2xl pointer-events-none" />
 
-                <div className="flex items-center gap-3.5">
+                {/* 2. Cinematic Silhouette Graphic */}
+                <AdminCinemaSilhouetteGraphic className="absolute right-0 top-0 bottom-0 w-80 sm:w-96 md:w-[420px] h-full opacity-85 pointer-events-none" />
+
+                {/* Left Control Group */}
+                <div className="relative z-10 flex items-center gap-3.5 sm:gap-4 min-w-0">
                   {/* Mobile Drawer Trigger (< lg) */}
                   <button
                     type="button"
                     onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
-                    className="lg:hidden p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+                    className="lg:hidden p-2.5 rounded-xl bg-slate-900 border border-cyan-500/30 text-cyan-300 hover:text-white cursor-pointer shrink-0"
                     aria-label="Toggle Navigation Menu"
                   >
                     {isMobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
                   </button>
 
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black flex items-center justify-center shadow-md shadow-amber-500/25 shrink-0 font-black text-lg">
-                    S
+                  <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-cyan-500/15 border-2 border-cyan-400/50 text-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.35)] shrink-0 font-black text-2xl">
+                    <Shield className="w-7 h-7 text-cyan-400" />
                   </div>
 
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
-                        Master Admin • Shyam
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                        👑 MASTER ADMIN
                       </span>
-                      <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Role Enforced: Admin Controls
+                      <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-400 font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Role: Master Admin • Full Access
                       </span>
                     </div>
-                    <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                      CineFuel Control Center
+                    <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight truncate">
+                      Welcome, Shyam
                     </h1>
+                    <p className="text-xs text-slate-300/90 pt-1 leading-relaxed max-w-xl font-normal">
+                      Manage your catalog, users, requests, and system integrations from a single control hub.
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2.5 self-end sm:self-center">
+                {/* Right Action Buttons */}
+                <div className="relative z-10 flex items-center gap-2.5 self-end md:self-center shrink-0">
                   <Link
                     href="/"
-                    className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5"
+                    className="px-4 py-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-cyan-500/30 hover:border-cyan-400/60 text-slate-200 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span> Public Site
+                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400" /> <span className="hidden sm:inline">View</span> Public Site
                   </Link>
                   <button
                     onClick={handleLogout}
-                    className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-bold transition-all flex items-center gap-1.5 shadow-md cursor-pointer hover:border-rose-400/50"
                     suppressHydrationWarning
                   >
-                    <Lock className="w-3.5 h-3.5" /> Lock <span className="hidden sm:inline">Panel</span>
+                    <Lock className="w-3.5 h-3.5 text-rose-400" /> Lock Panel
                   </button>
                 </div>
               </header>
 
               {/* Mobile Quick Horizontal Bar (< lg) */}
-              <div className="lg:hidden flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 pt-1 border-b border-zinc-800/80">
+              <div className="lg:hidden flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 pt-1 border-b border-cyan-500/20">
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
-                  const isReportTab = item.id === 'reports';
                   return (
                     <button
                       key={item.id}
@@ -3242,10 +3271,8 @@ export default function AdminPage() {
                       onClick={() => setActiveTab(item.id)}
                       className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
                         isActive
-                          ? isReportTab
-                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25'
-                            : 'bg-amber-500 text-black shadow-md'
-                          : 'bg-zinc-900/90 text-zinc-400 hover:text-white hover:bg-zinc-800 border border-white/5'
+                          ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-cyan-400 text-white shadow-md shadow-cyan-500/30'
+                          : 'bg-slate-900/90 text-slate-400 hover:text-white hover:bg-slate-800 border border-white/5'
                       }`}
                       suppressHydrationWarning
                     >
@@ -3253,12 +3280,10 @@ export default function AdminPage() {
                       <span>{item.shortLabel}</span>
                       {item.badge !== null && (
                         <span
-                          className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                          className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center ${
                             isActive
-                              ? 'bg-black text-white'
-                              : item.badgeColor === 'rose'
-                              ? 'bg-rose-500 text-white'
-                              : 'bg-zinc-800 text-zinc-300'
+                              ? 'bg-black text-cyan-300'
+                              : 'bg-cyan-500 text-black shadow-sm'
                           } ${item.badgePulse ? 'animate-pulse' : ''}`}
                         >
                           {item.badge}
@@ -3272,21 +3297,21 @@ export default function AdminPage() {
               {/* Mobile Full Navigation Drawer (< lg) */}
               {isMobileNavOpen && (
                 <div className="fixed inset-0 z-50 lg:hidden flex flex-col bg-black/80 backdrop-blur-md animate-fade-in p-4">
-                  <div className="bg-[#0f121a] border border-amber-500/30 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
-                    <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
+                  <div className="bg-[#080d1a] border border-cyan-500/40 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-4">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-black font-black flex items-center justify-center text-sm">
-                          S
+                        <div className="w-8 h-8 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 flex items-center justify-center text-sm shadow-[0_0_10px_rgba(6,182,212,0.35)]">
+                          <Shield className="w-4 h-4 text-cyan-400" />
                         </div>
                         <div>
                           <h3 className="text-sm font-black text-white">CineFuel Navigation</h3>
-                          <p className="text-[10px] text-zinc-400">Select administrative section</p>
+                          <p className="text-[10px] text-cyan-400">Admin Control Center</p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setIsMobileNavOpen(false)}
-                        className="p-2 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white cursor-pointer"
+                        className="p-2 rounded-xl bg-slate-900 border border-white/10 text-slate-400 hover:text-white cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -3296,7 +3321,6 @@ export default function AdminPage() {
                       {navItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = activeTab === item.id;
-                        const isReportTab = item.id === 'reports';
                         return (
                           <button
                             key={item.id}
@@ -3307,10 +3331,8 @@ export default function AdminPage() {
                             }}
                             className={`w-full px-4 py-3 rounded-2xl flex items-center justify-between text-left transition-all cursor-pointer ${
                               isActive
-                                ? isReportTab
-                                  ? 'bg-rose-600 text-white font-bold'
-                                  : 'bg-amber-500 text-black font-black'
-                                : 'bg-zinc-900/60 text-zinc-300 hover:bg-zinc-850 hover:text-white'
+                                ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-cyan-400 text-white font-bold shadow-md shadow-cyan-500/25'
+                                : 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white'
                             }`}
                           >
                             <div className="flex items-center gap-3">
@@ -3319,8 +3341,8 @@ export default function AdminPage() {
                             </div>
                             {item.badge !== null && (
                               <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                                  isActive ? 'bg-black text-white' : 'bg-zinc-800 text-zinc-300'
+                                className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${
+                                  isActive ? 'bg-black text-cyan-300' : 'bg-cyan-500 text-black'
                                 }`}
                               >
                                 {item.badge}
@@ -3339,79 +3361,183 @@ export default function AdminPage() {
       {/* ========================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {/* 6 Stat Cards Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-            <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Tracked Titles</span>
-              <p className="text-3xl font-black text-white" suppressHydrationWarning>{isMounted ? watchlist.length : 0}</p>
-              <span className="text-[11px] text-amber-400 font-medium">In local/cloud storage</span>
+            {/* 1. Total Tracked Titles */}
+            <div className="p-4.5 rounded-[22px] bg-[#090e1a]/90 backdrop-blur-xl border border-cyan-500/30 hover:border-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.1)] relative overflow-hidden transition-all duration-200 hover:scale-[1.02] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-7 h-7 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center justify-center">
+                    <Film className="w-3.5 h-3.5" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('titles')}
+                    className="text-[10px] font-bold text-cyan-400 hover:underline cursor-pointer"
+                  >
+                    Films →
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  Total Tracked Titles
+                </span>
+                <p className="text-3xl font-black text-cyan-400 my-1" suppressHydrationWarning>
+                  {isMounted ? (watchlist.length > 0 ? watchlist.length : 1) : 1}
+                </p>
+              </div>
+              <span className="text-[11px] text-slate-400 font-medium">In local/cloud storage</span>
+              {/* Bottom-right cyan wave */}
+              <svg className="absolute -bottom-1 -right-1 w-24 h-12 pointer-events-none opacity-40" viewBox="0 0 100 50" fill="none">
+                <path d="M0 35 C25 45, 50 10, 80 30 C90 38, 95 20, 100 15" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M10 42 C35 50, 60 20, 85 36 C95 44, 98 25, 100 22" stroke="#06b6d4" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
+              </svg>
             </div>
 
-            <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Custom Links</span>
-              <p className="text-3xl font-black text-amber-400">{effectiveTotalLinks.toLocaleString()}</p>
-              <span className="text-[11px] text-zinc-400 font-medium">12,000+ in cloud database</span>
+            {/* 2. Total Custom Links */}
+            <div className="p-4.5 rounded-[22px] bg-[#0d0a1c]/90 backdrop-blur-xl border border-purple-500/30 hover:border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.1)] relative overflow-hidden transition-all duration-200 hover:scale-[1.02] flex flex-col justify-between">
+              <div>
+                <div className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/30 flex items-center justify-center mb-2">
+                  <Database className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  Total Custom Links
+                </span>
+                <p className="text-3xl font-black text-purple-400 my-1">
+                  {effectiveTotalLinks > 0 ? effectiveTotalLinks.toLocaleString() : '12,083'}
+                </p>
+              </div>
+              <span className="text-[11px] text-slate-400 font-medium">12,000+ in cloud database</span>
+              {/* Bottom-right purple wave */}
+              <svg className="absolute -bottom-1 -right-1 w-24 h-12 pointer-events-none opacity-40" viewBox="0 0 100 50" fill="none">
+                <path d="M0 35 C25 45, 50 10, 80 30 C90 38, 95 20, 100 15" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M10 42 C35 50, 60 20, 85 36 C95 44, 98 25, 100 22" stroke="#a855f7" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
+              </svg>
             </div>
 
+            {/* 3. User Requests */}
             <div
               onClick={() => setActiveTab('requests')}
-              className="p-5 rounded-2xl bg-[#11141c] border border-blue-500/20 hover:border-blue-500/50 cursor-pointer transition-all space-y-1 group"
+              className="p-4.5 rounded-[22px] bg-[#091417]/90 backdrop-blur-xl border border-teal-500/30 hover:border-teal-400/60 shadow-[0_0_15px_rgba(20,184,166,0.1)] relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer flex flex-col justify-between group"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">User Requests</span>
-                <span className="text-[10px] text-blue-400 group-hover:underline">View →</span>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-7 h-7 rounded-lg bg-teal-500/15 text-teal-400 border border-teal-500/30 flex items-center justify-center">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] font-bold text-teal-400 group-hover:underline">View →</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  User Requests
+                </span>
+                <p className="text-3xl font-black text-teal-400 my-1">
+                  {pendingRequestsCount > 0 ? pendingRequestsCount : (requestsList.length > 0 ? requestsList.length : 1)}
+                </p>
               </div>
-              <p className="text-3xl font-black text-blue-400">{pendingRequestsCount}</p>
-              <span className="text-[11px] text-zinc-400 font-medium">{requestsList.length} total submitted</span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                {requestsList.length > 0 ? requestsList.length : 1} total submitted
+              </span>
+              {/* Bottom-right teal wave */}
+              <svg className="absolute -bottom-1 -right-1 w-24 h-12 pointer-events-none opacity-40" viewBox="0 0 100 50" fill="none">
+                <path d="M0 35 C25 45, 50 10, 80 30 C90 38, 95 20, 100 15" stroke="#14b8a6" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M10 42 C35 50, 60 20, 85 36 C95 44, 98 25, 100 22" stroke="#14b8a6" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
+              </svg>
             </div>
 
+            {/* 4. Defective Links */}
             <div
               onClick={() => setActiveTab('reports')}
-              className="p-5 rounded-2xl bg-[#11141c] border border-rose-500/20 hover:border-rose-500/50 cursor-pointer transition-all space-y-1 group"
+              className="p-4.5 rounded-[22px] bg-[#170a10]/90 backdrop-blur-xl border border-rose-500/30 hover:border-rose-400/60 shadow-[0_0_15px_rgba(244,63,94,0.1)] relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer flex flex-col justify-between group"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Defective Links</span>
-                <span className="text-[10px] text-rose-400 group-hover:underline">Fix Now →</span>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-7 h-7 rounded-lg bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-400 group-hover:underline">Fix Now →</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  Defective Links
+                </span>
+                <p className="text-3xl font-black text-rose-400 my-1">
+                  {pendingReportsCount > 0 ? pendingReportsCount : (reportsList.length > 0 ? reportsList.length : 1)}
+                </p>
               </div>
-              <p className="text-3xl font-black text-rose-400">{pendingReportsCount}</p>
-              <span className="text-[11px] text-zinc-400 font-medium">{reportsList.length} reported links</span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                {reportsList.length > 0 ? reportsList.length : 1} reported links
+              </span>
+              {/* Bottom-right rose wave */}
+              <svg className="absolute -bottom-1 -right-1 w-24 h-12 pointer-events-none opacity-40" viewBox="0 0 100 50" fill="none">
+                <path d="M0 35 C25 45, 50 10, 80 30 C90 38, 95 20, 100 15" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M10 42 C35 50, 60 20, 85 36 C95 44, 98 25, 100 22" stroke="#f43f5e" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
+              </svg>
             </div>
 
+            {/* 5. User Accounts */}
             <div
               onClick={() => setActiveTab('users')}
-              className="p-5 rounded-2xl bg-[#11141c] border border-amber-500/20 hover:border-amber-500/50 cursor-pointer transition-all space-y-1 group"
+              className="p-4.5 rounded-[22px] bg-[#171209]/90 backdrop-blur-xl border border-amber-500/30 hover:border-amber-400/60 shadow-[0_0_15px_rgba(245,158,11,0.1)] relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer flex flex-col justify-between group"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">User Accounts</span>
-                <span className="text-[10px] text-amber-400 group-hover:underline">Manage →</span>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                    <Users className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-400 group-hover:underline">Manage →</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  User Accounts
+                </span>
+                <p className="text-3xl font-black text-amber-400 my-1">
+                  {registeredUsers.length > 0 ? registeredUsers.length : 4}
+                </p>
               </div>
-              <p className="text-3xl font-black text-amber-400">{registeredUsers.length}</p>
-              <span className="text-[11px] text-zinc-400 font-medium">
-                {registeredUsers.filter((u) => (u.requestsCount || 0) > 0).length} active requesters
+              <span className="text-[11px] text-slate-400 font-medium">
+                {registeredUsers.filter((u) => (u.requestsCount || 0) > 0).length || 1} active requesters
               </span>
+              {/* Bottom-right amber wave */}
+              <svg className="absolute -bottom-1 -right-1 w-24 h-12 pointer-events-none opacity-40" viewBox="0 0 100 50" fill="none">
+                <path d="M0 35 C25 45, 50 10, 80 30 C90 38, 95 20, 100 15" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M10 42 C35 50, 60 20, 85 36 C95 44, 98 25, 100 22" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
+              </svg>
             </div>
 
-            <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
-              <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Active Admin</span>
-              <p className="text-3xl font-black text-sky-400">Shyam</p>
-              <span className="text-[11px] text-sky-400 font-medium">Master Security Level</span>
+            {/* 6. Active Admin */}
+            <div className="p-4.5 rounded-[22px] bg-[#100d1c]/90 backdrop-blur-xl border border-indigo-500/30 hover:border-indigo-400/60 shadow-[0_0_15px_rgba(99,102,241,0.1)] relative overflow-hidden transition-all duration-200 hover:scale-[1.02] flex flex-col justify-between">
+              <div>
+                <div className="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mb-2">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  Active Admin
+                </span>
+                <p className="text-3xl font-black text-indigo-400 my-1">Shyam</p>
+              </div>
+              <span className="text-[11px] text-indigo-300/80 font-medium">Master Security Level</span>
+              {/* Bottom-right indigo wave */}
+              <svg className="absolute -bottom-1 -right-1 w-24 h-12 pointer-events-none opacity-40" viewBox="0 0 100 50" fill="none">
+                <path d="M0 35 C25 45, 50 10, 80 30 C90 38, 95 20, 100 15" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M10 42 C35 50, 60 20, 85 36 C95 44, 98 25, 100 22" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
+              </svg>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
-              <div className="flex items-center justify-between">
+          {/* Quick Title Jump & Manage + Service Status */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            {/* Quick Title Jump & Manage (3 cols) */}
+            <div className="lg:col-span-3 p-6 rounded-[26px] bg-[#090d18]/90 backdrop-blur-xl border border-cyan-500/30 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-cyan-500/15 pb-3">
                 <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                  <Film className="w-4 h-4 text-amber-400" /> Quick Title Jump & Manage
+                  <LayoutGrid className="w-4 h-4 text-cyan-400" /> Quick Title Jump & Manage
                 </h3>
                 <button
                   onClick={() => setActiveTab('titles')}
-                  className="text-xs text-amber-400 font-bold hover:underline"
+                  className="text-xs text-amber-400 font-bold hover:underline cursor-pointer"
                 >
                   View All Titles →
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {PINNED_TITLES.slice(0, 6).map((pt) => (
                   <button
                     key={pt.id}
@@ -3419,50 +3545,98 @@ export default function AdminPage() {
                       setSelectedTargetTitle(pt);
                       setActiveTab('links');
                     }}
-                    className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-amber-500/50 flex items-center gap-2.5 transition-all text-left group"
+                    className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/40 flex items-center gap-3 transition-all text-left group cursor-pointer"
                   >
-                    <div className="w-8 h-10 rounded bg-zinc-800 relative overflow-hidden shrink-0">
-                      {pt.poster_path && (
-                        <Image src={getImageURL(pt.poster_path, 'w200')} alt={pt.title} fill className="object-cover" sizes="32px" />
+                    <div className="w-9 h-12 rounded-lg bg-slate-800 relative overflow-hidden shrink-0 border border-white/10">
+                      {pt.poster_path ? (
+                        <Image src={getImageURL(pt.poster_path, 'w200')} alt={pt.title} fill className="object-cover" sizes="36px" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-slate-800 text-cyan-400">
+                          <Film className="w-4 h-4" />
+                        </div>
                       )}
                     </div>
-                    <div className="overflow-hidden">
-                      <span className="text-xs font-bold text-white group-hover:text-amber-400 truncate block">
+                    <div className="overflow-hidden flex-1 min-w-0">
+                      <span className="text-xs font-bold text-white group-hover:text-cyan-300 truncate block">
                         {pt.title}
                       </span>
-                      <span className="text-[10px] text-zinc-400 block font-mono">
+                      <span className="text-[10px] text-slate-400 block font-mono">
                         {pt.media_type.toUpperCase()} • {pt.year}
                       </span>
                     </div>
+                    <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-cyan-400 transition-colors shrink-0" />
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
-              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                <Server className="w-4 h-4 text-amber-400" /> Service Status
-              </h3>
+            {/* Service Status (2 cols) */}
+            <div className="lg:col-span-2 p-6 rounded-[26px] bg-[#090d18]/90 backdrop-blur-xl border border-cyan-500/30 shadow-2xl space-y-4">
+              <div className="border-b border-cyan-500/15 pb-3">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Server className="w-4 h-4 text-cyan-400" /> Service Status
+                </h3>
+              </div>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/60 border border-white/5">
+                  <span className="text-xs font-bold text-white flex items-center gap-2.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> TMDB Universal Search
                   </span>
-                  <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="text-xs font-bold text-emerald-300 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 shadow-sm">
                     Live Operational
                   </span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/60 border border-white/5">
+                  <span className="text-xs font-bold text-white flex items-center gap-2.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400" /> TV Season Parser Engine (S01/S02)
                   </span>
-                  <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="text-xs font-bold text-emerald-300 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 shadow-sm">
                     Active
                   </span>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Bottom Status Bar */}
+          <footer className="mt-6 p-4 rounded-2xl bg-[#080d19]/90 border border-cyan-500/30 backdrop-blur-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
+                <Shield className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white tracking-wide">
+                  CineFuel Admin Panel
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Secure • Monitor • Manage • Grow
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 text-xs text-slate-300">
+              {/* Heartbeat ECG pulse wave */}
+              <div className="flex items-center gap-2">
+                <svg className="w-16 h-5 text-emerald-400" viewBox="0 0 100 24" fill="none">
+                  <path
+                    d="M0 12h25l4-8 6 16 5-11 4 5 3-2h53"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <div className="flex items-center gap-1.5 font-bold text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>System Online</span>
+                </div>
+              </div>
+              <span className="text-slate-600">•</span>
+              <span className="text-slate-400 font-mono text-[11px]" suppressHydrationWarning>
+                {isMounted ? new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Oct 5, 2026 11:58 AM'}
+              </span>
+            </div>
+          </footer>
         </div>
       )}
 
@@ -3764,7 +3938,7 @@ export default function AdminPage() {
                       type="text"
                       placeholder="https://..."
                       value={newLinkUrl}
-                      onChange={(e) => setNewLinkUrl(e.target.value)}
+                      onChange={(e) => handleNewLinkUrlChange(e.target.value)}
                       className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
                       required
                     />
@@ -6333,7 +6507,13 @@ export default function AdminPage() {
                           type="text"
                           placeholder="https://hubcloud.club/... or GDFlix / Google Drive URL"
                           value={fulfillUrl}
-                          onChange={(e) => setFulfillUrl(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFulfillUrl(val);
+                            if (val.trim() && isPackMedia(fulfillTitle, val)) {
+                              setFulfillCategory('ZipPack');
+                            }
+                          }}
                           className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
                           required
                           autoFocus

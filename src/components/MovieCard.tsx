@@ -224,19 +224,19 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         {/* Info Section Below Poster */}
         <div className="p-3.5 flex flex-col justify-between flex-1 bg-[#100e19]">
           <Link href={`/${mediaType}/${item.id}`} className="block">
-            <h3 className="text-sm font-bold text-zinc-100 group-hover:text-amber-400 transition-colors duration-200 line-clamp-2 leading-snug">
+            <h3 className="font-ui text-sm font-semibold text-zinc-100 group-hover:text-amber-400 transition-colors duration-200 line-clamp-2 leading-snug">
               {title} {year ? `(${year})` : ''}
             </h3>
           </Link>
 
           {/* Meta / Status Line */}
-          <div className="flex items-center justify-between text-xs text-zinc-400 mt-2.5 pt-2 border-t border-zinc-800/50">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-400">
+          <div className="font-meta flex items-center justify-between text-xs text-zinc-400 mt-2.5 pt-2 border-t border-zinc-800/50">
+            <div className="font-ui flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>{statusText}</span>
             </div>
 
-            <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-medium">
+            <div className="font-meta flex items-center gap-2 text-[11px] text-zinc-400 font-medium">
               {timeAgo && (
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3 text-zinc-500" />
@@ -278,22 +278,22 @@ export const MovieCard: React.FC<MovieCardProps> = ({
 
         {/* Badges Top Left (Media Type & Quality) */}
         <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-20 flex-wrap max-w-[80%]">
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md text-[10px] font-bold text-zinc-200 border border-white/15 uppercase tracking-wider shadow-lg group-hover:border-amber-400/40 transition-colors">
+          <span className="font-ui flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md text-[10px] font-semibold text-zinc-200 border border-white/15 uppercase tracking-wider shadow-lg group-hover:border-amber-400/40 transition-colors">
             {mediaType === 'tv' ? <Tv className="w-3 h-3 text-sky-400" /> : <Film className="w-3 h-3 text-amber-400" />}
             {mediaType === 'tv' ? 'TV' : 'Movie'}
           </span>
           {(item as any).hasZipPack && (
-            <span className="px-2 py-0.5 rounded-lg bg-emerald-500/90 text-black text-[9px] font-black uppercase tracking-wider shadow-md">
+            <span className="font-ui px-2 py-0.5 rounded-lg bg-emerald-500/90 text-black text-[9px] font-semibold uppercase tracking-wider shadow-md">
               ZIP
             </span>
           )}
           {(item as any).qualities?.includes('REMUX') && (
-            <span className="px-2 py-0.5 rounded-lg bg-purple-500/90 text-white text-[9px] font-black uppercase tracking-wider shadow-md">
+            <span className="font-ui px-2 py-0.5 rounded-lg bg-purple-500/90 text-white text-[9px] font-semibold uppercase tracking-wider shadow-md">
               REMUX
             </span>
           )}
           {((item as any).qualities?.includes('4K UHD') || (item as any).qualities?.includes('4K')) && (
-            <span className="px-2 py-0.5 rounded-lg bg-amber-400/95 text-black text-[9px] font-black uppercase tracking-wider shadow-md">
+            <span className="font-ui px-2 py-0.5 rounded-lg bg-amber-400/95 text-black text-[9px] font-semibold uppercase tracking-wider shadow-md">
               4K
             </span>
           )}
@@ -301,7 +301,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
 
         {/* Badges Top Right (Rating) */}
         {item.vote_average > 0 && (
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/85 backdrop-blur-md text-xs font-black text-amber-300 border border-amber-400/40 shadow-lg group-hover:scale-105 group-hover:border-amber-400 transition-all z-20">
+          <div className="font-meta absolute top-2.5 right-2.5 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/85 backdrop-blur-md text-xs font-bold text-amber-300 border border-amber-400/40 shadow-lg group-hover:scale-105 group-hover:border-amber-400 transition-all z-20">
             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
             <span>{item.vote_average.toFixed(1)}</span>
           </div>
@@ -319,18 +319,18 @@ export const MovieCard: React.FC<MovieCardProps> = ({
       {/* Info Section Below Poster */}
       <div className="p-3.5 flex flex-col justify-between flex-1 bg-gradient-to-b from-[#10131b] to-[#0c0f16]">
         <Link href={`/${mediaType}/${item.id}`} className="block">
-          <h3 className="text-sm font-bold text-zinc-100 line-clamp-1 group-hover:text-amber-400 transition-colors duration-200">
+          <h3 className="font-ui text-sm font-semibold text-zinc-100 line-clamp-1 group-hover:text-amber-400 transition-colors duration-200">
             {title}
           </h3>
         </Link>
-        <div className="flex items-center justify-between text-xs text-zinc-400 mt-1.5 font-medium">
-          <span className="text-zinc-400 group-hover:text-zinc-300 transition-colors">{year || 'TBA'}</span>
+        <div className="font-meta flex items-center justify-between text-xs text-zinc-400 mt-1.5 font-medium">
+          <span className="font-meta text-zinc-400 group-hover:text-zinc-300 transition-colors">{year || 'TBA'}</span>
           {(item as any).qualities && (item as any).qualities.length > 0 ? (
-            <span className="text-[10px] text-amber-400 font-bold tracking-wider">
+            <span className="font-ui text-[10px] text-amber-400 font-semibold tracking-wider">
               {(item as any).qualities.slice(0, 2).join(' • ')}
             </span>
           ) : (
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">HD • 4K</span>
+            <span className="font-ui text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">HD • 4K</span>
           )}
         </div>
       </div>

@@ -49,11 +49,11 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
             <span className="p-2 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/20">
               <Flame className="w-5 h-5 fill-amber-400/30" />
             </span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Latest uploads
+            <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl text-white uppercase tracking-wider leading-none">
+              Latest Uploads
             </h2>
           </div>
-          <p className="text-xs sm:text-sm text-zinc-400 mt-1.5 font-medium">
+          <p className="font-meta text-xs sm:text-sm text-zinc-400 mt-1.5 font-medium">
             Recent high-speed direct downloads in 4K UHD, 1080p and 720p with multi-audio
           </p>
         </div>
@@ -62,7 +62,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#14121f] border border-[#2b2542] self-start sm:self-auto">
           <button
             onClick={() => handleTabChange('all')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`font-ui px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
               activeTab === 'all'
                 ? 'bg-purple-600 text-white shadow-md'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
@@ -72,7 +72,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
           </button>
           <button
             onClick={() => handleTabChange('movie')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`font-ui flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
               activeTab === 'movie'
                 ? 'bg-amber-500 text-black shadow-md'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
@@ -83,7 +83,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
           </button>
           <button
             onClick={() => handleTabChange('tv')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`font-ui flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
               activeTab === 'tv'
                 ? 'bg-sky-500 text-black shadow-md'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'

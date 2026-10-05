@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { processTelegramMessage } from '@/lib/telegramBotCore';
+import { processTelegramMessage, AUTHORIZED_TELEGRAM_IDS } from '@/lib/telegramBotCore';
 import { getEnv } from '@/lib/env';
+import {
+  verifyAndConsumeTelegramLinkingToken,
+  linkTelegramAccount,
+  sendTelegramMessage,
+  getSiteUrl,
+} from '@/lib/telegramNotifications';
 
 export const dynamic = 'force-dynamic';
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+function getBotToken() {
+  return (getEnv('TELEGRAM_BOT_TOKEN') || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+}
 
 function escapeHtml(str: string) {
   if (!str) return '';
@@ -16,7 +24,8 @@ function escapeHtml(str: string) {
 
 async function sendTelegramReply(chatId: number, text: string) {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const token = getBotToken();
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -81,10 +90,12 @@ async function sendTelegramPhotoCard(chatId: number, card: any) {
     ],
   };
 
+  const token = getBotToken();
+
   // 1. Try sending Photo with styled HTML Caption & Inline Keyboard (matches reference)
   if (card.photoUrl) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -104,7 +115,7 @@ async function sendTelegramPhotoCard(chatId: number, card: any) {
   }
 
   // 2. Fallback to HTML Message with Inline Keyboard
-  return await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  return await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -139,15 +150,113 @@ export async function POST(request: NextRequest) {
     const chatId = message.chat.id;
     const fromId = message.from ? message.from.id : chatId;
     const text = message.text;
+    const botToken = getBotToken();
 
     // Send typing status immediately to Telegram
-    fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendChatAction`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => {});
+    if (botToken) {
+      fetch(`https://api.telegram.org/bot${botToken}/sendChatAction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
+    }
 
+    const trimmed = text.trim();
+    const startMatch = trimmed.match(/^\/start(?:\s+([a-zA-Z0-9_-]+))?$/i);
+
+    // Case 1: /start with linking token (account connection from CineFuel Profile)
+    if (startMatch && startMatch[1]) {
+      const token = startMatch[1].trim();
+      const consumeRes = await verifyAndConsumeTelegramLinkingToken(token);
+      if (consumeRes.valid && consumeRes.firebaseUid) {
+        await linkTelegramAccount(consumeRes.firebaseUid, {
+          chatId,
+          userId: fromId,
+          username: message.from?.username || undefined,
+        });
+
+        const siteUrl = getSiteUrl();
+        const successMessage =
+`🎉 <b>CineFuel Account Connected!</b>
+
+Your Telegram is now securely linked to your CineFuel account.
+
+You will receive real-time updates here when:
+🎬 <b>Your requested movies or TV shows are added</b>
+🔧 <b>Your broken link reports are resolved</b>
+
+You can manage your notification preferences anytime from your CineFuel Profile.`;
+
+        const replyMarkup = {
+          inline_keyboard: [
+            [
+              {
+                text: '🌐 Open CineFuel',
+                url: siteUrl,
+              },
+            ],
+          ],
+        };
+
+        await sendTelegramMessage(chatId, successMessage, replyMarkup);
+        return NextResponse.json({ ok: true, linked: true });
+      } else {
+        const siteUrl = getSiteUrl();
+        const errorMsg =
+`⚠️ <b>Invalid or Expired Link Code</b>
+
+This connection token is invalid, expired, or has already been used.
+
+Please visit your CineFuel Profile to generate a fresh connection link:
+${siteUrl}/profile`;
+
+        const replyMarkup = {
+          inline_keyboard: [
+            [
+              {
+                text: '🌐 Open CineFuel Profile',
+                url: `${siteUrl}/profile`,
+              },
+            ],
+          ],
+        };
+
+        await sendTelegramMessage(chatId, errorMsg, replyMarkup);
+        return NextResponse.json({ ok: true, linked: false, error: consumeRes.error });
+      }
+    }
+
+    // Case 2: Non-admin users who send /start or other general text without a token
+    const isAdmin = AUTHORIZED_TELEGRAM_IDS.includes(fromId);
+    if (!isAdmin) {
+      const siteUrl = getSiteUrl();
+      const helpMsg =
+`👋 <b>Welcome to CineFuel Bot!</b>
+
+I deliver instant updates on your movie & TV requests and broken link reports.
+
+<b>To connect your CineFuel account:</b>
+1. Open your <b>CineFuel Profile</b>
+2. Click <b>"Connect Telegram"</b>
+3. Follow the link back to activate instant updates!`;
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: '🌐 Open CineFuel Profile',
+              url: `${siteUrl}/profile`,
+            },
+          ],
+        ],
+      };
+
+      await sendTelegramMessage(chatId, helpMsg, replyMarkup);
+      return NextResponse.json({ ok: true, note: 'User welcome message sent' });
+    }
+
+    // Case 3: Admin auto-uploader messages
     const result = await processTelegramMessage(fromId, text);
 
     if ((result as any).cards && (result as any).cards.length > 0) {

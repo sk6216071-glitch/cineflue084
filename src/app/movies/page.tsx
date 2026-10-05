@@ -41,25 +41,25 @@ export default async function MoviesPage({ searchParams }: MoviesPageProps) {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 min-h-screen">
       {/* Page Header */}
       <div className="space-y-3 border-b border-zinc-800 pb-6">
-        <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+        <div className="font-ui flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
           <Film className="w-4 h-4" /> Feature Films Catalog
         </div>
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl text-white uppercase tracking-wider leading-none">
               Explore Movies
             </h1>
-            <p className="text-sm text-zinc-400 max-w-2xl mt-1">
+            <p className="font-meta text-sm text-zinc-400 max-w-2xl mt-1">
               Explore movie releases with direct high-speed download links in 4K UHD, 1080p, REMUX, and HDR.
             </p>
           </div>
 
           {result.total > 0 && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400 self-start md:self-auto">
-              <span className="px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-400 font-bold">
+            <div className="font-meta flex items-center gap-2 text-xs font-semibold text-zinc-400 self-start md:self-auto">
+              <span className="font-ui px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-400 font-bold">
                 {result.total} {result.total === 1 ? 'Movie' : 'Movies'} Available
               </span>
-              <span>
+              <span className="font-meta">
                 Page {result.page} of {result.totalPages}
               </span>
             </div>

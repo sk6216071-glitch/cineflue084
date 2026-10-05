@@ -185,7 +185,7 @@ function SearchContent() {
               placeholder="Search uploaded files by movie title, series, or quality (e.g. 4K, Remux, Hindi)..."
               value={query}
               onChange={(e) => handleQueryChange(e.target.value)}
-              className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-11 pr-10 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-inner"
+              className="font-ui font-medium w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-11 pr-10 py-3 text-sm text-zinc-100 placeholder:font-meta placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-inner"
               suppressHydrationWarning
             />
             <Search className="w-5 h-5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -208,7 +208,7 @@ function SearchContent() {
                 setSelectedGenre(e.target.value);
                 updateFilters({ genre: e.target.value });
               }}
-              className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl px-4 py-3 text-sm font-medium text-zinc-200 focus:outline-none focus:border-amber-500"
+              className="font-ui w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl px-4 py-3 text-sm font-medium text-zinc-200 focus:outline-none focus:border-amber-500"
               suppressHydrationWarning
             >
               <option value="">All Genres</option>
@@ -329,13 +329,13 @@ function SearchContent() {
                 <Download className="w-4 h-4 text-amber-400" />
               </div>
               <div>
-                <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                <h2 className="font-display text-2xl sm:text-3xl text-white uppercase tracking-wider flex items-center gap-2 leading-none">
                   {filterTitle}
-                  <span className="text-xs font-bold text-amber-400 px-2 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/20">
+                  <span className="font-ui text-xs font-bold text-amber-400 px-2 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/20">
                     {filteredUploaded.length} files available
                   </span>
                 </h2>
-                <p className="text-xs text-zinc-400">Direct download links ready in high quality</p>
+                <p className="font-meta text-xs text-zinc-400 mt-1">Direct download links ready in high quality</p>
               </div>
             </div>
 

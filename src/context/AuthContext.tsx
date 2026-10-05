@@ -63,6 +63,7 @@ interface AuthContextType {
   addTitleToCustomList: (listId: string, titleItem: TitleDetails) => void;
   removeTitleFromCustomList: (listId: string, titleId: number) => void;
   isTitleInCustomList: (listId: string, titleId: number) => boolean;
+  getIdToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -502,6 +503,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return target ? target.itemIds.includes(titleId) : false;
   };
 
+  const getIdToken = async (): Promise<string | null> => {
+    if (typeof window === 'undefined') return null;
+    if (auth?.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken();
+        if (token) {
+          localStorage.setItem('cinefuel_id_token', token);
+          return token;
+        }
+      } catch {}
+    }
+    return localStorage.getItem('cinefuel_id_token');
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -521,6 +536,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addTitleToCustomList,
         removeTitleFromCustomList,
         isTitleInCustomList,
+        getIdToken,
       }}
     >
       {children}

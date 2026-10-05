@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { parseFullMediaTitle } from './seasonParser';
+import { parseFullMediaTitle, isPackMedia } from './seasonParser';
 import { saveLinkToDatabase, isLinkAlreadyInDatabase } from './redisDb';
 
 const recentMessagesCache = new Map<string, number>();
@@ -372,8 +372,8 @@ Please check the spelling and try again.`,
   const movieId = tmdbItem.id;
 
   // 4. Parse media quality, format, season, episode
-  const meta = parseFullMediaTitle(textToProcess);
-  const isZip = forcedMode === 'zip' ? true : (forcedMode === 'episode' ? false : meta.linkType === 'zip_pack');
+  const meta = parseFullMediaTitle(textToProcess, primaryUrl);
+  const isZip = forcedMode === 'zip' ? true : (forcedMode === 'episode' ? false : (meta.linkType === 'zip_pack' || isPackMedia(textToProcess, primaryUrl)));
 
   let displayTitle = '';
   let category: string = 'Streaming';

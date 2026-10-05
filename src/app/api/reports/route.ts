@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllReports, saveNewReport, updateReportStatus, deleteReport } from '@/lib/reportsDb';
+import { getAllReports, getReportById, saveNewReport, updateReportStatus, deleteReport } from '@/lib/reportsDb';
 import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
+import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
+import { createReportNotification } from '@/lib/notificationsDb';
+import { dispatchTelegramNotificationForReport } from '@/lib/telegramNotifications';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/reports
- * Fetch defective link reports with optional filtering by status
+ * Fetch defective link reports with optional filtering by status or personal reports (?my=true)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -17,8 +20,30 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') || 'all';
     const page = searchParams.get('page') ? Math.max(1, parseInt(searchParams.get('page')!, 10)) : undefined;
     const limit = searchParams.get('limit') ? Math.max(1, Math.min(100, parseInt(searchParams.get('limit')!, 10))) : undefined;
+    const my = searchParams.get('my') === 'true';
 
-    const result = await getAllReports(status, { page, limit });
+    let userIdFilter: string | undefined;
+
+    if (my) {
+      const token = extractBearerToken(req);
+      if (!token) {
+        return NextResponse.json(
+          { error: 'Sign in required to view your personal reports' },
+          { status: 401 }
+        );
+      }
+      try {
+        const claims = await verifyFirebaseIdToken(token);
+        userIdFilter = claims.firebaseUid;
+      } catch (authErr: any) {
+        return NextResponse.json(
+          { error: 'Authentication failed', details: authErr.message },
+          { status: 401 }
+        );
+      }
+    }
+
+    const result = await getAllReports(status, { page, limit, userId: userIdFilter });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('API /api/reports GET error:', error);
@@ -55,7 +80,23 @@ export async function POST(req: NextRequest) {
     } = body;
 
     // Authentication Guard: Ensure user is authenticated (not guest)
-    if (!userId || userId === 'guest-user-default' || !userEmail) {
+    let verifiedUid = (userId || '').trim();
+    let verifiedEmail = (userEmail || '').trim();
+    let verifiedName = userName ? userName.trim() : undefined;
+
+    const token = extractBearerToken(req);
+    if (token) {
+      try {
+        const claims = await verifyFirebaseIdToken(token);
+        verifiedUid = claims.firebaseUid;
+        verifiedEmail = claims.email || verifiedEmail;
+        verifiedName = claims.name || verifiedName;
+      } catch (tokenErr) {
+        console.warn('Bearer token verification failed in report submission:', tokenErr);
+      }
+    }
+
+    if (!verifiedUid || verifiedUid === 'guest-user-default' || !verifiedEmail) {
       return NextResponse.json(
         { error: 'Sign in required. You must be signed in with an active account to report defective or broken links.' },
         { status: 401 }
@@ -68,8 +109,8 @@ export async function POST(req: NextRequest) {
 
     const newReport: DefectiveLinkReport = {
       id: `rep-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
-      userId: userId.trim(),
-      userName: userName ? userName.trim() : undefined,
+      userId: verifiedUid,
+      userName: verifiedName,
       linkId: linkId ? String(linkId) : undefined,
       movieId: Number(movieId) || 0,
       mediaTitle: (mediaTitle || 'Untitled Movie / Series').trim(),
@@ -82,7 +123,7 @@ export async function POST(req: NextRequest) {
       quality: quality ? quality.trim() : undefined,
       server: server ? server.trim() : undefined,
       additionalNotes: additionalNotes ? additionalNotes.trim() : undefined,
-      userEmail: userEmail ? userEmail.trim() : undefined,
+      userEmail: verifiedEmail,
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
@@ -99,11 +140,11 @@ export async function POST(req: NextRequest) {
 
     // Auto-register / update reporter account in Central Users Directory
     try {
-      if (userEmail && userEmail.includes('@')) {
+      if (verifiedEmail && verifiedEmail.includes('@')) {
         await saveUserToDatabase({
-          uid: userId.trim(),
-          email: userEmail.trim(),
-          displayName: (userName || userEmail.split('@')[0] || 'Cinephile').trim(),
+          uid: verifiedUid,
+          email: verifiedEmail,
+          displayName: (verifiedName || verifiedEmail.split('@')[0] || 'Cinephile').trim(),
           provider: 'report_submitter',
         });
       }
@@ -157,6 +198,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Report ID is required' }, { status: 400 });
     }
 
+    const existingReport = await getReportById(id);
+
     // 0. If link was reassigned to a different movie/TV ID, purge it from the old ID
     if (oldMovieId && linkId && String(oldMovieId) !== String(movieId)) {
       await deleteLinkFromDatabase(oldMovieId, linkId);
@@ -188,10 +231,33 @@ export async function PATCH(req: NextRequest) {
       adminNote,
     });
 
+    let notificationInfo = null;
+    if (existingReport && (status === 'fixed' || status === 'dismissed')) {
+      try {
+        const notifResult = await createReportNotification(existingReport, status, {
+          replacementUrl,
+          adminNote,
+        });
+        notificationInfo = notifResult;
+
+        if (notifResult?.notification) {
+          try {
+            await dispatchTelegramNotificationForReport(existingReport, status, notifResult.notification);
+          } catch (tgErr) {
+            console.warn('Telegram notification dispatch error for report:', tgErr);
+          }
+        }
+      } catch (notifErr: any) {
+        console.error('Failed to trigger report resolution notification:', notifErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: `Report status updated to ${status}.`,
+      notification: notificationInfo,
     });
+
   } catch (error: any) {
     console.error('API /api/reports PATCH error:', error);
     const isPersistenceErr = error.message && error.message.includes('persistence unavailable');

@@ -1,7 +1,7 @@
 import { Redis } from '@upstash/redis';
 import fs from 'fs';
 import path from 'path';
-import { getDatabase } from '@/lib/mongodb';
+import { getDatabase, resetMongoClient } from '@/lib/mongodb';
 import { TitleDetails } from '@/types';
 import { getTitleDetails, getLightweightTitleCard } from '@/lib/tmdb';
 import { detectShowPlatform, stripWatermarks } from '@/lib/seasonParser';
@@ -25,9 +25,10 @@ const REDIS_DELETED_KEY = 'cinefuel:deleted_link_ids';
 const LOCAL_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 /**
- * Configurable catalog cache TTL in seconds (default 300s / 5 minutes)
+ * Configurable catalog cache TTL in seconds (900s / 15 minutes)
+ * Note: atomic version counter in Redis invalidates all cached pages instantly on any write/update.
  */
-export const CATALOG_CACHE_TTL_SECONDS = 300;
+export const CATALOG_CACHE_TTL_SECONDS = 900;
 
 let localCachedCatalogVersion = 1;
 let localCatalogVersionExpiresAt = 0;
@@ -209,6 +210,7 @@ export async function getLinksFromDatabase(
     }
   } catch (mongoErr: any) {
     console.warn('MongoDB Atlas read fallback:', mongoErr.message);
+    resetMongoClient();
   }
 
   const localData = getLocalFallbackLinks();
@@ -245,9 +247,11 @@ export async function getLinksFromDatabase(
       const allRedis = await redisClient.hgetall<Record<string, any>>(REDIS_HASH_KEY);
       if (allRedis && Object.keys(allRedis).length > 0) {
         const result: Record<string, any[]> = {};
-        const allKeys = new Set([...Object.keys(localData), ...Object.keys(allRedis)]);
+        const allKeys = Array.from(new Set([...Object.keys(localData), ...Object.keys(allRedis)]));
+        const limit = Math.max(1, Math.min(100, pagination?.limit || 50));
+        const pagedKeys = allKeys.slice(0, limit);
 
-        for (const k of allKeys) {
+        for (const k of pagedKeys) {
           const rawVal = allRedis[k] !== undefined ? allRedis[k] : localData[k];
           let list: any[] = [];
           if (Array.isArray(rawVal)) {
@@ -260,7 +264,7 @@ export async function getLinksFromDatabase(
             result[k] = filtered;
           }
         }
-        return { allLinks: result, source: 'upstash_redis' };
+        return { allLinks: result, total: allKeys.length, source: 'upstash_redis' };
       }
     } catch (err: any) {
       console.warn('Upstash Redis read failed, using local JSON fallback:', err.message);
@@ -983,7 +987,8 @@ export async function getPaginatedUploadedTitles(
             matchStage.$or = [
               { linkType: 'zip_pack' },
               { category: 'ZipPack' },
-              { title: /season.*complete|zip.*pack/i },
+              { title: /season.*complete|zip.*pack|\bpacks?\b/i },
+              { url: /(?:drive\/)?packs?/i },
             ];
           }
         }
@@ -1346,6 +1351,8 @@ export async function getFilteredUploadedTitles(
           { category: 'ZipPack' },
           { title: /season.*complete/i },
           { title: /zip.*pack/i },
+          { title: /\bpacks?\b/i },
+          { url: /(?:drive\/)?packs?/i },
         ],
       });
     } else if (cLower === 'single_episode' || cLower === 'episode') {
@@ -1433,7 +1440,11 @@ export async function getFilteredUploadedTitles(
         if (qualString.includes('1080P') || qualString.includes('FHD')) extractedQualities.push('1080p');
         if (qualString.includes('720P')) extractedQualities.push('720p');
 
-        const isZip = doc.linkType === 'zip_pack' || doc.category === 'ZipPack' || /season.*complete/i.test(doc.title || '');
+        const isZip =
+          doc.linkType === 'zip_pack' ||
+          doc.category === 'ZipPack' ||
+          /season.*complete|\bpacks?\b/i.test(doc.title || '') ||
+          Boolean(doc.url && /(?:drive\/)?packs?/i.test(doc.url));
 
         if (!groupedTitles.has(mId)) {
           let mediaType: 'movie' | 'tv' = doc.mediaType === 'tv' ? 'tv' : 'movie';

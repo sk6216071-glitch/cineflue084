@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllRequests, saveNewRequest, updateRequestStatus, deleteRequest } from '@/lib/requestsDb';
+import { getAllRequests, getRequestById, saveNewRequest, updateRequestStatus, deleteRequest } from '@/lib/requestsDb';
 import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase } from '@/lib/redisDb';
 import { UserRequest, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
+import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
+import { createRequestFulfilledNotification } from '@/lib/notificationsDb';
+import { dispatchTelegramNotificationForRequest } from '@/lib/telegramNotifications';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/requests
- * Fetch requests with optional filtering by status
+ * Fetch requests with optional filtering by status or current authenticated user (?my=true)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -17,8 +20,30 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') || 'all';
     const page = searchParams.get('page') ? Math.max(1, parseInt(searchParams.get('page')!, 10)) : undefined;
     const limit = searchParams.get('limit') ? Math.max(1, Math.min(100, parseInt(searchParams.get('limit')!, 10))) : undefined;
+    const my = searchParams.get('my') === 'true';
 
-    const result = await getAllRequests(status, { page, limit });
+    let userIdFilter: string | undefined;
+
+    if (my) {
+      const token = extractBearerToken(req);
+      if (!token) {
+        return NextResponse.json(
+          { error: 'Sign in required to view your personal requests' },
+          { status: 401 }
+        );
+      }
+      try {
+        const claims = await verifyFirebaseIdToken(token);
+        userIdFilter = claims.firebaseUid;
+      } catch (authErr: any) {
+        return NextResponse.json(
+          { error: 'Authentication failed', details: authErr.message },
+          { status: 401 }
+        );
+      }
+    }
+
+    const result = await getAllRequests(status, { page, limit, userId: userIdFilter });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('API /api/requests GET error:', error);
@@ -151,6 +176,11 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Request ID and status are required' }, { status: 400 });
     }
 
+    const existingReq = await getRequestById(id);
+    if (!existingReq) {
+      return NextResponse.json({ error: 'Request not found' }, { status: 404 });
+    }
+
     let createdCustomLinkId = fulfilledLinkId;
 
     // If admin is publishing the link directly from the fulfill modal
@@ -174,15 +204,40 @@ export async function PATCH(req: NextRequest) {
       createdCustomLinkId = generatedId;
     }
 
+    const targetUrl = fulfilledLinkUrl || linkPayload?.url;
+
     await updateRequestStatus(id, status, {
       fulfilledLinkId: createdCustomLinkId,
-      fulfilledLinkUrl: fulfilledLinkUrl || linkPayload?.url,
+      fulfilledLinkUrl: targetUrl,
       adminNote,
     });
+
+    let notificationInfo = null;
+    if (status === 'fulfilled') {
+      try {
+        const notifResult = await createRequestFulfilledNotification(existingReq, {
+          fulfilledLinkId: createdCustomLinkId,
+          fulfilledLinkUrl: targetUrl,
+          adminNote,
+        });
+        notificationInfo = notifResult;
+
+        if (notifResult?.notification) {
+          try {
+            await dispatchTelegramNotificationForRequest(existingReq, notifResult.notification);
+          } catch (tgErr) {
+            console.warn('Telegram notification dispatch error for request:', tgErr);
+          }
+        }
+      } catch (notifErr: any) {
+        console.error('Failed to trigger user fulfillment notification:', notifErr);
+      }
+    }
 
     return NextResponse.json({
       success: true,
       message: `Request status updated to ${status}`,
+      notification: notificationInfo,
     });
   } catch (error: any) {
     console.error('API /api/requests PATCH error:', error);

@@ -345,3 +345,62 @@ export interface DefectiveLinkReport {
   adminNote?: string;
 }
 
+export type NotificationType =
+  | 'REQUEST_FULFILLED'
+  | 'DEFECTIVE_LINK_RESOLVED'
+  | 'DEFECTIVE_LINK_DISMISSED';
+
+export interface UserNotification {
+  id: string;
+  userId: string;
+  firebaseUid: string;
+  requestId?: string;
+  reportId?: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  mediaTitle: string;
+  movieId?: number | string;
+  mediaType: 'movie' | 'tv';
+  linkUrl: string;
+  posterPath?: string | null;
+  read: boolean;
+  createdAt: string;
+  readAt?: string | null;
+}
+
+export interface TelegramLink {
+  id?: string;
+  firebaseUid: string;
+  telegramChatId: number;
+  telegramUserId: number;
+  telegramUsername?: string;
+  status: 'active' | 'disconnected';
+  requestNotifications: boolean;
+  reportNotifications: boolean;
+  linkedAt: string;
+  updatedAt?: string;
+}
+
+export interface TelegramLinkingToken {
+  token: string;
+  firebaseUid: string;
+  createdAt: string;
+  expiresAt: string;
+  used: boolean;
+  usedAt?: string | null;
+}
+
+export interface NotificationDelivery {
+  id?: string;
+  notificationId: string;
+  userId: string;
+  channel: 'telegram' | 'in_app';
+  telegramChatId?: number;
+  type: NotificationType;
+  status: 'sent' | 'failed';
+  telegramMessageId?: number | null;
+  sentAt: string;
+  error?: string;
+}
+

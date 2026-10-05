@@ -7,10 +7,18 @@ import { UserRequest } from '@/types';
 const REDIS_REQUESTS_KEY = 'cinefuel:user_requests';
 const LOCAL_REQUESTS_FILE = path.join(process.cwd(), 'src', 'data', 'userRequests.json');
 
+function isFileSystemWritable(): boolean {
+  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Reads local JSON fallback file safely
  */
 export function getLocalFallbackRequests(): UserRequest[] {
+  if (!isFileSystemWritable()) return [];
   try {
     if (fs.existsSync(LOCAL_REQUESTS_FILE)) {
       const raw = fs.readFileSync(LOCAL_REQUESTS_FILE, 'utf-8');
@@ -21,13 +29,6 @@ export function getLocalFallbackRequests(): UserRequest[] {
     console.error('Error reading local userRequests.json:', e);
   }
   return [];
-}
-
-function isFileSystemWritable(): boolean {
-  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -53,7 +54,8 @@ export function saveLocalFallbackRequests(data: UserRequest[]): boolean {
  */
 export async function getAllRequests(
   filterStatus?: string,
-  options?: { page?: number; limit?: number }
+  options?: { page?: number; limit?: number; userId?: string },
+  dbName?: string
 ): Promise<{
   requests: UserRequest[];
   total: number;
@@ -66,15 +68,27 @@ export async function getAllRequests(
   const hasPagination = typeof options?.page === 'number' || typeof options?.limit === 'number';
   const page = Math.max(1, options?.page || 1);
   const limit = Math.max(1, Math.min(100, options?.limit || 50));
+  const userFilter = options?.userId ? options.userId.trim() : null;
 
   // 1. Try MongoDB Atlas first
   try {
-    const db = await getDatabase();
+    const db = await getDatabase(dbName);
     if (db) {
       const collection = db.collection('requests');
-      const query = filterStatus && filterStatus !== 'all' ? { status: filterStatus } : {};
+      const query: any = {};
+      if (filterStatus && filterStatus !== 'all') {
+        query.status = filterStatus;
+      }
+      if (userFilter) {
+        query.$or = [{ userId: userFilter }, { userEmail: userFilter }];
+      }
+
       const total = await collection.countDocuments(query).catch(() => 0);
-      const pendingCount = await collection.countDocuments({ status: 'pending' }).catch(() => 0);
+      const pendingQuery: any = { status: 'pending' };
+      if (userFilter) {
+        pendingQuery.$or = [{ userId: userFilter }, { userEmail: userFilter }];
+      }
+      const pendingCount = await collection.countDocuments(pendingQuery).catch(() => 0);
 
       let cursor = collection.find(query).sort({ createdAt: -1 });
       if (hasPagination) {
@@ -116,17 +130,27 @@ export async function getAllRequests(
       }
 
       if (list.length > 0) {
-        const pendingCount = list.filter((r) => r.status === 'pending').length;
-        const filtered = filterStatus && filterStatus !== 'all'
-          ? list.filter((r) => r.status === filterStatus)
-          : list;
+        let filtered = list;
+        if (userFilter) {
+          filtered = filtered.filter((r) => r.userId === userFilter || r.userEmail === userFilter);
+        }
+        const pendingCount = filtered.filter((r) => r.status === 'pending').length;
+        if (filterStatus && filterStatus !== 'all') {
+          filtered = filtered.filter((r) => r.status === filterStatus);
+        }
 
         filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+        const total = filtered.length;
+        const paginated = hasPagination ? filtered.slice((page - 1) * limit, page * limit) : filtered;
+
         return {
-          requests: filtered,
-          total: list.length,
+          requests: paginated,
+          total,
           pendingCount,
+          page: hasPagination ? page : 1,
+          totalPages: hasPagination ? Math.max(1, Math.ceil(total / limit)) : 1,
+          limit: hasPagination ? limit : total,
           source: 'upstash_redis',
         };
       }
@@ -137,17 +161,26 @@ export async function getAllRequests(
 
   // 3. Fallback to Local JSON
   const localList = getLocalFallbackRequests();
-  const pendingCount = localList.filter((r) => r.status === 'pending').length;
-  const filtered = filterStatus && filterStatus !== 'all'
-    ? localList.filter((r) => r.status === filterStatus)
-    : localList;
+  let filtered = localList;
+  if (userFilter) {
+    filtered = filtered.filter((r) => r.userId === userFilter || r.userEmail === userFilter);
+  }
+  const pendingCount = filtered.filter((r) => r.status === 'pending').length;
+  if (filterStatus && filterStatus !== 'all') {
+    filtered = filtered.filter((r) => r.status === filterStatus);
+  }
 
   filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const total = filtered.length;
+  const paginated = hasPagination ? filtered.slice((page - 1) * limit, page * limit) : filtered;
 
   return {
-    requests: filtered,
-    total: localList.length,
+    requests: paginated,
+    total,
     pendingCount,
+    page: hasPagination ? page : 1,
+    totalPages: hasPagination ? Math.max(1, Math.ceil(total / limit)) : 1,
+    limit: hasPagination ? limit : total,
     source: 'local_json',
   };
 }
@@ -318,3 +351,41 @@ export async function deleteRequest(id: string): Promise<boolean> {
 
   return true;
 }
+
+/**
+ * Retrieves a single request by its ID
+ */
+export async function getRequestById(id: string, dbName?: string): Promise<UserRequest | null> {
+  const reqId = (id || '').trim();
+  if (!reqId) return null;
+
+  // 1. MongoDB
+  try {
+    const db = await getDatabase(dbName);
+    if (db) {
+      const doc = await db.collection('requests').findOne({ id: reqId });
+      if (doc) {
+        const { _id, ...rest } = doc;
+        return rest as UserRequest;
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas getRequestById fallback:', err.message);
+  }
+
+  // 2. Redis
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      const redisList = await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY);
+      const list = Array.isArray(redisList) ? redisList : [];
+      const found = list.find((r) => r.id === reqId);
+      if (found) return found;
+    } catch {}
+  }
+
+  // 3. Local JSON fallback
+  const local = getLocalFallbackRequests();
+  return local.find((r) => r.id === reqId) || null;
+}
+

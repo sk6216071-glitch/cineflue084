@@ -7,10 +7,18 @@ import { DefectiveLinkReport } from '@/types';
 const REDIS_REPORTS_KEY = 'cinefuel:defective_reports';
 const LOCAL_REPORTS_FILE = path.join(process.cwd(), 'src', 'data', 'defectiveReports.json');
 
+function isFileSystemWritable(): boolean {
+  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Reads local JSON fallback file safely
  */
 export function getLocalFallbackReports(): DefectiveLinkReport[] {
+  if (!isFileSystemWritable()) return [];
   try {
     if (fs.existsSync(LOCAL_REPORTS_FILE)) {
       const raw = fs.readFileSync(LOCAL_REPORTS_FILE, 'utf-8');
@@ -21,13 +29,6 @@ export function getLocalFallbackReports(): DefectiveLinkReport[] {
     console.error('Error reading local defectiveReports.json:', e);
   }
   return [];
-}
-
-function isFileSystemWritable(): boolean {
-  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -53,7 +54,7 @@ export function saveLocalFallbackReports(data: DefectiveLinkReport[]): boolean {
  */
 export async function getAllReports(
   filterStatus?: string,
-  options?: { page?: number; limit?: number }
+  options?: { page?: number; limit?: number; userId?: string }
 ): Promise<{
   reports: DefectiveLinkReport[];
   total: number;
@@ -66,15 +67,25 @@ export async function getAllReports(
   const hasPagination = typeof options?.page === 'number' || typeof options?.limit === 'number';
   const page = Math.max(1, options?.page || 1);
   const limit = Math.max(1, Math.min(100, options?.limit || 50));
+  const userId = options?.userId;
 
   // 1. Try MongoDB Atlas first
   try {
     const db = await getDatabase();
     if (db) {
       const collection = db.collection('defective_reports');
-      const query = filterStatus && filterStatus !== 'all' ? { status: filterStatus } : {};
+      const query: any = {};
+      if (filterStatus && filterStatus !== 'all') {
+        query.status = filterStatus;
+      }
+      if (userId) {
+        query.userId = userId;
+      }
       const total = await collection.countDocuments(query).catch(() => 0);
-      const pendingCount = await collection.countDocuments({ status: 'pending' }).catch(() => 0);
+      const pendingCount = await collection.countDocuments({
+        status: 'pending',
+        ...(userId ? { userId } : {}),
+      }).catch(() => 0);
       
       let cursor = collection.find(query).sort({ createdAt: -1 });
       if (hasPagination) {
@@ -315,4 +326,39 @@ export async function deleteReport(id: string): Promise<boolean> {
   }
 
   return true;
+}
+
+/**
+ * Retrieves a single defective report by ID
+ */
+export async function getReportById(id: string, dbName?: string): Promise<DefectiveLinkReport | null> {
+  const cleanId = (id || '').trim();
+  if (!cleanId) return null;
+
+  try {
+    const db = await getDatabase(dbName);
+    if (db) {
+      const doc = await db.collection('defective_reports').findOne({ id: cleanId });
+      if (doc) {
+        const { _id, ...rest } = doc;
+        return rest as DefectiveLinkReport;
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas getReportById fallback:', err.message);
+  }
+
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      const list = await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY);
+      if (Array.isArray(list)) {
+        const found = list.find((r) => r.id === cleanId);
+        if (found) return found;
+      }
+    } catch {}
+  }
+
+  const local = getLocalFallbackReports();
+  return local.find((r) => r.id === cleanId) || null;
 }

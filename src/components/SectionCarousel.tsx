@@ -46,16 +46,16 @@ export const SectionCarousel: React.FC<SectionCarouselProps> = ({
           <div>
             <div className="flex items-center gap-2.5">
               {icon && <span className="flex-shrink-0 flex items-center">{icon}</span>}
-              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{title}</h2>
+              <h2 className="font-display text-2xl sm:text-3xl text-white uppercase tracking-wider leading-none">{title}</h2>
             </div>
-            {subtitle && <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">{subtitle}</p>}
+            {subtitle && <p className="font-meta text-xs sm:text-sm text-zinc-400 mt-1">{subtitle}</p>}
           </div>
 
           <div className="flex items-center gap-2">
             {viewAllLink && (
               <Link
                 href={viewAllLink}
-                className="hidden sm:flex items-center gap-1 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors mr-2"
+                className="font-ui hidden sm:flex items-center gap-1 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors mr-2 uppercase tracking-wider"
               >
                 Explore All <ArrowRight className="w-3.5 h-3.5" />
               </Link>

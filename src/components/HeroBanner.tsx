@@ -58,19 +58,19 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
       <div className="relative max-w-7xl mx-auto h-full px-4 sm:px-6 lg:px-8 flex flex-col justify-end pb-16 sm:pb-20">
         <div className="max-w-2xl space-y-4">
           {/* Badges / Meta Info */}
-          <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold">
-            <span className="px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md text-zinc-300 border border-white/10 uppercase">
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+            <span className="font-ui px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md text-zinc-300 border border-white/10 uppercase font-semibold tracking-wider">
               {mediaType === 'tv' ? 'TV Series' : 'Feature Film'}
             </span>
 
             {releaseYear && (
-              <span className="text-zinc-300 font-medium">
+              <span className="font-meta text-zinc-300 font-medium">
                 {releaseYear}
               </span>
             )}
 
             {currentItem.vote_average > 0 && (
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 font-bold">
+              <div className="font-meta flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 font-bold">
                 <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                 <span>{currentItem.vote_average.toFixed(1)}</span>
                 <span className="text-zinc-400 font-normal">/10</span>
@@ -78,26 +78,26 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
             )}
 
             {currentItem.runtime && (
-              <span className="text-zinc-400">
+              <span className="font-meta text-zinc-400">
                 {Math.floor(currentItem.runtime / 60)}h {currentItem.runtime % 60}m
               </span>
             )}
           </div>
 
-          {/* Title */}
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight drop-shadow-lg leading-tight">
+          {/* Title - Cinematic Bebas Neue Display */}
+          <h1 className="font-display text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-normal text-white uppercase tracking-wider drop-shadow-lg leading-[0.95]">
             {title}
           </h1>
 
           {/* Tagline */}
           {currentItem.tagline && (
-            <p className="text-sm sm:text-base italic text-amber-300/90 font-medium">
+            <p className="font-meta text-sm sm:text-base italic text-amber-300/90 font-medium">
               &quot;{currentItem.tagline}&quot;
             </p>
           )}
 
           {/* Overview */}
-          <p className="text-sm sm:text-base text-zinc-300 line-clamp-3 leading-relaxed drop-shadow-md">
+          <p className="font-meta text-sm sm:text-base text-zinc-300 line-clamp-3 leading-relaxed drop-shadow-md">
             {currentItem.overview}
           </p>
 
@@ -105,7 +105,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
           {currentItem.genres && currentItem.genres.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {currentItem.genres.map((g) => (
-                <span key={g.id} className="text-xs px-2.5 py-0.5 rounded-full bg-zinc-800/80 text-zinc-300 border border-zinc-700/50">
+                <span key={g.id} className="font-ui text-xs px-2.5 py-0.5 rounded-full bg-zinc-800/80 text-zinc-300 border border-zinc-700/50 font-medium">
                   {g.name}
                 </span>
               ))}
@@ -117,7 +117,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
             {trailer && (
               <button
                 onClick={() => setTrailerKey(trailer.key)}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-sm transition-all shadow-xl shadow-amber-500/20 hover:scale-105 active:scale-95"
+                className="font-ui flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-sm transition-all shadow-xl shadow-amber-500/20 hover:scale-105 active:scale-95"
                 suppressHydrationWarning
               >
                 <Play className="w-4 h-4 fill-black" />
@@ -126,10 +126,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ items }) => {
             )}
 
             {/* More Details Button */}
-
             <Link
               href={`/${mediaType}/${currentItem.id}`}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 hover:text-white text-sm font-semibold transition-all border border-zinc-700/70"
+              className="font-ui flex items-center gap-2 px-5 py-3 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 hover:text-white text-sm font-semibold transition-all border border-zinc-700/70"
             >
               <Info className="w-4 h-4" />
               More Details

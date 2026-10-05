@@ -64,43 +64,43 @@ export default async function TitleDetailPage({ params }: PageProps) {
           <div className="flex-1 flex flex-col items-center md:items-start text-center md:text-left space-y-3 w-full">
             {/* Badges */}
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs font-semibold">
-              <span className="px-2.5 py-1 rounded-md bg-amber-500 text-black uppercase font-bold tracking-wider flex items-center gap-1">
+              <span className="font-ui px-2.5 py-1 rounded-md bg-amber-500 text-black uppercase font-bold tracking-wider flex items-center gap-1">
                 {type === 'tv' ? <Tv className="w-3 h-3" /> : <Film className="w-3 h-3" />}
                 {type === 'tv' ? 'TV Series' : 'Movie'}
               </span>
 
               {releaseYear && (
-                <span className="px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-300 border border-zinc-700">
+                <span className="font-meta px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-300 border border-zinc-700 font-medium">
                   {releaseYear}
                 </span>
               )}
 
               {titleDetails.runtime ? (
-                <span className="px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-300 border border-zinc-700 flex items-center gap-1">
+                <span className="font-meta px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-300 border border-zinc-700 flex items-center gap-1 font-medium">
                   <Clock className="w-3 h-3 text-zinc-400" />
                   {Math.floor(titleDetails.runtime / 60)}h {titleDetails.runtime % 60}m
                 </span>
               ) : titleDetails.number_of_seasons ? (
-                <span className="px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-300 border border-zinc-700">
+                <span className="font-meta px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-300 border border-zinc-700 font-medium">
                   {titleDetails.number_of_seasons} Season{titleDetails.number_of_seasons > 1 ? 's' : ''} ({titleDetails.number_of_episodes || 0} eps)
                 </span>
               ) : null}
 
               {titleDetails.status && (
-                <span className="px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-400 border border-zinc-800 text-[11px]">
+                <span className="font-meta px-2.5 py-1 rounded-md bg-zinc-900/90 text-zinc-400 border border-zinc-800 text-[11px] font-medium">
                   {titleDetails.status}
                 </span>
               )}
             </div>
 
-            {/* Title */}
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight drop-shadow-md">
+            {/* Title - Cinematic Bebas Neue */}
+            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl text-white uppercase tracking-wider leading-[0.95] drop-shadow-md">
               {title}
             </h1>
 
             {/* Tagline */}
             {titleDetails.tagline && (
-              <p className="text-sm sm:text-base italic text-amber-300/90 font-medium">
+              <p className="font-meta text-sm sm:text-base italic text-amber-300/90 font-medium">
                 &quot;{titleDetails.tagline}&quot;
               </p>
             )}
@@ -112,7 +112,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
                   <Link
                     key={g.id}
                     href={`/search?type=${type}&genre=${g.id}&name=${encodeURIComponent(g.name)}`}
-                    className="text-xs px-3 py-1 rounded-full bg-zinc-800/90 text-zinc-200 border border-zinc-700 hover:border-amber-400 transition-colors"
+                    className="font-ui text-xs font-semibold px-3 py-1 rounded-full bg-zinc-800/90 text-zinc-200 border border-zinc-700 hover:border-amber-400 transition-colors"
                   >
                     {g.name}
                   </Link>

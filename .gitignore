@@ -43,3 +43,27 @@ next-env.d.ts
 
 # zip archives
 *.zip
+
+# local scratch, benchmark & diagnostic scripts
+benchmark-*.js
+check-*.js
+query-*.js
+smoke-test-*.js
+test-*.js
+scripts/benchmark-*
+scripts/forensic-*
+scripts/inspect-*
+scripts/check-*
+scripts/diagnose-*
+scripts/find-*
+scripts/parse-*
+scripts/print-*
+scripts/run-*
+scripts/seed-*
+scripts/stage-*
+scripts/test-*
+scripts/measure-*
+scripts/validate-*
+scripts/verify-*
+scripts/wait-*
+scripts/*.jpg

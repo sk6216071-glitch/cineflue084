@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Film, Search, Sparkles, RefreshCw, Flame, Menu, X, User as UserIcon, Layers, Compass, Shield, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import AuthModal from './AuthModal';
+import NotificationBell from './NotificationBell';
 
 interface NavDropdownItem {
   label: string;
@@ -130,10 +131,10 @@ export const Header: React.FC = () => {
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="text-xl font-extrabold tracking-tight text-white flex items-center gap-1">
+              <span className="font-ui text-xl font-bold tracking-wider text-white flex items-center gap-1">
                 CINE<span className="text-gradient-gold">FUEL</span>
               </span>
-              <span className="text-[10px] tracking-wider uppercase text-zinc-400 font-medium -mt-1">
+              <span className="font-meta text-[10px] tracking-widest uppercase text-zinc-400 font-medium -mt-0.5">
                 Discover & Track
               </span>
             </div>
@@ -244,7 +245,7 @@ export const Header: React.FC = () => {
                 placeholder="Search... (Press /)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-zinc-900/80 hover:bg-zinc-900 focus:bg-zinc-900 text-xs text-zinc-100 placeholder-zinc-500 rounded-full pl-8 pr-8 py-1.5 border border-zinc-700/60 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all"
+                className="font-ui w-full bg-zinc-900/80 hover:bg-zinc-900 focus:bg-zinc-900 text-xs font-medium text-zinc-100 placeholder:font-meta placeholder-zinc-500 rounded-full pl-8 pr-8 py-1.5 border border-zinc-700/60 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all"
                 suppressHydrationWarning
               />
               <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -277,6 +278,9 @@ export const Header: React.FC = () => {
             >
               <Shield className="w-4 h-4" />
             </Link>
+
+            {/* User Notifications Bell */}
+            <NotificationBell />
 
             {/* User Profile / Auth Button */}
             <Link

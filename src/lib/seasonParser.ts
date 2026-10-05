@@ -38,10 +38,19 @@ export function extractFilenameFromUrl(url?: string): string {
         return seg;
       }
     }
-    // Fallback: if last segment is long enough and not a generic path like "drive", "file", "video", "d"
+    // Fallback: if last segment is long enough and not a generic path like "drive", "file", "video", "d", "packs"
     if (segments.length > 0) {
+      const prev = segments.length > 1 ? segments[segments.length - 2].toLowerCase() : '';
       const last = segments[segments.length - 1].replace(/\+/g, ' ').trim();
-      if (last.length > 8 && !/^(?:drive|file|video|watch|download|view|d|v|u)$/i.test(last)) {
+      // If preceded by "packs" or "pack", this is a pack token ID, not a media filename
+      if (prev === 'packs' || prev === 'pack') {
+        return '';
+      }
+      if (
+        last.length > 8 &&
+        !/^(?:drive|file|video|watch|download|view|d|v|u|packs?)$/i.test(last) &&
+        !/^[a-zA-Z0-9_-]{12,}$/.test(last)
+      ) {
         return last;
       }
     }
@@ -98,11 +107,49 @@ export function detectSeasonNumber(link: { title?: string; seasonNumber?: number
 }
 
 /**
+ * Check whether a URL points to a complete season pack (e.g. HubCloud /drive/packs/..., KatDrive /packs/...)
+ */
+export function isPackUrl(url?: string): boolean {
+  if (!url) return false;
+  return /(?:\/(?:drive\/)?packs?(?:\/|$|\?)|[?&](?:type|cat|mode)=packs?|\bpacks?\b)/i.test(url);
+}
+
+/**
+ * Check whether a URL or release title indicates a complete season pack or zip archive
+ */
+export function isPackMedia(title?: string, url?: string): boolean {
+  const t = (title || '').toLowerCase();
+  const u = (url || '').toLowerCase();
+  const combined = `${t} ${u}`.trim();
+  if (!combined) return false;
+
+  // 1. Pack URL patterns (/drive/packs/, /packs/, ?type=pack)
+  if (isPackUrl(u)) {
+    return true;
+  }
+
+  // 2. Archive extensions (.zip, .rar, .7z, .tar, .gz)
+  if (/(?:\.zip|\.rar|\.7z|\.tar|\.gz)(?:$|[?#\s])/i.test(combined)) {
+    return true;
+  }
+
+  // 3. Complete season / pack / archive keywords
+  return /(?:\bzip(?:pack)?\b|\bpacks?\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bcomplete\s*season\b|\bfull\s*season\b|\bseason[-_ ]*pack\b|\bseries[-_ ]*pack\b|\bwhole\s*episode\b)/i.test(
+    combined
+  );
+}
+
+/**
  * Auto-detect Episode Number from title or link metadata (supports E01 - E100+)
  */
 export function detectEpisodeNumber(link: { title?: string; episodeNumber?: number; url?: string }): number | undefined {
   if (link.episodeNumber !== undefined && link.episodeNumber > 0) {
     return link.episodeNumber;
+  }
+
+  // Pack / Archive links contain the entire season / all episodes, not an individual episode
+  if (isPackMedia(link.title, link.url)) {
+    return undefined;
   }
 
   const urlFn = extractFilenameFromUrl(link.url);
@@ -182,38 +229,26 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
  * Auto-detect whether a link is a Complete Season Zip/Batch Pack or Single Episode
  */
 export function detectLinkType(link: { title?: string; linkType?: string; category?: string; episodeNumber?: number; url?: string }): 'zip_pack' | 'single_episode' {
-  const urlFn = extractFilenameFromUrl(link.url);
-  const title = link.title || '';
-  const url = link.url || '';
-  const combined = `${title} ${urlFn} ${url}`.toLowerCase();
-
-  // 1. Explicit Zip / Archive file indicators
-  const isExplicitZip = /(?:\.zip|\.rar|\.7z|\.tar|\.gz|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bfull\s*season\b)/i.test(combined);
-
-  // 2. Check for detected episode number (if present and not explicit complete zip pack, always single_episode)
-  const ep = detectEpisodeNumber(link);
-
-  if (ep !== undefined && ep > 0) {
-    if (isExplicitZip && /(?:complete|pack|zip|batch|all\s*episodes)/i.test(combined)) {
-      return 'zip_pack';
-    }
-    return 'single_episode';
-  }
-
-  // 3. Explicit zip archives without episode number
-  if (isExplicitZip) {
+  // 1. Pack / Archive indicators from URL or title take top priority
+  if (isPackMedia(link.title, link.url)) {
     return 'zip_pack';
   }
 
-  // 4. Check explicit flags from database/admin
-  if (link.linkType === 'single_episode' || link.category === 'SingleEpisode') {
-    return 'single_episode';
-  }
+  // 2. Explicit flags from database / admin payload
   if (link.linkType === 'zip_pack' || link.category === 'ZipPack') {
     return 'zip_pack';
   }
+  if (link.linkType === 'single_episode' || link.category === 'SingleEpisode') {
+    return 'single_episode';
+  }
 
-  // 5. Default: for media files and streaming links, default to single episode
+  // 3. Check for detected episode number
+  const ep = detectEpisodeNumber(link);
+  if (ep !== undefined && ep > 0) {
+    return 'single_episode';
+  }
+
+  // 4. Default: for media files and streaming links, default to single episode
   return 'single_episode';
 }
 
@@ -430,15 +465,15 @@ export function detectSize(title?: string, defaultSize?: string, url?: string): 
 }
 
 /**
- * Auto-parse full media metadata from title string
+ * Auto-parse full media metadata from title string or URL
  */
-export function parseFullMediaTitle(title: string): ParsedMediaMeta {
-  const seasonNumber = detectSeasonNumber({ title });
-  const episodeNumber = detectEpisodeNumber({ title });
-  const linkType = detectLinkType({ title, episodeNumber });
-  const quality = detectQuality(title);
-  const audioLanguage = detectAudio(title);
-  const size = detectSize(title);
+export function parseFullMediaTitle(title: string, url?: string): ParsedMediaMeta {
+  const seasonNumber = detectSeasonNumber({ title, url });
+  const episodeNumber = detectEpisodeNumber({ title, url });
+  const linkType = detectLinkType({ title, episodeNumber, url });
+  const quality = detectQuality(title, undefined, url);
+  const audioLanguage = detectAudio(title, undefined, url);
+  const size = detectSize(title, undefined, url);
   const category: 'ZipPack' | 'SingleEpisode' = linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode';
 
   // Extract raw release title candidate if present
@@ -455,7 +490,7 @@ export function parseFullMediaTitle(title: string): ParsedMediaMeta {
 
   return {
     seasonNumber,
-    episodeNumber,
+    episodeNumber: linkType === 'zip_pack' ? undefined : episodeNumber,
     linkType,
     quality,
     audioLanguage,
@@ -549,19 +584,22 @@ export function parseBulkLinksInput(
         continue;
       }
 
-      const meta = parseFullMediaTitle(titlePart);
+      const meta = parseFullMediaTitle(titlePart, url);
       const sNum = meta.seasonNumber || fallbackSeason;
       let finalEp = meta.episodeNumber || detectEpisodeNumber({ title: titlePart, url });
       let finalLinkType = meta.linkType;
-      const isExplicitZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b)/i.test(`${titlePart} ${url}`);
-      if (!finalEp && !isExplicitZip) {
+      const isExplicitZip = isPackMedia(titlePart, url);
+      if (isExplicitZip) {
+        finalLinkType = 'zip_pack';
+        finalEp = undefined;
+      } else if (!finalEp) {
         finalEp = items.filter((it) => it.linkType !== 'zip_pack').length + 1;
         finalLinkType = 'single_episode';
       }
 
       items.push({
         id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
-        title: titlePart || `Episode ${finalEp || items.length + 1}`,
+        title: titlePart || (finalLinkType === 'zip_pack' ? `Season ${sNum} Complete Pack` : `Episode ${finalEp || items.length + 1}`),
         url,
         linkType: finalLinkType,
         seasonNumber: sNum,
@@ -600,19 +638,22 @@ export function parseBulkLinksInput(
             continue;
           }
 
-          const meta = parseFullMediaTitle(titlePart);
+          const meta = parseFullMediaTitle(titlePart, url);
           const sNum = meta.seasonNumber || fallbackSeason;
           let finalEp = meta.episodeNumber || detectEpisodeNumber({ title: titlePart, url });
           let finalLinkType = meta.linkType;
-          const isExplicitZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b)/i.test(`${titlePart} ${url}`);
-          if (!finalEp && !isExplicitZip) {
+          const isExplicitZip = isPackMedia(titlePart, url);
+          if (isExplicitZip) {
+            finalLinkType = 'zip_pack';
+            finalEp = undefined;
+          } else if (!finalEp) {
             finalEp = items.filter((it) => it.linkType !== 'zip_pack').length + 1;
             finalLinkType = 'single_episode';
           }
 
           items.push({
             id: `bulk-${Date.now()}-${items.length}-${Math.random().toString(36).slice(2, 6)}`,
-            title: titlePart || `Episode ${finalEp || items.length + 1}`,
+            title: titlePart || (finalLinkType === 'zip_pack' ? `Season ${sNum} Complete Pack` : `Episode ${finalEp || items.length + 1}`),
             url,
             linkType: finalLinkType,
             seasonNumber: sNum,

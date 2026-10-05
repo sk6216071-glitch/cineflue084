@@ -526,7 +526,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     };
 
     fetchLiveLinks();
-    const interval = setInterval(fetchLiveLinks, 3000);
 
     const handleLinksUpdated = () => {
       setLinksRefresh((v) => v + 1);
@@ -535,7 +534,6 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
     window.addEventListener('cinefuel_links_updated', handleLinksUpdated);
     return () => {
       active = false;
-      clearInterval(interval);
       window.removeEventListener('cinefuel_links_updated', handleLinksUpdated);
     };
   }, [titleDetails.id]);
