@@ -41,6 +41,9 @@ import {
   UserCheck,
   X,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
   Clock,
   Zap,
   ListPlus,
@@ -201,6 +204,8 @@ export default function AdminPage() {
 
   // Tabs: 'overview' | 'links' | 'titles' | 'requests' | 'reports' | 'users' | 'apis' | 'backup' | 'logs'
   const [activeTab, setActiveTab] = useState<'overview' | 'links' | 'titles' | 'requests' | 'reports' | 'users' | 'apis' | 'backup' | 'logs'>('overview');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // API Form States
   const [tmdbKey, setTmdbKey] = useState('');
@@ -2846,190 +2851,451 @@ export default function AdminPage() {
   // 2. Authenticated Admin Dashboard
   // -------------------------------------------------------------
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-      {/* Admin Top Header Banner */}
-      <div className="bg-[#0f121a] border border-amber-500/30 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row gap-6 items-start md:items-center justify-between shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+    <div className="max-w-[1720px] mx-auto px-3 sm:px-6 py-6 min-h-screen">
+      {(() => {
+        const navItems = [
+          {
+            id: 'overview' as const,
+            label: 'Overview & Metrics',
+            shortLabel: 'Overview',
+            icon: Activity,
+            badge: null,
+            badgePulse: false,
+            badgeColor: 'amber' as const,
+          },
+          {
+            id: 'links' as const,
+            label: `Manage Links (${allFlattenedLinks.length})`,
+            shortLabel: 'Links',
+            icon: Link2,
+            badge: allFlattenedLinks.length,
+            badgePulse: false,
+            badgeColor: 'zinc' as const,
+          },
+          {
+            id: 'titles' as const,
+            label: 'Manage Titles & Search',
+            shortLabel: 'Titles',
+            icon: Film,
+            badge: null,
+            badgePulse: false,
+            badgeColor: 'amber' as const,
+          },
+          {
+            id: 'requests' as const,
+            label: 'User Requests',
+            shortLabel: 'Requests',
+            icon: Inbox,
+            badge: pendingRequestsCount > 0 ? pendingRequestsCount : null,
+            badgePulse: pendingRequestsCount > 0,
+            badgeColor: 'amber' as const,
+          },
+          {
+            id: 'reports' as const,
+            label: 'Defective Links',
+            shortLabel: 'Defective',
+            icon: AlertTriangle,
+            badge: pendingReportsCount > 0 ? pendingReportsCount : null,
+            badgePulse: pendingReportsCount > 0,
+            badgeColor: 'rose' as const,
+          },
+          {
+            id: 'users' as const,
+            label: 'Manage Users',
+            shortLabel: 'Users',
+            icon: Users,
+            badge: registeredUsers.length > 0 ? registeredUsers.length : null,
+            badgePulse: false,
+            badgeColor: 'zinc' as const,
+          },
+          {
+            id: 'apis' as const,
+            label: 'API Integrations',
+            shortLabel: 'APIs',
+            icon: Key,
+            badge: null,
+            badgePulse: false,
+            badgeColor: 'amber' as const,
+          },
+          {
+            id: 'backup' as const,
+            label: 'Backup & Vault',
+            shortLabel: 'Backup',
+            icon: Database,
+            badge: null,
+            badgePulse: false,
+            badgeColor: 'amber' as const,
+          },
+          {
+            id: 'logs' as const,
+            label: 'Diagnostics',
+            shortLabel: 'Diagnostics',
+            icon: Server,
+            badge: null,
+            badgePulse: false,
+            badgeColor: 'amber' as const,
+          },
+        ];
 
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 shrink-0 font-black text-xl">
-            S
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
-                Master Administrator • Shyam
-              </span>
-              <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Role Enforced: Users Read-Only / Admin Controls
-              </span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Welcome, Shyam | CineFuel Control Center
-            </h1>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5"
-          >
-            <ExternalLink className="w-3.5 h-3.5" /> View Public Site
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-xs font-bold transition-all flex items-center gap-1.5"
-            suppressHydrationWarning
-          >
-            <Lock className="w-3.5 h-3.5" /> Lock Panel
-          </button>
-        </div>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 border-b border-zinc-800">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'overview'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Activity className="w-4 h-4" /> Overview & Metrics
-        </button>
-
-        <button
-          onClick={() => setActiveTab('links')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'links'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Link2 className="w-4 h-4" /> Manage Links ({allFlattenedLinks.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('titles')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'titles'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Film className="w-4 h-4" /> Manage Titles & Search
-        </button>
-
-        <button
-          onClick={() => setActiveTab('requests')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all relative ${
-            activeTab === 'requests'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Inbox className="w-4 h-4" /> User Requests
-          {pendingRequestsCount > 0 && (
-            <span
-              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === 'requests'
-                  ? 'bg-black text-amber-400'
-                  : 'bg-amber-500 text-black animate-pulse'
+        return (
+          <div className="flex flex-col lg:flex-row gap-6 items-start">
+            {/* Desktop Collapsible Sidebar */}
+            <aside
+              className={`hidden lg:flex flex-col shrink-0 sticky top-6 bg-[#0f121a]/95 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 shadow-2xl transition-all duration-300 ease-in-out z-30 ${
+                isSidebarCollapsed ? 'w-20 items-center' : 'w-72'
               }`}
+              style={{ maxHeight: 'calc(100vh - 3rem)' }}
             >
-              {pendingRequestsCount}
-            </span>
-          )}
-        </button>
+              {/* Sidebar Header */}
+              <div
+                className={`flex items-center pb-4 mb-3 border-b border-white/5 w-full ${
+                  isSidebarCollapsed ? 'flex-col gap-2 justify-center' : 'justify-between'
+                }`}
+              >
+                {!isSidebarCollapsed ? (
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black font-black flex items-center justify-center text-base shadow-md shadow-amber-500/30 shrink-0">
+                      S
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-black text-white tracking-wide uppercase truncate">
+                        CineFuel
+                      </h2>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="text-[10px] text-amber-400/90 font-bold tracking-tight uppercase">
+                          Control Center
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black font-black flex items-center justify-center text-base shadow-md shadow-amber-500/30 shrink-0"
+                    title="CineFuel Control Center"
+                  >
+                    S
+                  </div>
+                )}
 
-        <button
-          onClick={() => setActiveTab('reports')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all relative ${
-            activeTab === 'reports'
-              ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <AlertTriangle className="w-4 h-4 text-rose-400" /> Defective Links
-          {pendingReportsCount > 0 && (
-            <span
-              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === 'reports'
-                  ? 'bg-black text-rose-300'
-                  : 'bg-rose-500 text-white animate-pulse'
-              }`}
-            >
-              {pendingReportsCount}
-            </span>
-          )}
-        </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  className="p-2 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 border border-white/5 hover:border-amber-500/30 text-zinc-400 hover:text-amber-400 transition-all cursor-pointer shadow-sm"
+                  title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+                  aria-label={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+                >
+                  {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                </button>
+              </div>
 
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'users'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Users className="w-4 h-4" /> Manage Users
-          {registeredUsers.length > 0 && (
-            <span
-              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === 'users'
-                  ? 'bg-black text-amber-400'
-                  : 'bg-zinc-800 text-zinc-300'
-              }`}
-            >
-              {registeredUsers.length}
-            </span>
-          )}
-        </button>
+              {/* Navigation Items List */}
+              <nav className="flex-1 w-full space-y-1.5 overflow-y-auto no-scrollbar py-1">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  const isReportTab = item.id === 'reports';
 
-        <button
-          onClick={() => setActiveTab('apis')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'apis'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Key className="w-4 h-4" /> API Integrations
-        </button>
+                  if (isSidebarCollapsed) {
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveTab(item.id)}
+                        title={`${item.shortLabel}${item.badge !== null ? ` (${item.badge})` : ''}`}
+                        className={`relative group w-12 h-12 mx-auto rounded-2xl flex items-center justify-center transition-all duration-200 cursor-pointer ${
+                          isActive
+                            ? isReportTab
+                              ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 font-bold'
+                              : 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-lg shadow-amber-500/25 font-black'
+                            : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+                        }`}
+                        suppressHydrationWarning
+                      >
+                        <Icon className="w-5 h-5 shrink-0" />
+                        {item.badge !== null && (
+                          <span
+                            className={`absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[10px] font-black flex items-center justify-center shadow-md ${
+                              isReportTab
+                                ? 'bg-rose-500 text-white'
+                                : isActive
+                                ? 'bg-black text-amber-400'
+                                : 'bg-amber-500 text-black'
+                            } ${item.badgePulse ? 'animate-pulse' : ''}`}
+                          >
+                            {typeof item.badge === 'number' && item.badge > 99 ? '99+' : item.badge}
+                          </span>
+                        )}
+                        {/* Floating Tooltip */}
+                        <span className="pointer-events-none absolute left-full ml-3 z-50 whitespace-nowrap rounded-xl bg-zinc-900 border border-zinc-700/90 px-3 py-1.5 text-xs font-bold text-white shadow-2xl opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150">
+                          {item.shortLabel}
+                          {item.badge !== null && ` (${item.badge})`}
+                        </span>
+                      </button>
+                    );
+                  }
 
-        <button
-          onClick={() => setActiveTab('backup')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'backup'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Database className="w-4 h-4" /> Backup & Vault
-        </button>
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveTab(item.id)}
+                      className={`w-full px-3.5 py-2.5 rounded-2xl flex items-center gap-3 transition-all duration-200 cursor-pointer text-left group ${
+                        isActive
+                          ? isReportTab
+                            ? 'bg-gradient-to-r from-rose-600 to-rose-700 text-white font-bold shadow-lg shadow-rose-600/25'
+                            : 'bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black shadow-lg shadow-amber-500/25'
+                          : 'text-zinc-400 hover:text-white hover:bg-zinc-800/70 font-semibold'
+                      }`}
+                      suppressHydrationWarning
+                    >
+                      <div
+                        className={`p-1.5 rounded-xl transition-all ${
+                          isActive
+                            ? isReportTab
+                              ? 'bg-white/20 text-white'
+                              : 'bg-black/20 text-black'
+                            : 'bg-zinc-800/60 text-zinc-400 group-hover:text-amber-400 group-hover:bg-amber-500/10'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                      </div>
+                      <span className="text-xs font-bold truncate flex-1 tracking-tight">
+                        {item.label}
+                      </span>
+                      {item.badge !== null && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                            isReportTab
+                              ? isActive
+                                ? 'bg-black/40 text-rose-200'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                              : isActive
+                              ? 'bg-black/30 text-black'
+                              : 'bg-zinc-800 text-zinc-300 border border-zinc-700/60'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
 
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-            activeTab === 'logs'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-          }`}
-          suppressHydrationWarning
-        >
-          <Server className="w-4 h-4" /> Diagnostics
-        </button>
-      </div>
+              {/* Sidebar Footer */}
+              {isSidebarCollapsed ? (
+                <div className="pt-3 mt-2 border-t border-white/5 flex flex-col items-center gap-2 w-full">
+                  <Link
+                    href="/"
+                    title="View Public Site"
+                    className="w-10 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    title="Lock Panel"
+                    className="w-10 h-10 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 flex items-center justify-center transition-all cursor-pointer"
+                    suppressHydrationWarning
+                  >
+                    <Lock className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-3 mt-2 border-t border-white/5 space-y-3 w-full">
+                  <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-white/5 space-y-1.5 text-[11px]">
+                    <div className="flex items-center justify-between text-zinc-400">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> MongoDB Atlas
+                      </span>
+                      <span className="text-[10px] text-emerald-400 font-bold font-mono">12K Links</span>
+                    </div>
+                    <div className="flex items-center justify-between text-zinc-400">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-amber-400" /> Upstash Redis
+                      </span>
+                      <span className="text-[10px] text-amber-400 font-bold font-mono">v2 Active</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href="/"
+                      className="flex-1 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Public Site
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      suppressHydrationWarning
+                    >
+                      <Lock className="w-3.5 h-3.5" /> Lock
+                    </button>
+                  </div>
+                </div>
+              )}
+            </aside>
+
+            {/* Main Content Workspace */}
+            <main className="flex-1 min-w-0 w-full space-y-6">
+              {/* Top Bar Header */}
+              <header className="bg-[#0f121a]/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="flex items-center gap-3.5">
+                  {/* Mobile Drawer Trigger (< lg) */}
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
+                    className="lg:hidden p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+                    aria-label="Toggle Navigation Menu"
+                  >
+                    {isMobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                  </button>
+
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-black flex items-center justify-center shadow-md shadow-amber-500/25 shrink-0 font-black text-lg">
+                    S
+                  </div>
+
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
+                        Master Admin • Shyam
+                      </span>
+                      <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Role Enforced: Admin Controls
+                      </span>
+                    </div>
+                    <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                      CineFuel Control Center
+                    </h1>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 self-end sm:self-center">
+                  <Link
+                    href="/"
+                    className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span> Public Site
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                    suppressHydrationWarning
+                  >
+                    <Lock className="w-3.5 h-3.5" /> Lock <span className="hidden sm:inline">Panel</span>
+                  </button>
+                </div>
+              </header>
+
+              {/* Mobile Quick Horizontal Bar (< lg) */}
+              <div className="lg:hidden flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 pt-1 border-b border-zinc-800/80">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  const isReportTab = item.id === 'reports';
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveTab(item.id)}
+                      className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+                        isActive
+                          ? isReportTab
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25'
+                            : 'bg-amber-500 text-black shadow-md'
+                          : 'bg-zinc-900/90 text-zinc-400 hover:text-white hover:bg-zinc-800 border border-white/5'
+                      }`}
+                      suppressHydrationWarning
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{item.shortLabel}</span>
+                      {item.badge !== null && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                            isActive
+                              ? 'bg-black text-white'
+                              : item.badgeColor === 'rose'
+                              ? 'bg-rose-500 text-white'
+                              : 'bg-zinc-800 text-zinc-300'
+                          } ${item.badgePulse ? 'animate-pulse' : ''}`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Mobile Full Navigation Drawer (< lg) */}
+              {isMobileNavOpen && (
+                <div className="fixed inset-0 z-50 lg:hidden flex flex-col bg-black/80 backdrop-blur-md animate-fade-in p-4">
+                  <div className="bg-[#0f121a] border border-amber-500/30 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-black font-black flex items-center justify-center text-sm">
+                          S
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black text-white">CineFuel Navigation</h3>
+                          <p className="text-[10px] text-zinc-400">Select administrative section</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsMobileNavOpen(false)}
+                        className="p-2 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {navItems.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = activeTab === item.id;
+                        const isReportTab = item.id === 'reports';
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveTab(item.id);
+                              setIsMobileNavOpen(false);
+                            }}
+                            className={`w-full px-4 py-3 rounded-2xl flex items-center justify-between text-left transition-all cursor-pointer ${
+                              isActive
+                                ? isReportTab
+                                  ? 'bg-rose-600 text-white font-bold'
+                                  : 'bg-amber-500 text-black font-black'
+                                : 'bg-zinc-900/60 text-zinc-300 hover:bg-zinc-850 hover:text-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Icon className="w-4 h-4" />
+                              <span className="text-xs font-bold">{item.label}</span>
+                            </div>
+                            {item.badge !== null && (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                  isActive ? 'bg-black text-white' : 'bg-zinc-800 text-zinc-300'
+                                }`}
+                              >
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
       {/* ========================================================= */}
       {/* TAB 1: OVERVIEW & METRICS */}
@@ -5746,6 +6012,10 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+            </main>
+          </div>
+        );
+      })()}
 
       {/* ========================================================= */}
       {/* EDIT LINK MODAL (ADMIN ONLY) */}
