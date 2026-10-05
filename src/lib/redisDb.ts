@@ -285,9 +285,28 @@ export async function saveLinkToDatabase(movieId: number | string, link: any): P
   try {
     const db = await getDatabase();
     if (db) {
+      let enrichedLink = { ...link };
+      if (!enrichedLink.posterPath || !enrichedLink.movieTitle) {
+        const existingDoc = await db.collection('links').findOne(
+          {
+            movieId: key,
+            $or: [
+              { posterPath: { $exists: true, $nin: [null, ''] } },
+              { movieTitle: { $exists: true, $nin: [null, ''] } },
+            ],
+          },
+          { sort: { createdAt: -1 } }
+        );
+        if (existingDoc) {
+          if (!enrichedLink.posterPath) enrichedLink.posterPath = existingDoc.posterPath || existingDoc.poster_path;
+          if (!enrichedLink.backdropPath) enrichedLink.backdropPath = existingDoc.backdropPath || existingDoc.backdrop_path;
+          if (!enrichedLink.movieTitle) enrichedLink.movieTitle = existingDoc.movieTitle;
+          if (!enrichedLink.mediaType && existingDoc.mediaType) enrichedLink.mediaType = existingDoc.mediaType;
+        }
+      }
       await db.collection('links').updateOne(
-        { movieId: key, url: link.url },
-        { $set: { ...link, movieId: key, updatedAt: new Date() } },
+        { movieId: key, url: enrichedLink.url },
+        { $set: { ...enrichedLink, movieId: key, updatedAt: new Date() } },
         { upsert: true }
       );
       persisted = true;
@@ -371,13 +390,32 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
   try {
     const db = await getDatabase();
     if (db) {
-      const ops = links.map((l) => ({
-        updateOne: {
-          filter: { movieId: key, url: l.url },
-          update: { $set: { ...l, movieId: key, updatedAt: new Date() } },
-          upsert: true,
+      const existingDoc = await db.collection('links').findOne(
+        {
+          movieId: key,
+          $or: [
+            { posterPath: { $exists: true, $nin: [null, ''] } },
+            { movieTitle: { $exists: true, $nin: [null, ''] } },
+          ],
         },
-      }));
+        { sort: { createdAt: -1 } }
+      );
+      const ops = links.map((l) => {
+        const enriched = { ...l };
+        if (existingDoc) {
+          if (!enriched.posterPath) enriched.posterPath = existingDoc.posterPath || existingDoc.poster_path;
+          if (!enriched.backdropPath) enriched.backdropPath = existingDoc.backdropPath || existingDoc.backdrop_path;
+          if (!enriched.movieTitle) enriched.movieTitle = existingDoc.movieTitle;
+          if (!enriched.mediaType && existingDoc.mediaType) enriched.mediaType = existingDoc.mediaType;
+        }
+        return {
+          updateOne: {
+            filter: { movieId: key, url: enriched.url },
+            update: { $set: { ...enriched, movieId: key, updatedAt: new Date() } },
+            upsert: true,
+          },
+        };
+      });
       if (ops.length > 0) {
         await db.collection('links').bulkWrite(ops);
         persisted = true;
@@ -1011,6 +1049,8 @@ export async function getPaginatedUploadedTitles(
               movieTitle: 1,
               posterPath: 1,
               backdropPath: 1,
+              poster_path: 1,
+              backdrop_path: 1,
               quality: 1,
               audioLanguage: 1,
               category: 1,
@@ -1029,6 +1069,11 @@ export async function getPaginatedUploadedTitles(
               latestDoc: { $first: '$$ROOT' },
               linksCount: { $sum: 1 },
               sortDate: { $first: '$createdAt' },
+              groupMovieTitle: { $max: '$movieTitle' },
+              groupPosterPath: { $max: '$posterPath' },
+              groupBackdropPath: { $max: '$backdropPath' },
+              groupPosterPathSnake: { $max: '$poster_path' },
+              groupBackdropPathSnake: { $max: '$backdrop_path' },
             },
           },
           { $sort: { sortDate: -1, _id: 1 } },
@@ -1041,7 +1086,23 @@ export async function getPaginatedUploadedTitles(
         // Enrich the current page entries (at most safeLimit records) into lightweight card objects
         const items = aggResults.map((item: any) => {
           const mId = String(item._id || item.latestDoc?.movieId || '');
-          const doc = item.latestDoc || {};
+          const baseDoc = item.latestDoc || {};
+          const doc = {
+            ...baseDoc,
+            movieTitle: baseDoc.movieTitle || item.groupMovieTitle || '',
+            posterPath:
+              baseDoc.posterPath ||
+              item.groupPosterPath ||
+              baseDoc.poster_path ||
+              item.groupPosterPathSnake ||
+              null,
+            backdropPath:
+              baseDoc.backdropPath ||
+              item.groupBackdropPath ||
+              baseDoc.backdrop_path ||
+              item.groupBackdropPathSnake ||
+              null,
+          };
           const isTv =
             doc.mediaType === 'tv' ||
             (typeof doc.seasonNumber === 'number' && doc.seasonNumber > 0) ||

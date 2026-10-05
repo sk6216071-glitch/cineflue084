@@ -244,45 +244,70 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
     };
   }
 
-  // 4. Dynamic Fallback Synthesizer with UNIQUE poster/backdrop per ID
-  const postersList = [
-    '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg', // Dune 2
-    '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', // Interstellar
-    '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg', // Breaking Bad
-    '/qJ2tW6WMUDux911r6m7haRef0WH.jpg', // Dark Knight
-    '/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg', // Inception
-    '/NNxYkU70HPurnNCSiCjYAmacwm.jpg', // Mission Impossible
-    '/nEufeZlyAOLqO2brrs0yeBEoo0R.jpg', // RRR
-    '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', // Oppenheimer
-  ];
+  // 4. Check if metadata exists in the database for this movieId (from custom link uploads)
+  if (typeof window === 'undefined') {
+    try {
+      const { getDatabase } = await import('@/lib/mongodb');
+      const db = await getDatabase();
+      if (db) {
+        const doc = await db.collection('links').findOne(
+          {
+            movieId: String(numId),
+            $or: [
+              { posterPath: { $exists: true, $nin: [null, ''] } },
+              { backdropPath: { $exists: true, $nin: [null, ''] } },
+              { movieTitle: { $exists: true, $nin: [null, ''] } },
+            ],
+          },
+          { sort: { createdAt: -1 } }
+        );
+        if (doc && (doc.movieTitle || doc.title)) {
+          const docTitle = doc.movieTitle || cleanTitleString(doc.title) || (mediaType === 'tv' ? `Series #${numId}` : `Movie #${numId}`);
+          const poster = doc.posterPath || doc.poster_path || doc.backdropPath || doc.backdrop_path || '/placeholder-poster.svg';
+          const backdrop = doc.backdropPath || doc.backdrop_path || poster || '/placeholder-backdrop.svg';
+          return {
+            id: numId,
+            title: docTitle,
+            name: docTitle,
+            overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
+            poster_path: poster,
+            backdrop_path: backdrop,
+            release_date: doc.releaseDate || '2024-01-01',
+            first_air_date: doc.releaseDate || '2024-01-01',
+            vote_average: doc.voteAverage || 8.0,
+            vote_count: 1000,
+            media_type: mediaType,
+            runtime: mediaType === 'tv' ? 55 : 120,
+            status: 'Released',
+            imdb_rating: 8.0,
+            genres: [{ id: 28, name: 'Featured' }],
+            external_ids: {
+              imdb_id: `tt${String(numId).padStart(7, '0')}`,
+              tmdb_id: numId,
+            },
+          } as TitleDetails;
+        }
+      }
+    } catch {
+      // Continue to neutral fallback
+    }
+  }
 
-  const backdropsList = [
-    '/xOMo8BRK7PfcJv9JCnx7s520QIq.jpg',
-    '/xJHokMbljvjADYdit5fK5VQsXEG.jpg',
-    '/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
-    '/nMKdUUepR0i5zn0y1T4CsSB5chy.jpg',
-    '/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg',
-    '/628Dep6AxEtDxjZoGP78TsOxYbK.jpg',
-    '/707thQazSnOw0990oc2skHw0.jpg',
-    '/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg',
-  ];
-
-  const posterIndex = Math.abs(numId) % postersList.length;
-
+  // 5. Safe Fallback Placeholder (clean CineFuel placeholders, no false movie posters)
   return {
     id: numId,
     title: mediaType === 'tv' ? `Series Feature #${numId}` : `Cinema Feature #${numId}`,
-    overview: 'An acclaimed presentation featuring compelling storytelling, breathtaking visuals, and powerhouse performances.',
-    poster_path: postersList[posterIndex],
-    backdrop_path: backdropsList[posterIndex],
-    release_date: '2023-08-15',
-    vote_average: 8.2,
-    vote_count: 5400,
+    overview: 'An acclaimed presentation available on CineFuel.',
+    poster_path: '/placeholder-poster.svg',
+    backdrop_path: '/placeholder-backdrop.svg',
+    release_date: '2024-01-01',
+    vote_average: 8.0,
+    vote_count: 1000,
     media_type: mediaType,
     runtime: mediaType === 'tv' ? 55 : 142,
     tagline: 'Discover. Experience. Track.',
     status: 'Released',
-    imdb_rating: 8.5,
+    imdb_rating: 8.0,
     imdb_votes: '340,000',
     mdblist_score: 87,
     genres: [
@@ -377,18 +402,6 @@ export async function getPersonDetails(id: number | string): Promise<PersonDetai
   };
 }
 
-const FALLBACK_POSTERS = [
-  '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg', // Dune 2
-  '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', // Interstellar
-  '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg', // Breaking Bad
-  '/qJ2tW6WMUDux911r6m7haRef0WH.jpg', // Dark Knight
-  '/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg', // Inception
-  '/NNxYkU70HPurnNCSiCjYAmacwm.jpg', // Mission Impossible
-  '/nEufeZlyAOLqO2brrs0yeBEoo0R.jpg', // RRR
-  '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', // Oppenheimer
-  '/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg', // Avengers
-  '/bOGkgRGdhrBYJSLpXaxhXVstNsV.jpg', // Stranger Things
-];
 
 export function cleanTitleString(raw?: string): string {
   if (!raw) return 'Featured Title';
@@ -418,7 +431,42 @@ export function getLightweightTitleCard(
   const strId = String(id);
   const key = `${mediaType}-${numId}`;
 
-  // 1. Direct mock lookup
+  // 1. Authoritative metadata from stored custom link document
+  if (doc?.movieTitle || doc?.posterPath || doc?.poster_path || doc?.backdropPath || doc?.backdrop_path || doc?.title) {
+    const rawTitle = doc.movieTitle || cleanTitleString(doc.title) || 'Featured Title';
+    const poster =
+      doc.posterPath ||
+      doc.poster_path ||
+      doc.backdropPath ||
+      doc.backdrop_path ||
+      '/placeholder-poster.svg';
+    const backdrop =
+      doc.backdropPath ||
+      doc.backdrop_path ||
+      doc.posterPath ||
+      doc.poster_path ||
+      '/placeholder-backdrop.svg';
+
+    return {
+      id: numId,
+      title: rawTitle,
+      name: rawTitle,
+      overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
+      poster_path: poster,
+      backdrop_path: backdrop,
+      release_date: doc.releaseDate || '2024-01-01',
+      first_air_date: doc.releaseDate || '2024-01-01',
+      vote_average: doc.voteAverage || 7.8,
+      vote_count: 1000,
+      media_type: mediaType,
+      original_language: doc.originalLanguage || 'en',
+      genres: [{ id: 28, name: 'Featured' }],
+      uploadMeta: doc?.uploadMeta || {},
+      linksCount,
+    } as TitleDetails;
+  }
+
+  // 2. Direct mock lookup
   const mock = MOCK_TITLES[key];
   if (mock) {
     return {
@@ -467,25 +515,21 @@ export function getLightweightTitleCard(
     } as TitleDetails;
   }
 
-  // 3. Metadata from stored document
-  const rawTitle = doc.movieTitle || cleanTitleString(doc.title) || 'Featured Title';
-  const posterIdx = Math.abs(numId) % FALLBACK_POSTERS.length;
-  const poster = doc.posterPath || FALLBACK_POSTERS[posterIdx];
-  const backdrop = doc.backdropPath || poster;
-
+  // 4. Safe fallback placeholder (clean CineFuel placeholders, no false movie posters)
+  const rawTitle = cleanTitleString(doc?.title) || 'Featured Title';
   return {
     id: numId,
     title: rawTitle,
     name: rawTitle,
-    overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
-    poster_path: poster,
-    backdrop_path: backdrop,
-    release_date: doc.releaseDate || '2024-01-01',
-    first_air_date: doc.releaseDate || '2024-01-01',
-    vote_average: doc.voteAverage || 7.8,
+    overview: doc?.overview || 'Available for streaming & high-speed download on CineFuel.',
+    poster_path: '/placeholder-poster.svg',
+    backdrop_path: '/placeholder-backdrop.svg',
+    release_date: doc?.releaseDate || '2024-01-01',
+    first_air_date: doc?.releaseDate || '2024-01-01',
+    vote_average: doc?.voteAverage || 7.8,
     vote_count: 1000,
     media_type: mediaType,
-    original_language: doc.originalLanguage || 'en',
+    original_language: doc?.originalLanguage || 'en',
     genres: [{ id: 28, name: 'Featured' }],
     uploadMeta: doc?.uploadMeta || {},
     linksCount,
