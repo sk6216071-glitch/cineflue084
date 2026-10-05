@@ -232,6 +232,7 @@ export default function AdminPage() {
   const [linkCategoryFilter, setLinkCategoryFilter] = useState('All');
   const [linksCurrentPage, setLinksCurrentPage] = useState<number>(1);
   const [linksPerPage, setLinksPerPage] = useState<number>(50);
+  const [totalServerLinksCount, setTotalServerLinksCount] = useState<number>(0);
   const [isRefreshingLinks, setIsRefreshingLinks] = useState(false);
   const [deletedCuratedLinkIds, setDeletedCuratedLinkIds] = useState<Set<string>>(new Set());
   const attemptedTitleFetchRef = useRef<Set<number>>(new Set());
@@ -441,13 +442,29 @@ export default function AdminPage() {
         }
       }
 
-      // Real-time live fetch of all cloud database links
-      const fetchAllAdminLinks = async (showLoading = false) => {
+      // Real-time live fetch of all cloud database links with pagination
+      const fetchAllAdminLinks = async (
+        page = 1,
+        limit = 50,
+        q = '',
+        category = 'All',
+        showLoading = false
+      ) => {
         try {
           if (showLoading) setIsRefreshingLinks(true);
-          const res = await fetch(`/api/curated-links?_t=${Date.now()}`, { cache: 'no-store' });
+          const params = new URLSearchParams();
+          params.set('page', String(page));
+          params.set('limit', String(limit));
+          if (q && q.trim()) params.set('q', q.trim());
+          if (category && category !== 'All') params.set('category', category);
+          params.set('_t', String(Date.now()));
+
+          const res = await fetch(`/api/curated-links?${params.toString()}`, { cache: 'no-store' });
           if (res.ok) {
             const data = await res.json();
+            if (typeof data.total === 'number') {
+              setTotalServerLinksCount(data.total);
+            }
             if (data && data.allLinks && typeof data.allLinks === 'object' && !Array.isArray(data.allLinks)) {
               const currentDeleted = getDeletedLinkIds();
               const cleanedMap: Record<string, CustomLink[]> = {};
@@ -467,8 +484,8 @@ export default function AdminPage() {
         }
       };
 
-      fetchAllAdminLinks();
-      const adminSyncInterval = setInterval(() => fetchAllAdminLinks(false), 30000);
+      fetchAllAdminLinks(1, 50, '', 'All', false);
+      const adminSyncInterval = setInterval(() => fetchAllAdminLinks(1, 50, '', 'All', false), 30000);
 
       const storedLists = localStorage.getItem('cinefuel_custom_lists');
       if (storedLists) {
@@ -2255,13 +2272,28 @@ export default function AdminPage() {
     await deleteMultipleGlobalCustomLinks(itemsToDelete.map((i) => ({ movieId: i.movieId, linkId: i.link.id })));
   };
 
-  // Manual Refresh of Custom Links
-  const refreshAdminLinks = async () => {
+  // Manual & Dynamic Refresh of Custom Links with pagination and search
+  const refreshAdminLinks = async (
+    page = linksCurrentPage,
+    limit = linksPerPage,
+    q = linkSearchQuery,
+    category = linkCategoryFilter
+  ) => {
     setIsRefreshingLinks(true);
     try {
-      const res = await fetch(`/api/curated-links?_t=${Date.now()}`, { cache: 'no-store' });
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('limit', String(limit));
+      if (q && q.trim()) params.set('q', q.trim());
+      if (category && category !== 'All') params.set('category', category);
+      params.set('_t', String(Date.now()));
+
+      const res = await fetch(`/api/curated-links?${params.toString()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
+        if (typeof data.total === 'number') {
+          setTotalServerLinksCount(data.total);
+        }
         if (data.allLinks && typeof data.allLinks === 'object') {
           const currentDeleted = getDeletedLinkIds();
           const cleanedMap: Record<string, CustomLink[]> = {};
@@ -2274,7 +2306,7 @@ export default function AdminPage() {
             }
           }
           setCustomLinksMap(cleanedMap);
-          addLog(`Refreshed ${Object.keys(cleanedMap).length} title link buckets from database`, 'success');
+          addLog(`Refreshed authoritative links from database (${(data.total || Object.keys(cleanedMap).length).toLocaleString()} total)`, 'success');
         }
       }
     } catch (e: any) {
@@ -2283,6 +2315,13 @@ export default function AdminPage() {
       setIsRefreshingLinks(false);
     }
   };
+
+  // Re-fetch links whenever page, limit, search query, or category changes
+  useEffect(() => {
+    if (isMounted) {
+      refreshAdminLinks(linksCurrentPage, linksPerPage, linkSearchQuery, linkCategoryFilter);
+    }
+  }, [linksCurrentPage, linksPerPage, linkSearchQuery, linkCategoryFilter, isMounted]);
 
   // Export Full JSON Backup
   const handleExportBackup = () => {
@@ -2590,12 +2629,10 @@ export default function AdminPage() {
     });
   }, [allFlattenedLinks, linkCategoryFilter, linkSearchQuery]);
 
-  // Pagination Slice
-  const totalLinkPages = Math.max(1, Math.ceil(filteredLinks.length / linksPerPage));
-  const paginatedLinks = useMemo(() => {
-    const start = (linksCurrentPage - 1) * linksPerPage;
-    return filteredLinks.slice(start, start + linksPerPage);
-  }, [filteredLinks, linksCurrentPage, linksPerPage]);
+  // Server-aware Pagination
+  const effectiveTotalLinks = totalServerLinksCount > 0 ? totalServerLinksCount : allFlattenedLinks.length;
+  const totalLinkPages = Math.max(1, Math.ceil(effectiveTotalLinks / linksPerPage));
+  const paginatedLinks = filteredLinks;
 
   const isCurrentPageAllSelected =
     paginatedLinks.length > 0 && paginatedLinks.every((item) => selectedLinkIds.has(item.link.id));
@@ -2865,10 +2902,10 @@ export default function AdminPage() {
           },
           {
             id: 'links' as const,
-            label: `Manage Links (${allFlattenedLinks.length})`,
+            label: `Manage Links (${effectiveTotalLinks.toLocaleString()})`,
             shortLabel: 'Links',
             icon: Link2,
-            badge: allFlattenedLinks.length,
+            badge: effectiveTotalLinks > 0 ? effectiveTotalLinks.toLocaleString() : allFlattenedLinks.length,
             badgePulse: false,
             badgeColor: 'zinc' as const,
           },
@@ -3311,8 +3348,8 @@ export default function AdminPage() {
 
             <div className="p-5 rounded-2xl bg-[#11141c] border border-white/5 space-y-1">
               <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Custom Links</span>
-              <p className="text-3xl font-black text-amber-400">{allFlattenedLinks.length}</p>
-              <span className="text-[11px] text-zinc-400 font-medium">Across all titles</span>
+              <p className="text-3xl font-black text-amber-400">{effectiveTotalLinks.toLocaleString()}</p>
+              <span className="text-[11px] text-zinc-400 font-medium">12,000+ in cloud database</span>
             </div>
 
             <div
@@ -4342,13 +4379,13 @@ export default function AdminPage() {
                 <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                   <Layers className="w-4 h-4 text-amber-400" />
                   <span>{linkCategoryFilter === 'Recent' ? 'Recent Uploads' : 'All Saved Custom Links'}</span>
-                  <span>({filteredLinks.length.toLocaleString()})</span>
+                  <span>({effectiveTotalLinks.toLocaleString()})</span>
                 </h3>
                 <button
                   type="button"
-                  onClick={refreshAdminLinks}
+                  onClick={() => refreshAdminLinks()}
                   disabled={isRefreshingLinks}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[11px] font-semibold text-zinc-300 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[11px] font-semibold text-zinc-300 hover:text-white transition-colors cursor-pointer"
                   title="Reload custom links from cloud database"
                 >
                   <RefreshCw className={`w-3 h-3 ${isRefreshingLinks ? 'animate-spin text-amber-400' : 'text-zinc-400'}`} />
@@ -4362,7 +4399,10 @@ export default function AdminPage() {
                     type="text"
                     placeholder="Search links, titles..."
                     value={linkSearchQuery}
-                    onChange={(e) => setLinkSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setLinkSearchQuery(e.target.value);
+                      setLinksCurrentPage(1);
+                    }}
                     className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-44"
                   />
                   <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -4370,7 +4410,10 @@ export default function AdminPage() {
 
                 <select
                   value={linkCategoryFilter}
-                  onChange={(e) => setLinkCategoryFilter(e.target.value)}
+                  onChange={(e) => {
+                    setLinkCategoryFilter(e.target.value);
+                    setLinksCurrentPage(1);
+                  }}
                   className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
                 >
                   <option value="All">All Categories</option>
@@ -4444,9 +4487,9 @@ export default function AdminPage() {
             {filteredLinks.length > 0 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 py-2 px-1 text-xs text-zinc-400 border-b border-zinc-800/60">
                 <div className="text-zinc-400 text-xs">
-                  Showing <span className="font-semibold text-white">{filteredLinks.length === 0 ? 0 : (linksCurrentPage - 1) * linksPerPage + 1}</span>-
-                  <span className="font-semibold text-white">{Math.min(linksCurrentPage * linksPerPage, filteredLinks.length)}</span> of{' '}
-                  <span className="font-bold text-amber-400">{filteredLinks.length.toLocaleString()}</span> links
+                  Showing <span className="font-semibold text-white">{effectiveTotalLinks === 0 ? 0 : (linksCurrentPage - 1) * linksPerPage + 1}</span>-
+                  <span className="font-semibold text-white">{Math.min(linksCurrentPage * linksPerPage, effectiveTotalLinks)}</span> of{' '}
+                  <span className="font-bold text-amber-400">{effectiveTotalLinks.toLocaleString()}</span> links
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -4609,9 +4652,9 @@ export default function AdminPage() {
             {filteredLinks.length > 0 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400">
                 <div>
-                  Showing <span className="font-semibold text-white">{(linksCurrentPage - 1) * linksPerPage + 1}</span>-
-                  <span className="font-semibold text-white">{Math.min(linksCurrentPage * linksPerPage, filteredLinks.length)}</span> of{' '}
-                  <span className="font-bold text-amber-400">{filteredLinks.length.toLocaleString()}</span> links
+                  Showing <span className="font-semibold text-white">{effectiveTotalLinks === 0 ? 0 : (linksCurrentPage - 1) * linksPerPage + 1}</span>-
+                  <span className="font-semibold text-white">{Math.min(linksCurrentPage * linksPerPage, effectiveTotalLinks)}</span> of{' '}
+                  <span className="font-bold text-amber-400">{effectiveTotalLinks.toLocaleString()}</span> links
                 </div>
 
                 <div className="flex items-center gap-1.5">

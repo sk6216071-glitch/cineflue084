@@ -150,7 +150,7 @@ export function saveLocalFallbackLinks(data: Record<string, any[]>): boolean {
  */
 export async function getLinksFromDatabase(
   movieId?: number | string,
-  pagination?: { page?: number; limit?: number }
+  pagination?: { page?: number; limit?: number; q?: string; category?: string }
 ): Promise<{
   links?: any[];
   allLinks?: Record<string, any[]>;
@@ -171,9 +171,28 @@ export async function getLinksFromDatabase(
       } else {
         const page = Math.max(1, pagination?.page || 1);
         const limit = Math.max(1, Math.min(200, pagination?.limit || 50));
-        const total = await collection.estimatedDocumentCount().catch(() => 0);
+
+        const mongoFilter: any = {};
+        if (pagination?.category && pagination.category !== 'All') {
+          mongoFilter.category = pagination.category;
+        }
+        if (pagination?.q && pagination.q.trim()) {
+          const escaped = pagination.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(escaped, 'i');
+          mongoFilter.$or = [
+            { title: regex },
+            { url: regex },
+            { movieId: pagination.q.trim() }
+          ];
+        }
+
+        const isFiltered = Object.keys(mongoFilter).length > 0;
+        const total = isFiltered
+          ? await collection.countDocuments(mongoFilter).catch(() => 0)
+          : await collection.estimatedDocumentCount().catch(() => 0);
+
         const docs = await collection
-          .find({})
+          .find(mongoFilter)
           .sort({ createdAt: -1 })
           .skip((page - 1) * limit)
           .limit(limit)

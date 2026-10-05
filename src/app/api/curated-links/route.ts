@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.max(1, Math.min(200, parseInt(searchParams.get('limit') || '50', 10)));
-    const result = await getLinksFromDatabase(undefined, { page, limit });
+    const q = searchParams.get('q') || searchParams.get('search') || undefined;
+    const category = searchParams.get('category') || undefined;
+    const result = await getLinksFromDatabase(undefined, { page, limit, q, category });
     return NextResponse.json({
       success: true,
       allLinks: result.allLinks || {},
