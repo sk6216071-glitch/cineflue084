@@ -134,13 +134,13 @@ export default async function MoviesPage({ searchParams }: MoviesPageProps) {
       {/* Uploaded Movies Grid */}
       {result.items && result.items.length > 0 ? (
         <section className="space-y-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
             {result.items.map((item, idx) => (
               <MovieCard
                 key={`movie-${item.id}-${idx}`}
                 item={item}
-                priority={idx < 6}
-                aspect="portrait"
+                priority={idx < 4}
+                aspect="landscape"
               />
             ))}
           </div>

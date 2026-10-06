@@ -27,9 +27,12 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: 'CineFuel - Discover Movies & TV, Where to Watch & Track Watchlist',
-  description: 'Your ultimate cinema command center. Discover trending movies & TV shows, check India streaming availability on Hotstar, Netflix, and JioCinema.',
-  keywords: 'movies, tv shows, streaming india, watchlist, hotstar, jiocinema, netflix, tmdb, imdb ratings',
+  title: 'CiNEPHiLE - Discover Movies & TV, Where to Watch & Track Watchlist',
+  description: 'Your ultimate cinema command center. Discover trending movies & TV shows, direct high-speed downloads in 4K UHD & 1080p, and streaming availability.',
+  keywords: 'movies, tv shows, streaming india, watchlist, hotstar, jiocinema, netflix, tmdb, imdb ratings, direct download, 4k uhd',
+  openGraph: {
+    siteName: 'CiNEPHiLE',
+  },
 };
 
 export default function RootLayout({

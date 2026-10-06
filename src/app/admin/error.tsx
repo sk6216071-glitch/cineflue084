@@ -131,7 +131,7 @@ export default function AdminErrorBoundary({
             className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
           >
             <Home className="w-3.5 h-3.5" />
-            <span>Return to CineFuel Homepage</span>
+            <span>Return to CiNEPHiLE Homepage</span>
           </Link>
         </div>
       </div>

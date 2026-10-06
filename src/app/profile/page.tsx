@@ -331,7 +331,7 @@ export default function ProfilePage() {
               </p>
 
               <p className="text-xs sm:text-sm text-zinc-300 max-w-xl pt-1 leading-relaxed">
-                {userProfile.bio || 'Cinema enthusiast tracking films and discovering stories on CineFuel.'}
+                {userProfile.bio || 'Cinema enthusiast tracking films and discovering stories on CiNEPHiLE.'}
               </p>
             </div>
           </div>
@@ -530,7 +530,7 @@ export default function ProfilePage() {
                   )}
                 </div>
                 <p className="text-xs text-zinc-400">
-                  Your CineFuel account is receiving real-time alerts on Telegram.
+                  Your CiNEPHiLE account is receiving real-time alerts on Telegram.
                 </p>
               </div>
 
@@ -626,7 +626,7 @@ export default function ProfilePage() {
                 </div>
 
                 <p className="text-xs text-zinc-300 leading-relaxed">
-                  Open the official CineFuel bot in Telegram and start it with your secure link code:
+                  Open the official CiNEPHiLE bot in Telegram and start it with your secure link code:
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -696,7 +696,7 @@ export default function ProfilePage() {
               )}
             </div>
             <p className="text-xs text-zinc-400">
-              Track the live fulfillment status of movies and web series you requested on CineFuel.
+              Track the live fulfillment status of movies and web series you requested on CiNEPHiLE.
             </p>
           </div>
 

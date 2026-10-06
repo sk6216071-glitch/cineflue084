@@ -1,45 +1,29 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React from 'react';
+import Link from 'next/link';
 import { Flame, Film, Tv, Sparkles } from 'lucide-react';
 import { TitleDetails } from '@/types';
 import MovieCard from './MovieCard';
 import Pagination from './Pagination';
 
 interface LatestUploadsGridProps {
-  allTitles: TitleDetails[];
-  movieTitles: TitleDetails[];
-  seriesTitles: TitleDetails[];
+  items: TitleDetails[];
+  currentPage: number;
+  totalPages: number;
+  totalCount: number;
+  activeType: 'all' | 'movie' | 'tv';
+  basePath?: string;
 }
 
 export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
-  allTitles,
-  movieTitles,
-  seriesTitles,
+  items,
+  currentPage,
+  totalPages,
+  totalCount,
+  activeType,
+  basePath = '/',
 }) => {
-  const [activeTab, setActiveTab] = useState<'all' | 'movie' | 'tv'>('all');
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const ITEMS_PER_PAGE = 24;
-
-  const handleTabChange = (tab: 'all' | 'movie' | 'tv') => {
-    setActiveTab(tab);
-    setCurrentPage(1);
-  };
-
-  const displayedTitles = useMemo(() => {
-    if (activeTab === 'movie') return movieTitles;
-    if (activeTab === 'tv') return seriesTitles;
-    return allTitles;
-  }, [activeTab, allTitles, movieTitles, seriesTitles]);
-
-  const totalPages = Math.max(1, Math.ceil(displayedTitles.length / ITEMS_PER_PAGE));
-  const validPage = Math.min(currentPage, totalPages);
-
-  const pagedTitles = useMemo(() => {
-    const start = (validPage - 1) * ITEMS_PER_PAGE;
-    return displayedTitles.slice(start, start + ITEMS_PER_PAGE);
-  }, [displayedTitles, validPage]);
-
   return (
     <div className="space-y-6">
       {/* Header with Title and Filter Tabs */}
@@ -52,56 +36,66 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
             <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl text-white uppercase tracking-wider leading-none">
               Latest Uploads
             </h2>
+            {totalCount > 0 && (
+              <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-400 text-xs font-bold font-ui">
+                {totalCount} Releases
+              </span>
+            )}
           </div>
           <p className="font-meta text-xs sm:text-sm text-zinc-400 mt-1.5 font-medium">
             Recent high-speed direct downloads in 4K UHD, 1080p and 720p with multi-audio
+            {totalPages > 1 && (
+              <span className="text-zinc-500 ml-2">
+                • Page {currentPage} of {totalPages}
+              </span>
+            )}
           </p>
         </div>
 
         {/* Filter Pills */}
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#14121f] border border-[#2b2542] self-start sm:self-auto">
-          <button
-            onClick={() => handleTabChange('all')}
+          <Link
+            href="/"
             className={`font-ui px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
-              activeTab === 'all'
+              activeType === 'all'
                 ? 'bg-purple-600 text-white shadow-md'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
             }`}
           >
-            All ({allTitles.length})
-          </button>
-          <button
-            onClick={() => handleTabChange('movie')}
+            All
+          </Link>
+          <Link
+            href="/?type=movie"
             className={`font-ui flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
-              activeTab === 'movie'
+              activeType === 'movie'
                 ? 'bg-amber-500 text-black shadow-md'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
             }`}
           >
             <Film className="w-3.5 h-3.5" />
-            Movies ({movieTitles.length})
-          </button>
-          <button
-            onClick={() => handleTabChange('tv')}
+            Movies
+          </Link>
+          <Link
+            href="/?type=tv"
             className={`font-ui flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
-              activeTab === 'tv'
+              activeType === 'tv'
                 ? 'bg-sky-500 text-black shadow-md'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
             }`}
           >
             <Tv className="w-3.5 h-3.5" />
-            TV Series ({seriesTitles.length})
-          </button>
+            TV Series
+          </Link>
         </div>
       </div>
 
       {/* 4-Column Responsive Grid matching Reference Screenshot */}
-      {pagedTitles.length > 0 ? (
+      {items.length > 0 ? (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
-            {pagedTitles.map((item, idx) => (
+            {items.map((item, idx) => (
               <MovieCard
-                key={`${item.media_type}-${item.id}-${idx}`}
+                key={`${item.media_type || activeType}-${item.id}-${idx}`}
                 item={item}
                 aspect="landscape"
                 priority={idx < 4}
@@ -112,12 +106,11 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
           {/* Pagination Controls */}
           {totalPages > 1 && (
             <Pagination
-              currentPage={validPage}
+              currentPage={currentPage}
               totalPages={totalPages}
-              onPageChange={(p) => {
-                setCurrentPage(p);
-                const el = document.getElementById('latest-uploads-section');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              basePath={basePath}
+              extraParams={{
+                type: activeType !== 'all' ? activeType : undefined,
               }}
             />
           )}

@@ -33,7 +33,7 @@ export default function CustomListsPage() {
           </div>
           <h1 className="text-3xl sm:text-4xl font-black text-white">Custom Lists</h1>
           <p className="text-sm text-zinc-400 max-w-2xl">
-            Create, curate, and share themed movie and TV collections with the CineFuel community.
+            Create, curate, and share themed movie and TV collections with the CiNEPHiLE community.
           </p>
         </div>
 

@@ -881,6 +881,22 @@ export default function AdminPage() {
     }
   };
 
+  // Helper to obtain admin authorization headers for all mutating API calls
+  const getAdminAuthHeaders = useCallback(() => {
+    let key = adminPass;
+    if (!key && typeof window !== 'undefined') {
+      key =
+        localStorage.getItem('cinefuel_admin_pass') ||
+        localStorage.getItem('cinefuel_admin_key') ||
+        sessionStorage.getItem('cinefuel_admin_pass') ||
+        '';
+    }
+    return {
+      'Content-Type': 'application/json',
+      'x-admin-key': key || DEFAULT_ADMIN_PASS,
+    };
+  }, [adminPass]);
+
   // Handle Admin Login
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -891,7 +907,11 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       setAuthError(false);
       sessionStorage.setItem('cinefuel_admin_auth', 'true');
-      sessionStorage.setItem('cinefuel_admin_user', 'shyam');
+      sessionStorage.setItem('cinefuel_admin_user', usernameInput.trim().toLowerCase());
+      sessionStorage.setItem('cinefuel_admin_pass', passwordInput);
+      localStorage.setItem('cinefuel_admin_pass', passwordInput);
+      localStorage.setItem('cinefuel_admin_key', passwordInput);
+      setAdminPass(passwordInput);
       addLog('Master Admin (Shyam) authenticated successfully.', 'success');
     } else {
       setAuthError(true);
@@ -902,6 +922,7 @@ export default function AdminPage() {
     setIsAuthenticated(false);
     sessionStorage.removeItem('cinefuel_admin_auth');
     sessionStorage.removeItem('cinefuel_admin_user');
+    sessionStorage.removeItem('cinefuel_admin_pass');
     addLog('Admin logged out.', 'info');
   };
 
@@ -975,52 +996,77 @@ export default function AdminPage() {
     status: 'pending' | 'fulfilled' | 'rejected',
     meta?: any
   ) => {
+    // 1. Optimistic UI update for immediate instant feedback
+    const previousRequests = [...requestsList];
+    setRequestsList((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              status,
+              ...(status === 'fulfilled' ? { fulfilledAt: new Date().toISOString() } : {}),
+              ...(meta?.fulfilledLinkUrl ? { fulfilledLinkUrl: meta.fulfilledLinkUrl } : {}),
+            }
+          : r
+      )
+    );
+
     try {
       const res = await fetch('/api/requests', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminAuthHeaders(),
         body: JSON.stringify({ id, status, ...meta }),
       });
       if (res.ok) {
-        setRequestsList((prev) =>
-          prev.map((r) =>
-            r.id === id
-              ? {
-                  ...r,
-                  status,
-                  ...(status === 'fulfilled' ? { fulfilledAt: new Date().toISOString() } : {}),
-                  ...(meta?.fulfilledLinkUrl ? { fulfilledLinkUrl: meta.fulfilledLinkUrl } : {}),
-                }
-              : r
-          )
-        );
         addLog(`Request ${id} marked as ${status}.`, 'success');
         const refreshRes = await fetch(`/api/requests?_t=${Date.now()}`);
         if (refreshRes.ok) {
           const d = await refreshRes.json();
           setPendingRequestsCount(d.pendingCount || 0);
         }
+      } else {
+        // Revert optimistic update on failure
+        setRequestsList(previousRequests);
+        const errData = await res.json().catch(() => ({}));
+        addLog(`Failed to update request: ${errData.error || res.statusText}`, 'warn');
+        alert(`Failed to update request: ${errData.error || res.statusText || 'Unauthorized'}`);
       }
     } catch (err: any) {
+      setRequestsList(previousRequests);
       addLog(`Failed to update request: ${err.message}`, 'warn');
+      alert(`Error updating request: ${err.message}`);
     }
   };
 
   const handleDeleteRequest = async (id: string) => {
     if (!confirm('Are you sure you want to delete this user request?')) return;
+    const previousRequests = [...requestsList];
+    // Optimistic deletion
+    setRequestsList((prev) => prev.filter((r) => r.id !== id));
+
     try {
-      const res = await fetch(`/api/requests?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/requests?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAdminAuthHeaders(),
+      });
       if (res.ok) {
-        setRequestsList((prev) => prev.filter((r) => r.id !== id));
         addLog(`Request ${id} deleted.`, 'info');
         const refreshRes = await fetch(`/api/requests?_t=${Date.now()}`);
         if (refreshRes.ok) {
           const d = await refreshRes.json();
           setPendingRequestsCount(d.pendingCount || 0);
         }
+      } else {
+        // Revert on failure
+        setRequestsList(previousRequests);
+        const errData = await res.json().catch(() => ({}));
+        addLog(`Failed to delete request: ${errData.error || res.statusText}`, 'warn');
+        alert(`Failed to delete request: ${errData.error || res.statusText || 'Unauthorized'}`);
       }
     } catch (err: any) {
+      setRequestsList(previousRequests);
       addLog(`Failed to delete request: ${err.message}`, 'warn');
+      alert(`Error deleting request: ${err.message}`);
     }
   };
 
@@ -1193,7 +1239,7 @@ export default function AdminPage() {
       // 3. Mark request as fulfilled
       const res = await fetch('/api/requests', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminAuthHeaders(),
         body: JSON.stringify({
           id: fulfillingRequest.id,
           status: 'fulfilled',
@@ -1341,7 +1387,7 @@ export default function AdminPage() {
 
       const res = await fetch('/api/requests', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminAuthHeaders(),
         body: JSON.stringify({
           id: fulfillingRequest.id,
           status: 'fulfilled',
@@ -1498,7 +1544,7 @@ export default function AdminPage() {
 
       const res = await fetch('/api/requests', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminAuthHeaders(),
         body: JSON.stringify({
           id: fulfillingRequest.id,
           status: 'fulfilled',
@@ -1564,42 +1610,53 @@ export default function AdminPage() {
     status: 'pending' | 'fixed' | 'dismissed',
     meta?: any
   ) => {
+    // 1. Optimistic UI update
+    const previousReports = [...reportsList];
+    setReportsList((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              status,
+              ...(status === 'fixed' || status === 'dismissed' ? { resolvedAt: new Date().toISOString() } : {}),
+              ...(meta?.replacementUrl ? { replacementUrl: meta.replacementUrl } : {}),
+              ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
+            }
+          : r
+      )
+    );
+
     try {
       const res = await fetch('/api/reports', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminAuthHeaders(),
         body: JSON.stringify({ id, status, ...meta }),
       });
       if (res.ok) {
-        setReportsList((prev) =>
-          prev.map((r) =>
-            r.id === id
-              ? {
-                  ...r,
-                  status,
-                  ...(status === 'fixed' || status === 'dismissed' ? { resolvedAt: new Date().toISOString() } : {}),
-                  ...(meta?.replacementUrl ? { replacementUrl: meta.replacementUrl } : {}),
-                  ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
-                }
-              : r
-          )
-        );
         addLog(`Defective report ${id} status updated to ${status}.`, 'success');
         const refreshRes = await fetch(`/api/reports?_t=${Date.now()}`);
         if (refreshRes.ok) {
           const d = await refreshRes.json();
           setPendingReportsCount(d.pendingCount || 0);
         }
+      } else {
+        // Revert optimistic update
+        setReportsList(previousReports);
+        const errData = await res.json().catch(() => ({}));
+        addLog(`Failed to update report: ${errData.error || res.statusText}`, 'warn');
+        alert(`Failed to update report: ${errData.error || res.statusText || 'Unauthorized'}`);
       }
     } catch (err: any) {
+      setReportsList(previousReports);
       addLog(`Failed to update defective report: ${err.message}`, 'warn');
+      alert(`Error updating report: ${err.message}`);
     }
   };
 
   const handleDeleteBrokenLinkDirectly = async (report: DefectiveLinkReport) => {
     if (
       !confirm(
-        `Are you sure you want to permanently delete this broken link from CineFuel?\n\nTitle: ${report.mediaTitle}\nURL: ${report.reportedUrl}`
+        `Are you sure you want to permanently delete this broken link from CiNEPHiLE?\n\nTitle: ${report.mediaTitle}\nURL: ${report.reportedUrl}`
       )
     )
       return;
@@ -1613,7 +1670,7 @@ export default function AdminPage() {
 
       // 2. Mark report as fixed with deletion metadata
       await handleUpdateReportStatus(report.id, 'fixed', {
-        adminNote: 'Broken link permanently removed from CineFuel database.',
+        adminNote: 'Broken link permanently removed from CiNEPHiLE database.',
         deleteInDatabase: true,
         movieId: report.movieId,
         linkId: report.linkId,
@@ -1622,6 +1679,7 @@ export default function AdminPage() {
       addLog(`Deleted defective link permanently for "${report.mediaTitle}"`, 'warn');
     } catch (err: any) {
       addLog(`Failed to delete defective link: ${err.message}`, 'warn');
+      alert(`Error deleting defective link: ${err.message}`);
     }
   };
 
@@ -1672,6 +1730,7 @@ export default function AdminPage() {
         try {
           await fetch(`/api/curated-links?movieId=${fixingReport.movieId}&linkId=${fixingReport.linkId}`, {
             method: 'DELETE',
+            headers: getAdminAuthHeaders(),
           });
         } catch {}
       }
@@ -1707,7 +1766,7 @@ export default function AdminPage() {
       // 3. Mark report as fixed in server database
       const res = await fetch('/api/reports', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminAuthHeaders(),
         body: JSON.stringify({
           id: fixingReport.id,
           status: 'fixed',
@@ -1750,9 +1809,14 @@ export default function AdminPage() {
           setFixingReport(null);
           setFixSuccessMsg('');
         }, 2000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        addLog(`Failed to fix defective link: ${errData.error || res.statusText}`, 'warn');
+        alert(`Failed to save replacement: ${errData.error || res.statusText || 'Unauthorized'}`);
       }
     } catch (err: any) {
       addLog(`Failed to fix defective link: ${err.message}`, 'warn');
+      alert(`Error fixing defective link: ${err.message}`);
     } finally {
       setIsFixingSubmit(false);
     }
@@ -1760,14 +1824,26 @@ export default function AdminPage() {
 
   const handleDeleteReport = async (id: string) => {
     if (!confirm('Are you sure you want to delete this defective link report record?')) return;
+    const previousReports = [...reportsList];
+    setReportsList((prev) => prev.filter((r) => r.id !== id));
+
     try {
-      const res = await fetch(`/api/reports?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/reports?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAdminAuthHeaders(),
+      });
       if (res.ok) {
-        setReportsList((prev) => prev.filter((r) => r.id !== id));
         addLog(`Report ${id} deleted permanently.`, 'info');
+      } else {
+        setReportsList(previousReports);
+        const errData = await res.json().catch(() => ({}));
+        addLog(`Failed to delete report: ${errData.error || res.statusText}`, 'warn');
+        alert(`Failed to delete report: ${errData.error || res.statusText || 'Unauthorized'}`);
       }
     } catch (err: any) {
+      setReportsList(previousReports);
       addLog(`Failed to delete report: ${err.message}`, 'warn');
+      alert(`Error deleting report: ${err.message}`);
     }
   };
 
@@ -2369,7 +2445,7 @@ export default function AdminPage() {
       customLinks: customLinksMap,
       knownTitles: knownTitlesCache,
       mdblistConfig,
-      adminNotes: 'CineFuel Master Database Export',
+      adminNotes: 'CiNEPHiLE Master Database Export',
     };
 
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
@@ -2816,7 +2892,7 @@ export default function AdminPage() {
                 {currentTheme.editionTag}
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-md">
-                CineFuel Master Control
+                CiNEPHiLE Master Control
               </h2>
               <p className="text-xs text-zinc-400 leading-relaxed max-w-xs mx-auto">
                 Enter Administrator Credentials to access backend catalog, links, and system controls.
@@ -2913,7 +2989,7 @@ export default function AdminPage() {
 
         {/* 4. Bottom Footer */}
         <footer className="relative z-10 text-center py-2 text-[11px] text-zinc-500 font-mono">
-          CineFuel Platform • Confidential Administrator Environment
+          CiNEPHiLE Platform • Confidential Administrator Environment
         </footer>
       </div>
     );
@@ -3036,7 +3112,7 @@ export default function AdminPage() {
                     </div>
                     <div className="min-w-0">
                       <h2 className="text-sm font-black text-white tracking-wider uppercase truncate">
-                        CINEFUEL
+                        CiNEPHiLE
                       </h2>
                       <div className="text-[10px] text-cyan-400 font-extrabold tracking-wider uppercase">
                         ADMIN PANEL
@@ -3046,7 +3122,7 @@ export default function AdminPage() {
                 ) : (
                   <div
                     className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-400 flex items-center justify-center shadow-[0_0_12px_rgba(6,182,212,0.35)] shrink-0"
-                    title="CineFuel Admin Panel"
+                    title="CiNEPHiLE Admin Panel"
                   >
                     <Shield className="w-5 h-5 text-cyan-400" />
                   </div>
@@ -3296,7 +3372,7 @@ export default function AdminPage() {
 
               {/* Mobile Full Navigation Drawer (< lg) */}
               {isMobileNavOpen && (
-                <div className="fixed inset-0 z-50 lg:hidden flex flex-col bg-black/80 backdrop-blur-md animate-fade-in p-4">
+                <div className="fixed inset-0 z-[70] lg:hidden flex flex-col bg-black/80 backdrop-blur-md animate-fade-in p-4">
                   <div className="bg-[#080d1a] border border-cyan-500/40 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
                     <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-4">
                       <div className="flex items-center gap-2.5">
@@ -3304,7 +3380,7 @@ export default function AdminPage() {
                           <Shield className="w-4 h-4 text-cyan-400" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-black text-white">CineFuel Navigation</h3>
+                          <h3 className="text-sm font-black text-white">CiNEPHiLE Navigation</h3>
                           <p className="text-[10px] text-cyan-400">Admin Control Center</p>
                         </div>
                       </div>
@@ -3606,7 +3682,7 @@ export default function AdminPage() {
               </div>
               <div>
                 <h4 className="text-sm font-black text-white tracking-wide">
-                  CineFuel Admin Panel
+                  CiNEPHiLE Admin Panel
                 </h4>
                 <p className="text-[11px] text-slate-400">
                   Secure • Monitor • Manage • Grow
@@ -5255,8 +5331,9 @@ export default function AdminPage() {
                       <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
                         {/* 1-Click Fulfill Action Button */}
                         <button
+                          type="button"
                           onClick={() => handleOpenFulfill(req)}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:scale-105 active:scale-95"
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                           title="Open fulfillment dialog (Single Link, Bulk Auto-Detector, or Episode Grid)"
                         >
                           <Zap className="w-3.5 h-3.5" />
@@ -5265,6 +5342,7 @@ export default function AdminPage() {
 
                         {/* Direct Jump to Manage Links Tab */}
                         <button
+                          type="button"
                           onClick={() => {
                             const targetObj = {
                               id: req.tmdbId || Math.floor(Math.random() * 800000) + 100000,
@@ -5283,8 +5361,12 @@ export default function AdminPage() {
                               setAddLinkMode('single');
                               setAdminBulkMediaType('movie');
                             }
+                            if (typeof window !== 'undefined') {
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
+                            addLog(`Jumped to Manage Links for "${req.title}"`, 'info');
                           }}
-                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/60 text-zinc-300 hover:text-amber-400 text-xs font-bold transition-all"
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/60 text-zinc-300 hover:text-amber-400 text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95"
                           title="Open in Full Manage Links Tab (Bulk & Grid Available)"
                         >
                           <Link2 className="w-3.5 h-3.5 text-amber-400" />
@@ -5294,16 +5376,18 @@ export default function AdminPage() {
                         {/* Status Toggle Quick Buttons */}
                         {req.status === 'pending' ? (
                           <button
+                            type="button"
                             onClick={() => handleUpdateStatus(req.id, 'rejected')}
-                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-rose-500/50 text-rose-400 hover:text-rose-300 text-xs font-bold transition-colors"
+                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-rose-500/50 text-rose-400 hover:text-rose-300 text-xs font-bold transition-colors cursor-pointer hover:scale-105 active:scale-95"
                             title="Reject this request"
                           >
                             Reject
                           </button>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => handleUpdateStatus(req.id, 'pending')}
-                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-400 hover:text-amber-300 text-xs font-bold transition-colors"
+                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/50 text-amber-400 hover:text-amber-300 text-xs font-bold transition-colors cursor-pointer hover:scale-105 active:scale-95"
                             title="Reopen as pending"
                           >
                             Reopen
@@ -5315,7 +5399,7 @@ export default function AdminPage() {
                           <Link
                             href={`/${req.mediaType}/${req.tmdbId}`}
                             target="_blank"
-                            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
                             title="View Title on Site"
                           >
                             <ExternalLink className="w-4 h-4" />
@@ -5324,8 +5408,9 @@ export default function AdminPage() {
 
                         {/* Delete Request */}
                         <button
+                          type="button"
                           onClick={() => handleDeleteRequest(req.id)}
-                          className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                           title="Delete Request"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -5699,6 +5784,7 @@ export default function AdminPage() {
                       <div className="flex flex-wrap md:flex-col items-center md:items-end gap-2 shrink-0 self-end md:self-center w-full md:w-auto">
                         {/* 1. Replace & Fix Link Action */}
                         <button
+                          type="button"
                           onClick={() => handleOpenFixModal(report)}
                           className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 via-amber-500 to-rose-500 hover:from-rose-400 hover:to-amber-400 text-black font-black text-xs shadow-md shadow-rose-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                           title="Open dialog to enter working replacement link"
@@ -5709,9 +5795,10 @@ export default function AdminPage() {
 
                         {/* 2. Direct Delete Broken Link Button */}
                         <button
+                          type="button"
                           onClick={() => handleDeleteBrokenLinkDirectly(report)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all hover:scale-105 cursor-pointer"
-                          title="Permanently remove broken link from CineFuel"
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                          title="Permanently remove broken link from CiNEPHiLE"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>Delete Broken Link</span>
@@ -5721,16 +5808,18 @@ export default function AdminPage() {
                         <div className="flex items-center gap-1.5">
                           {report.status === 'pending' ? (
                             <button
+                              type="button"
                               onClick={() => handleUpdateReportStatus(report.id, 'dismissed')}
-                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white text-xs font-semibold transition-colors"
+                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer"
                               title="Mark as false alarm or link is functioning fine"
                             >
                               Dismiss (Valid)
                             </button>
                           ) : (
                             <button
+                              type="button"
                               onClick={() => handleUpdateReportStatus(report.id, 'pending')}
-                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500 text-amber-400 hover:text-amber-300 text-xs font-semibold transition-colors"
+                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500 text-amber-400 hover:text-amber-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer"
                               title="Reopen report as pending"
                             >
                               Reopen
@@ -5739,8 +5828,9 @@ export default function AdminPage() {
 
                           {/* Delete Report Record */}
                           <button
+                            type="button"
                             onClick={() => handleDeleteReport(report.id)}
-                            className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                             title="Delete this report record"
                           >
                             <X className="w-4 h-4" />
@@ -6238,7 +6328,7 @@ export default function AdminPage() {
       {/* EDIT LINK MODAL (ADMIN ONLY) */}
       {/* ========================================================= */}
       {editingLink && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#10141d] border border-amber-500/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 shadow-2xl animate-scaleIn">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <h3 className="text-base font-black text-white flex items-center gap-2">
@@ -6353,7 +6443,7 @@ export default function AdminPage() {
 
       {/* Admin Fulfill Link Request Modal (Single, Bulk Auto-Detector, & Episode Grid) */}
       {fulfillingRequest && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
           <div className="bg-[#0f131d] border border-blue-500/40 rounded-3xl p-5 sm:p-7 max-w-4xl w-full space-y-4 shadow-2xl animate-scaleIn my-6 max-h-[92vh] overflow-y-auto">
             {/* Header with Title & 3 Mode Switcher Pills */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-800 pb-3.5">
@@ -7052,7 +7142,7 @@ export default function AdminPage() {
 
       {/* 2. Admin Replace Defective Link Modal with Title Mismatch & Editable URL Controls */}
       {fixingReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
           <div
             className="relative w-full max-w-lg bg-[#0d111a] border border-rose-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4 my-8"
             onClick={(e) => e.stopPropagation()}
@@ -7369,7 +7459,7 @@ export default function AdminPage() {
 
       {/* 3. Manual Custom Title Creation Modal (For titles not found on TMDB) */}
       {isManualTitleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div
             className="relative w-full max-w-md bg-[#0d111a] border border-amber-500/40 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4"
             onClick={(e) => e.stopPropagation()}

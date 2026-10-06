@@ -132,7 +132,7 @@ export const Header: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <span className="font-ui text-xl font-bold tracking-wider text-white flex items-center gap-1">
-                CINE<span className="text-gradient-gold">FUEL</span>
+                CiNE<span className="text-gradient-gold">PHiLE</span>
               </span>
               <span className="font-meta text-[10px] tracking-widest uppercase text-zinc-400 font-medium -mt-0.5">
                 Discover & Track

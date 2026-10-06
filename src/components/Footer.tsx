@@ -16,7 +16,7 @@ export const Footer: React.FC = () => {
                 </div>
               </div>
               <span className="text-lg font-bold text-white tracking-tight">
-                CINE<span className="text-gradient-gold">FUEL</span>
+                CiNE<span className="text-gradient-gold">PHiLE</span>
               </span>
             </div>
             <p className="text-xs text-zinc-500 leading-relaxed">
@@ -65,7 +65,7 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="border-t border-zinc-800/60 mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-3">
-          <p suppressHydrationWarning>© {new Date().getFullYear()} CineFuel. Built for cinema lovers.</p>
+          <p suppressHydrationWarning>© {new Date().getFullYear()} CiNEPHiLE. Built for cinema lovers.</p>
           <div className="flex items-center gap-4 text-xs">
             <span>Data from TMDB & IMDb</span>
           </div>
