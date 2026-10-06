@@ -19,6 +19,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { DefectiveLinkIssueType } from '@/types';
+import { isValidHttpUrl, sanitizeSafeUrl } from '@/lib/security';
 import { useAuth } from '@/context/AuthContext';
 import AuthModal from './AuthModal';
 
@@ -401,9 +402,9 @@ export const ReportBrokenLinkModal: React.FC<ReportBrokenLinkModalProps> = ({
                   required
                   className="w-full bg-zinc-900/80 border border-zinc-800 focus:border-amber-400 focus:bg-zinc-900 rounded-xl pl-3 pr-8 py-2 text-xs text-zinc-300 font-mono focus:outline-none transition-all"
                 />
-                {reportedUrl && (
+                {reportedUrl && isValidHttpUrl(reportedUrl) && (
                   <a
-                    href={reportedUrl}
+                    href={sanitizeSafeUrl(reportedUrl)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"

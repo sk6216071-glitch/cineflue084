@@ -31,7 +31,7 @@ const TEST_KEY = {
   },
 };
 
-const STAGING_URI = 'mongodb+srv://shyam:shyam081@cluster0.fiwla4n.mongodb.net/cinefuel_staging?retryWrites=true&w=majority';
+const STAGING_URI = process.env.MONGODB_URI || process.env.STAGING_MONGO_URI || '';
 
 function toBase64Url(objOrStr) {
   const str = typeof objOrStr === 'string' ? objOrStr : JSON.stringify(objOrStr);

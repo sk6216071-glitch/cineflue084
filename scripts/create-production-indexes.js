@@ -8,9 +8,11 @@
  * 4. It performs ZERO deletions, updates, or table drops.
  */
 
-const { MongoClient } = require('mongodb');
-
-const PROD_URI = process.env.PROD_MONGODB_URI || process.env.MONGODB_URI || 'mongodb+srv://shyam:shyam081@cluster0.fiwla4n.mongodb.net/cinefuel?retryWrites=true&w=majority';
+const PROD_URI = process.env.PROD_MONGODB_URI || process.env.MONGODB_URI;
+if (!PROD_URI) {
+  console.error('Error: PROD_MONGODB_URI or MONGODB_URI environment variable is required.');
+  process.exit(1);
+}
 
 async function main() {
   const args = process.argv.slice(2);

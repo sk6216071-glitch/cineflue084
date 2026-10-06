@@ -75,16 +75,22 @@ export async function getAllReports(
     if (db) {
       const collection = db.collection('defective_reports');
       const query: any = {};
-      if (filterStatus && filterStatus !== 'all') {
-        query.status = filterStatus;
+      if (filterStatus && typeof filterStatus === 'string' && filterStatus !== 'all') {
+        const cleanStatus = filterStatus.trim();
+        if (!cleanStatus.startsWith('$')) {
+          query.status = cleanStatus;
+        }
       }
-      if (userId) {
-        query.userId = userId;
+      if (userId && typeof userId === 'string') {
+        const cleanUserId = userId.trim();
+        if (cleanUserId && !cleanUserId.startsWith('$')) {
+          query.userId = cleanUserId;
+        }
       }
       const total = await collection.countDocuments(query).catch(() => 0);
       const pendingCount = await collection.countDocuments({
         status: 'pending',
-        ...(userId ? { userId } : {}),
+        ...(userId && typeof userId === 'string' && !userId.startsWith('$') ? { userId: userId.trim() } : {}),
       }).catch(() => 0);
       
       let cursor = collection.find(query).sort({ createdAt: -1 });
@@ -229,6 +235,9 @@ export async function updateReportStatus(
     adminNote?: string;
   }
 ): Promise<boolean> {
+  const cleanId = String(id || '').trim();
+  if (!cleanId || cleanId.startsWith('$')) return false;
+
   let persisted = false;
   const updates: Partial<DefectiveLinkReport> = {
     status,
@@ -242,7 +251,7 @@ export async function updateReportStatus(
     const db = await getDatabase();
     if (db) {
       await db.collection('defective_reports').updateOne(
-        { id },
+        { id: cleanId },
         { $set: { ...updates, updatedAt: new Date() } }
       );
       persisted = true;
@@ -257,7 +266,7 @@ export async function updateReportStatus(
     try {
       const existing = (await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY)) || [];
       const currentList = Array.isArray(existing) ? existing : [];
-      const updated = currentList.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      const updated = currentList.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
       await redisClient.set(REDIS_REPORTS_KEY, updated);
       persisted = true;
     } catch (err: any) {
@@ -269,7 +278,7 @@ export async function updateReportStatus(
   if (isFileSystemWritable()) {
     try {
       const local = getLocalFallbackReports();
-      const updated = local.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      const updated = local.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
       if (saveLocalFallbackReports(updated)) {
         persisted = true;
       }
@@ -289,13 +298,16 @@ export async function updateReportStatus(
  * Deletes a defective report by ID
  */
 export async function deleteReport(id: string): Promise<boolean> {
+  const cleanId = String(id || '').trim();
+  if (!cleanId || cleanId.startsWith('$')) return false;
+
   let persisted = false;
 
   // 1. MongoDB
   try {
     const db = await getDatabase();
     if (db) {
-      await db.collection('defective_reports').deleteOne({ id });
+      await db.collection('defective_reports').deleteOne({ id: cleanId });
       persisted = true;
     }
   } catch {}

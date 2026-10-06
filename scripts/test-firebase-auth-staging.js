@@ -1,5 +1,5 @@
 const TARGET_URL = process.env.TARGET_URL || 'https://cinefuel-staging.sk6216071.workers.dev';
-const ADMIN_KEY = process.env.ADMIN_KEY || 'shyam081';
+const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_SECRET_KEY || '';
 
 const TEST_KEY = {
   kid: 'cinefuel-test-key-v1',

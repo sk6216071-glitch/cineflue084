@@ -66,7 +66,7 @@ function req(method, path, body = null, headers = {}) {
   console.log(`DELETE /api/users (unauth): Status ${unauthUserDelete.status} -> ${JSON.stringify(unauthUserDelete.data)}`);
 
   console.log('\n--- 1b. Testing Authenticated Admin Mutations (with x-admin-key) ---');
-  const adminSecret = process.env.ADMIN_SECRET_KEY || 'shyam081';
+  const adminSecret = process.env.ADMIN_SECRET_KEY || '';
   const authHeaders = { 'x-admin-key': adminSecret };
   const authCuratedPost = await req('POST', '/api/curated-links', {
     movieId: 999999,

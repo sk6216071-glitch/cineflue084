@@ -64,7 +64,7 @@ import { useWatchlist } from '@/context/WatchlistContext';
 import { useAuth } from '@/context/AuthContext';
 import { CustomLink, CustomList, TitleDetails, UserRequest, DefectiveLinkReport, RegisteredUser } from '@/types';
 import { MOCK_TITLES, TRENDING_LIST } from '@/lib/mockData';
-import { getImageURL, getBackdropURL, searchMulti, getTitleDetails } from '@/lib/tmdb';
+import { getImageURL, getBackdropURL, searchMulti, getTitleDetails, getActiveTmdbKey } from '@/lib/tmdb';
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks } from '@/lib/curatedLinks';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from '@/lib/safeStorage';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem, isPackMedia, isPackUrl } from '@/lib/seasonParser';
@@ -73,7 +73,6 @@ import { AdminFilmReelGraphic } from '@/components/admin/AdminFilmReelGraphic';
 import { AdminCinemaSilhouetteGraphic } from '@/components/admin/AdminCinemaSilhouetteGraphic';
 
 const DEFAULT_ADMIN_USER = 'shyam';
-const DEFAULT_ADMIN_PASS = 'shyam081';
 
 interface PinnedTitle {
   id: number;
@@ -203,8 +202,8 @@ export default function AdminPage() {
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState(false);
-  const [adminUser, setAdminUser] = useState(DEFAULT_ADMIN_USER);
-  const [adminPass, setAdminPass] = useState(DEFAULT_ADMIN_PASS);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [adminUser] = useState(DEFAULT_ADMIN_USER);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedBackdropTheme, setSelectedBackdropTheme] = useState<'spiderman' | 'dune' | 'oppenheimer' | 'interstellar'>('spiderman');
 
@@ -408,19 +407,36 @@ export default function AdminPage() {
     { timestamp: '2m ago', level: 'info', message: 'TMDB & MDBList engines operational.' },
   ]);
 
-  // Load Saved Admin State & Keys on mount
+  // Validate Saved Admin Session Token with server on mount & purge legacy stored credentials
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedAuth = sessionStorage.getItem('cinefuel_admin_auth');
-      if (savedAuth === 'true') {
-        setIsAuthenticated(true);
+      try {
+        localStorage.removeItem('cinefuel_admin_pass');
+        localStorage.removeItem('cinefuel_admin_key');
+        localStorage.removeItem('cinefuel_admin_user');
+        sessionStorage.removeItem('cinefuel_admin_pass');
+        sessionStorage.removeItem('cinefuel_admin_auth');
+        sessionStorage.removeItem('cinefuel_admin_user');
+      } catch {}
+
+      const sessionToken = sessionStorage.getItem('cinefuel_admin_token') || localStorage.getItem('cinefuel_id_token');
+      if (sessionToken) {
+        fetch('/api/admin/auth', {
+          headers: { Authorization: `Bearer ${sessionToken}` },
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.authenticated) {
+              setIsAuthenticated(true);
+            } else {
+              sessionStorage.removeItem('cinefuel_admin_token');
+              setIsAuthenticated(false);
+            }
+          })
+          .catch(() => {
+            setIsAuthenticated(false);
+          });
       }
-
-      const storedUser = localStorage.getItem('cinefuel_admin_user');
-      if (storedUser) setAdminUser(storedUser);
-
-      const storedPass = localStorage.getItem('cinefuel_admin_pass');
-      if (storedPass) setAdminPass(storedPass);
 
       const storedSettings = localStorage.getItem('cinefuel_settings');
       if (storedSettings) {
@@ -883,46 +899,64 @@ export default function AdminPage() {
 
   // Helper to obtain admin authorization headers for all mutating API calls
   const getAdminAuthHeaders = useCallback(() => {
-    let key = adminPass;
-    if (!key && typeof window !== 'undefined') {
-      key =
-        localStorage.getItem('cinefuel_admin_pass') ||
-        localStorage.getItem('cinefuel_admin_key') ||
-        sessionStorage.getItem('cinefuel_admin_pass') ||
+    let token = '';
+    if (typeof window !== 'undefined') {
+      token =
+        sessionStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_id_token') ||
         '';
     }
-    return {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'x-admin-key': key || DEFAULT_ADMIN_PASS,
     };
-  }, [adminPass]);
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-admin-key'] = token;
+    }
+    return headers;
+  }, []);
 
-  // Handle Admin Login
-  const handleLogin = (e: React.FormEvent) => {
+  // Handle Admin Login via server authorization
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isUserValid = usernameInput.trim().toLowerCase() === adminUser.toLowerCase();
-    const isPassValid = passwordInput === adminPass;
+    setAuthLoading(true);
+    setAuthError(false);
 
-    if (isUserValid && isPassValid) {
-      setIsAuthenticated(true);
-      setAuthError(false);
-      sessionStorage.setItem('cinefuel_admin_auth', 'true');
-      sessionStorage.setItem('cinefuel_admin_user', usernameInput.trim().toLowerCase());
-      sessionStorage.setItem('cinefuel_admin_pass', passwordInput);
-      localStorage.setItem('cinefuel_admin_pass', passwordInput);
-      localStorage.setItem('cinefuel_admin_key', passwordInput);
-      setAdminPass(passwordInput);
-      addLog('Master Admin (Shyam) authenticated successfully.', 'success');
-    } else {
+    try {
+      const res = await fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: usernameInput.trim(),
+          password: passwordInput,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.token) {
+        sessionStorage.setItem('cinefuel_admin_token', data.token);
+        setIsAuthenticated(true);
+        setAuthError(false);
+        setPasswordInput('');
+        addLog('Administrator authenticated successfully via secure server session.', 'success');
+      } else {
+        setAuthError(true);
+      }
+    } catch {
       setAuthError(true);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    sessionStorage.removeItem('cinefuel_admin_token');
     sessionStorage.removeItem('cinefuel_admin_auth');
     sessionStorage.removeItem('cinefuel_admin_user');
     sessionStorage.removeItem('cinefuel_admin_pass');
+    localStorage.removeItem('cinefuel_admin_pass');
+    localStorage.removeItem('cinefuel_admin_key');
     addLog('Admin logged out.', 'info');
   };
 
@@ -937,9 +971,7 @@ export default function AdminPage() {
       setIsLoadingUsers(true);
       const res = await fetch(`/api/users?_t=${Date.now()}`, {
         cache: 'no-store',
-        headers: {
-          'x-admin-key': adminPass || 'shyam081',
-        },
+        headers: getAdminAuthHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -959,9 +991,7 @@ export default function AdminPage() {
     try {
       const res = await fetch(`/api/users?uid=${encodeURIComponent(uid)}`, {
         method: 'DELETE',
-        headers: {
-          'x-admin-key': adminPass || 'shyam081',
-        },
+        headers: getAdminAuthHeaders(),
       });
       if (res.ok) {
         setRegisteredUsers((prev) => prev.filter((u) => u.uid !== uid && u.firebaseUid !== uid));
@@ -1852,7 +1882,11 @@ export default function AdminPage() {
     setIsTestingTmdb(true);
     setTmdbTestResult(null);
     try {
-      const keyToTest = tmdbKey.trim() || '8265bd1679663a7ea12ac168da84d2e8';
+      const keyToTest = tmdbKey.trim() || getActiveTmdbKey();
+      if (!keyToTest) {
+        setTmdbTestResult({ success: false, msg: 'No TMDB API key configured.' });
+        return;
+      }
       const res = await fetch(`https://api.themoviedb.org/3/movie/872585?api_key=${keyToTest}`);
       if (res.ok) {
         const data = await res.json();
@@ -2646,7 +2680,9 @@ export default function AdminPage() {
     unknownIds.slice(0, 10).forEach(async (id) => {
       attemptedTitleFetchRef.current.add(id);
       try {
-        const res = await fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=8265bd1679663a7ea12ac168da84d2e8`);
+        const currentTmdbKey = getActiveTmdbKey();
+        if (!currentTmdbKey) return;
+        const res = await fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=${currentTmdbKey}`);
         if (res.ok) {
           const d = await res.json();
           cacheTitle(id, {
@@ -2657,7 +2693,7 @@ export default function AdminPage() {
           });
           return;
         }
-        const tvRes = await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=8265bd1679663a7ea12ac168da84d2e8`);
+        const tvRes = await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${currentTmdbKey}`);
         if (tvRes.ok) {
           const d = await tvRes.json();
           cacheTitle(id, {
@@ -2965,11 +3001,12 @@ export default function AdminPage() {
               {/* Unlock Button */}
               <button
                 type="submit"
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 bg-[length:200%_auto] hover:bg-right transition-all duration-500 text-black font-black text-sm shadow-xl shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                disabled={authLoading}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 bg-[length:200%_auto] hover:bg-right transition-all duration-500 text-black font-black text-sm shadow-xl shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 suppressHydrationWarning
               >
                 <Unlock className="w-4 h-4" />
-                <span>Unlock Admin Panel</span>
+                <span>{authLoading ? 'Verifying Authorization...' : 'Unlock Admin Panel'}</span>
               </button>
             </form>
 

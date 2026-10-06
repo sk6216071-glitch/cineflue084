@@ -1,8 +1,8 @@
 const { MongoClient } = require('mongodb');
 
 const STAGING_URL = process.env.TARGET_URL || 'https://cinefuel-staging.sk6216071.workers.dev';
-const ADMIN_KEY = process.env.ADMIN_KEY || 'shyam081';
-const STAGING_MONGO_URI = 'mongodb+srv://shyam:shyam081@cluster0.fiwla4n.mongodb.net/cinefuel_staging?retryWrites=true&w=majority';
+const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_SECRET_KEY || '';
+const STAGING_MONGO_URI = process.env.MONGODB_URI || process.env.STAGING_MONGO_URI || '';
 
 async function req(method, path, body = null, headers = {}, retries = 2) {
   const url = new URL(path, STAGING_URL).toString();

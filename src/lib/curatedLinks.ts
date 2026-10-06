@@ -8,8 +8,14 @@ import {
 function getAdminHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (typeof window !== 'undefined') {
-    const key = localStorage.getItem('cinefuel_admin_key') || localStorage.getItem('cinefuel_admin_pass') || 'shyam081';
-    if (key) headers['x-admin-key'] = key;
+    const token =
+      sessionStorage.getItem('cinefuel_admin_token') ||
+      localStorage.getItem('cinefuel_id_token') ||
+      '';
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-admin-key'] = token;
+    }
   }
   return headers;
 }

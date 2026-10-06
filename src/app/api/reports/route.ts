@@ -4,6 +4,7 @@ import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
+import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
 import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
 import { createReportNotification } from '@/lib/notificationsDb';
 import { dispatchTelegramNotificationForReport } from '@/lib/telegramNotifications';
@@ -107,22 +108,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Reported URL is required' }, { status: 400 });
     }
 
+    if (!isValidHttpUrl(reportedUrl)) {
+      return NextResponse.json({ error: 'Invalid reportedUrl: must be a valid http or https URL' }, { status: 400 });
+    }
+
     const newReport: DefectiveLinkReport = {
       id: `rep-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
       userId: verifiedUid,
       userName: verifiedName,
       linkId: linkId ? String(linkId) : undefined,
       movieId: Number(movieId) || 0,
-      mediaTitle: (mediaTitle || 'Untitled Movie / Series').trim(),
+      mediaTitle: sanitizeInputString(mediaTitle || 'Untitled Movie / Series'),
       mediaType: mediaType === 'tv' ? 'tv' : 'movie',
       posterPath: posterPath || null,
-      linkTitle: (linkTitle || reportedUrl).trim(),
+      linkTitle: sanitizeInputString(linkTitle || reportedUrl),
       reportedUrl: reportedUrl.trim(),
       issueType,
       issueLabel: issueLabel || 'Dead Link / 404',
       quality: quality ? quality.trim() : undefined,
       server: server ? server.trim() : undefined,
-      additionalNotes: additionalNotes ? additionalNotes.trim() : undefined,
+      additionalNotes: additionalNotes ? sanitizeInputString(additionalNotes, 1000) : undefined,
       userEmail: verifiedEmail,
       status: 'pending',
       createdAt: new Date().toISOString(),
@@ -171,7 +176,7 @@ export async function POST(req: NextRequest) {
  * Admin updates report status (fixed, dismissed, pending), optionally replaces or deletes defective link
  */
 export async function PATCH(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 
@@ -196,6 +201,10 @@ export async function PATCH(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ error: 'Report ID is required' }, { status: 400 });
+    }
+
+    if (replacementUrl && !isValidHttpUrl(replacementUrl)) {
+      return NextResponse.json({ error: 'Invalid replacementUrl: must be a valid http or https URL' }, { status: 400 });
     }
 
     const existingReport = await getReportById(id);
@@ -273,7 +282,7 @@ export async function PATCH(req: NextRequest) {
  * Admin deletes a report record
  */
 export async function DELETE(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 

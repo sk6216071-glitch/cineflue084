@@ -76,17 +76,26 @@ export async function getAllRequests(
     if (db) {
       const collection = db.collection('requests');
       const query: any = {};
-      if (filterStatus && filterStatus !== 'all') {
-        query.status = filterStatus;
+      if (filterStatus && typeof filterStatus === 'string' && filterStatus !== 'all') {
+        const cleanStatus = filterStatus.trim();
+        if (!cleanStatus.startsWith('$')) {
+          query.status = cleanStatus;
+        }
       }
-      if (userFilter) {
-        query.$or = [{ userId: userFilter }, { userEmail: userFilter }];
+      if (userFilter && typeof userFilter === 'string') {
+        const cleanUser = userFilter.trim();
+        if (cleanUser && !cleanUser.startsWith('$')) {
+          query.$or = [{ userId: cleanUser }, { userEmail: cleanUser }];
+        }
       }
 
       const total = await collection.countDocuments(query).catch(() => 0);
       const pendingQuery: any = { status: 'pending' };
-      if (userFilter) {
-        pendingQuery.$or = [{ userId: userFilter }, { userEmail: userFilter }];
+      if (userFilter && typeof userFilter === 'string') {
+        const cleanUser = userFilter.trim();
+        if (cleanUser && !cleanUser.startsWith('$')) {
+          pendingQuery.$or = [{ userId: cleanUser }, { userEmail: cleanUser }];
+        }
       }
       const pendingCount = await collection.countDocuments(pendingQuery).catch(() => 0);
 
@@ -252,6 +261,9 @@ export async function updateRequestStatus(
     adminNote?: string;
   }
 ): Promise<boolean> {
+  const cleanId = String(id || '').trim();
+  if (!cleanId || cleanId.startsWith('$')) return false;
+
   let persisted = false;
   const updates: Partial<UserRequest> = {
     status,
@@ -266,7 +278,7 @@ export async function updateRequestStatus(
     const db = await getDatabase();
     if (db) {
       await db.collection('requests').updateOne(
-        { id },
+        { id: cleanId },
         { $set: { ...updates, updatedAt: new Date() } }
       );
       persisted = true;
@@ -281,7 +293,7 @@ export async function updateRequestStatus(
     try {
       const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
       const currentList = Array.isArray(existing) ? existing : [];
-      const updated = currentList.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      const updated = currentList.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
       await redisClient.set(REDIS_REQUESTS_KEY, updated);
       persisted = true;
     } catch (err: any) {
@@ -293,7 +305,7 @@ export async function updateRequestStatus(
   if (isFileSystemWritable()) {
     try {
       const local = getLocalFallbackRequests();
-      const updated = local.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      const updated = local.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
       if (saveLocalFallbackRequests(updated)) {
         persisted = true;
       }
@@ -313,13 +325,16 @@ export async function updateRequestStatus(
  * Deletes a request by ID
  */
 export async function deleteRequest(id: string): Promise<boolean> {
+  const cleanId = String(id || '').trim();
+  if (!cleanId || cleanId.startsWith('$')) return false;
+
   let persisted = false;
 
   // 1. MongoDB
   try {
     const db = await getDatabase();
     if (db) {
-      await db.collection('requests').deleteOne({ id });
+      await db.collection('requests').deleteOne({ id: cleanId });
       persisted = true;
     }
   } catch {}

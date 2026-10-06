@@ -32,6 +32,7 @@ import {
 import { parseFullMediaTitle, detectSize, stripWatermarks, getQualityWeight, extractFilenameFromUrl } from '@/lib/seasonParser';
 import { detectServer } from '@/lib/serverDetector';
 import { safeGetLocalStorage, safeSetLocalStorage, pruneCustomLinksCache } from '@/lib/safeStorage';
+import { sanitizeSafeUrl } from '@/lib/security';
 import TVEpisodeLinksManager from './TVEpisodeLinksManager';
 import CollapsibleSection from './CollapsibleSection';
 import RequestLinkModal from './RequestLinkModal';
@@ -493,9 +494,8 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
-      const auth = sessionStorage.getItem('cinefuel_admin_auth');
-      const user = sessionStorage.getItem('cinefuel_admin_user');
-      setIsAdmin(auth === 'true' && user === 'shyam');
+      const token = sessionStorage.getItem('cinefuel_admin_token');
+      setIsAdmin(Boolean(token));
     }
   }, [isMounted]);
 
@@ -833,7 +833,7 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                 return (
                   <div key={link.id || idx} className="relative group">
                     <a
-                      href={link.url}
+                      href={sanitizeSafeUrl(link.url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`block rounded-2xl bg-[#0c1020]/95 hover:bg-[#11172e] border border-[#1e293b]/80 ${card.accentBorder} hover:border-blue-500/50 p-4 sm:p-5 transition-all duration-200 shadow-md hover:shadow-blue-500/10 cursor-pointer select-none`}

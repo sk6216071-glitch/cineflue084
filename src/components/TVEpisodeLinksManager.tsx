@@ -25,6 +25,7 @@ import {
   Flag,
 } from 'lucide-react';
 import { CustomLink, TitleDetails } from '@/types';
+import { sanitizeSafeUrl } from '@/lib/security';
 import { useWatchlist } from '@/context/WatchlistContext';
 import {
   updateGlobalCustomLink,
@@ -420,9 +421,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const auth = sessionStorage.getItem('cinefuel_admin_auth');
-      const user = sessionStorage.getItem('cinefuel_admin_user');
-      setSessionAdmin(auth === 'true' && user === 'shyam');
+      const token = sessionStorage.getItem('cinefuel_admin_token');
+      setSessionAdmin(Boolean(token));
     }
   }, []);
 
@@ -1282,7 +1282,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                         >
                           {/* Direct Clickable Release Filename redirecting directly to HubCloud / GDFlix */}
                           <a
-                            href={destinationUrl}
+                            href={sanitizeSafeUrl(destinationUrl)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-3 min-w-0 flex-1 select-none cursor-pointer"
@@ -1481,7 +1481,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                           >
                             {/* Direct Clickable Link to destination HubCloud / GDFlix */}
                             <a
-                              href={primaryLink?.url || '#'}
+                              href={sanitizeSafeUrl(primaryLink?.url)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex-1 min-w-0 flex items-start sm:items-center gap-3 select-none cursor-pointer"

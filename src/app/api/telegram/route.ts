@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processTelegramMessage, AUTHORIZED_TELEGRAM_IDS } from '@/lib/telegramBotCore';
 import { getEnv } from '@/lib/env';
+import { validateAdminAuth } from '@/lib/adminAuth';
 import {
   verifyAndConsumeTelegramLinkingToken,
   linkTelegramAccount,
@@ -276,7 +277,15 @@ I deliver instant updates on your movie & TV requests and broken link reports.
   }
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const isAdmin = await validateAdminAuth(req);
+  if (!isAdmin) {
+    return NextResponse.json({
+      status: 'online',
+      service: 'CineFuel Telegram Auto-Uploader API',
+    });
+  }
+
   return NextResponse.json({
     status: 'online',
     bot: 'CineFlue_bot',

@@ -1,13 +1,13 @@
 const { MongoClient } = require('mongodb');
 const { Redis } = require('@upstash/redis');
 
-const STAGING_URL = 'https://cinefuel-staging.sk6216071.workers.dev';
-const ADMIN_KEY = 'shyam081';
-const STAGING_MONGO_URI = 'mongodb+srv://shyam:shyam081@cluster0.fiwla4n.mongodb.net/cinefuel_staging?retryWrites=true&w=majority';
-const REDIS_URL = 'https://nearby-wren-184114.upstash.io';
-const REDIS_TOKEN = 'gQAAAAAAAs8yAAIgcDJjOWYwZjkyNzlhNmQ0NTk2YTE2ZTAwNGFhODA0NGIxYg';
+const STAGING_URL = process.env.TARGET_URL || 'https://cinefuel-staging.sk6216071.workers.dev';
+const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_SECRET_KEY || '';
+const STAGING_MONGO_URI = process.env.MONGODB_URI || process.env.STAGING_MONGO_URI || '';
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || '';
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
 
-const redis = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
+const redis = (REDIS_URL && REDIS_TOKEN) ? new Redis({ url: REDIS_URL, token: REDIS_TOKEN }) : null;
 
 async function req(method, path, body = null, headers = {}, retries = 2) {
   const url = new URL(path, STAGING_URL).toString();

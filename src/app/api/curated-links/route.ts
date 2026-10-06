@@ -10,6 +10,7 @@ import {
   migrateDomainInDatabase,
 } from '@/lib/redisDb';
 import { validateAdminAuth } from '@/lib/adminAuth';
+import { isValidHttpUrl } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     // Admin seed action to sync local links to Upstash cloud
     if (action === 'seed') {
-      if (!validateAdminAuth(request)) {
+      if (!(await validateAdminAuth(request))) {
         return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
       }
       const seedResult = await seedLocalLinksToRedis();
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!validateAdminAuth(request)) {
+  if (!(await validateAdminAuth(request))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 
@@ -80,6 +81,13 @@ export async function POST(request: NextRequest) {
 
     // Support batch saving multiple links at once
     if (Array.isArray(links) && links.length > 0) {
+      // Validate all URLs in batch
+      for (const l of links) {
+        if (!l?.url || !isValidHttpUrl(l.url)) {
+          return NextResponse.json({ error: 'Invalid URL detected in batch: must be a valid http or https URL' }, { status: 400 });
+        }
+      }
+
       const sanitizedLinks = links.map((l, index) => ({
         ...l,
         id: l.id || `bulk-admin-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
@@ -92,6 +100,10 @@ export async function POST(request: NextRequest) {
 
     if (!link || !link.url) {
       return NextResponse.json({ error: 'movieId and link.url are required' }, { status: 400 });
+    }
+
+    if (!isValidHttpUrl(link.url)) {
+      return NextResponse.json({ error: 'Invalid link.url: must be a valid http or https URL' }, { status: 400 });
     }
 
     const linkId = link.id || `link-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -116,7 +128,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!validateAdminAuth(request)) {
+  if (!(await validateAdminAuth(request))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 

@@ -5,7 +5,7 @@ import { saveLinkToDatabase, isLinkAlreadyInDatabase } from './redisDb';
 
 const recentMessagesCache = new Map<string, number>();
 
-const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
+const TMDB_API_KEY = (process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY || '').trim();
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.sk6216071.workers.dev').replace(/\/+$/, '');
 const DATA_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 

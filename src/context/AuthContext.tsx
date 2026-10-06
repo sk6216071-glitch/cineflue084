@@ -233,15 +233,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true };
     } catch (error: any) {
       console.warn('Google Sign-In popup attempt:', error?.message || error);
-
-      // 2. Fallback to fastLogin if popup was blocked/closed and email was provided
-      if (customEmail && customEmail.includes('@')) {
-        return fastLogin(customEmail, customName);
-      }
-
       return {
         success: false,
-        error: error?.message || 'GOOGLE_PROMPT_FALLBACK',
+        error: error?.message || 'Google Sign-In failed or was cancelled.',
       };
     } finally {
       setIsLoading(false);
@@ -288,20 +282,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return { success: true };
     } catch (error: any) {
-      console.warn('loginWithEmail network fallback:', error);
-      const fallbackProfile: UserProfile = {
-        uid: `usr_${Date.now()}`,
-        email: email.trim(),
-        displayName: email.split('@')[0],
-        photoURL: null,
-        createdAt: new Date().toISOString(),
-        isGuest: false,
+      console.error('loginWithEmail network error:', error);
+      return {
+        success: false,
+        error: 'Unable to reach authentication server. Please check your network connection.',
       };
-      setUserProfile(fallbackProfile);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_user_profile', JSON.stringify(fallbackProfile));
-      }
-      return { success: true };
     } finally {
       setIsLoading(false);
     }
@@ -348,20 +333,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return { success: true };
     } catch (error: any) {
-      console.warn('signupWithEmail fallback:', error);
-      const fallbackProfile: UserProfile = {
-        uid: `usr_${Date.now()}`,
-        email: email.trim(),
-        displayName: name.trim() || email.split('@')[0],
-        photoURL: null,
-        createdAt: new Date().toISOString(),
-        isGuest: false,
+      console.error('signupWithEmail network error:', error);
+      return {
+        success: false,
+        error: 'Unable to reach registration server. Please check your network connection.',
       };
-      setUserProfile(fallbackProfile);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_user_profile', JSON.stringify(fallbackProfile));
-      }
-      return { success: true };
     } finally {
       setIsLoading(false);
     }
@@ -402,19 +378,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return { success: false, error: data.error || 'Fast login failed.' };
     } catch (err: any) {
-      const fallbackProfile: UserProfile = {
-        uid: `usr_${Date.now()}`,
-        email: email.trim(),
-        displayName: name?.trim() || email.split('@')[0],
-        photoURL: null,
-        createdAt: new Date().toISOString(),
-        isGuest: false,
+      console.error('fastLogin network error:', err);
+      return {
+        success: false,
+        error: 'Unable to connect to authentication server. Please check your network connection.',
       };
-      setUserProfile(fallbackProfile);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cinefuel_user_profile', JSON.stringify(fallbackProfile));
-      }
-      return { success: true };
     } finally {
       setIsLoading(false);
     }

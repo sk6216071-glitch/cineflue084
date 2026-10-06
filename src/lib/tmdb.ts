@@ -3,7 +3,6 @@ import { MOCK_TITLES, TRENDING_LIST, TOP_RATED_LIST, UPCOMING_LIST } from './moc
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
-const DEFAULT_TMDB_KEY = '8265bd1679663a7ea12ac168da84d2e8';
 
 export const getImageURL = (path: string | null | undefined, size: 'w200' | 'w300' | 'w500' | 'w780' | 'w1280' | 'original' = 'w500') => {
   if (!path) return '/placeholder-poster.svg';
@@ -30,7 +29,7 @@ export const getActiveTmdbKey = (): string => {
       // Ignore json parse error
     }
   }
-  return process.env.NEXT_PUBLIC_TMDB_API_KEY || DEFAULT_TMDB_KEY;
+  return process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY || '';
 };
 
 // Generic TMDB fetch wrapper

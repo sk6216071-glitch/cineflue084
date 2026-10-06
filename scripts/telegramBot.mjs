@@ -47,7 +47,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('🛡️ Process shielded from unhandledRejection:', reason);
 });
 
-const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY || '8265bd1679663a7ea12ac168da84d2e8';
+const TMDB_API_KEY = (process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY || '').trim();
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://cineflue084.sk6216071.workers.dev').replace(/\/+$/, '');
 const DATA_FILE = path.join(rootDir, 'src', 'data', 'serverLinks.json');
 

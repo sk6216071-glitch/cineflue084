@@ -230,8 +230,18 @@ export async function POST(req: NextRequest) {
 
     // 4. FAST LOGIN
     if (action === 'fast_login') {
-      const name = (displayName || '').trim() || cleanEmail.split('@')[0] || 'Cinephile';
       const existingUser = await getUserByEmail(cleanEmail);
+      if (existingUser && existingUser.passwordHash) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This account is password-protected. Please enter your password to sign in.',
+          },
+          { status: 401 }
+        );
+      }
+
+      const name = (displayName || '').trim() || cleanEmail.split('@')[0] || 'Cinephile';
 
       const savedUser = await saveUserToDatabase({
         uid: body.uid || existingUser?.uid || `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,

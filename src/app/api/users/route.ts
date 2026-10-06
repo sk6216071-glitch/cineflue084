@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   try {
     // 1. Check admin authorization
-    if (validateAdminAuth(req)) {
+    if (await validateAdminAuth(req)) {
       const { searchParams } = new URL(req.url);
       const page = searchParams.get('page') ? Math.max(1, parseInt(searchParams.get('page')!, 10)) : undefined;
       const limit = searchParams.get('limit') ? Math.max(1, Math.min(100, parseInt(searchParams.get('limit')!, 10))) : undefined;
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
  * Admin deletes a user account (Protected: admin secret required)
  */
 export async function DELETE(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 

@@ -4,6 +4,7 @@ import { saveUserToDatabase } from '@/lib/usersDb';
 import { saveLinkToDatabase } from '@/lib/redisDb';
 import { UserRequest, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
+import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
 import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
 import { createRequestFulfilledNotification } from '@/lib/notificationsDb';
 import { dispatchTelegramNotificationForRequest } from '@/lib/telegramNotifications';
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest) {
  * Admin fulfills, rejects, or updates a request
  */
 export async function PATCH(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 
@@ -174,6 +175,14 @@ export async function PATCH(req: NextRequest) {
 
     if (!id || !status) {
       return NextResponse.json({ error: 'Request ID and status are required' }, { status: 400 });
+    }
+
+    if (fulfilledLinkUrl && !isValidHttpUrl(fulfilledLinkUrl)) {
+      return NextResponse.json({ error: 'Invalid fulfilledLinkUrl: must be a valid http or https URL' }, { status: 400 });
+    }
+
+    if (linkPayload?.url && !isValidHttpUrl(linkPayload.url)) {
+      return NextResponse.json({ error: 'Invalid linkPayload.url: must be a valid http or https URL' }, { status: 400 });
     }
 
     const existingReq = await getRequestById(id);
@@ -254,7 +263,7 @@ export async function PATCH(req: NextRequest) {
  * Admin removes a request
  */
 export async function DELETE(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized: admin access required' }, { status: 401 });
   }
 
