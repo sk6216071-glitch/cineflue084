@@ -67,3 +67,8 @@ scripts/validate-*
 scripts/verify-*
 scripts/wait-*
 scripts/*.jpg
+
+# Rust
+target/
+**/target/
+Cargo.lock.bk
