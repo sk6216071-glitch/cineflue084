@@ -341,3 +341,68 @@ export async function deleteMultipleGlobalCustomLinks(items: Array<{ movieId: nu
     console.error('Failed to bulk delete global custom links:', err);
   }
 }
+
+/**
+ * Completely replaces all links for a title in local storage and triggers the server atomic replace.
+ */
+export async function replaceAllGlobalCustomLinks(
+  movieId: number | string,
+  newLinks: CustomLink[],
+  metadata?: any
+): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  try {
+    const key = String(movieId);
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
+    const parsed = stored ? JSON.parse(stored) : {};
+    parsed[key] = newLinks;
+    safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
+
+    const res = await fetch('/api/curated-links', {
+      method: 'POST',
+      headers: getAdminHeaders(),
+      body: JSON.stringify({
+        movieId: key,
+        action: 'replace_all_links',
+        links: newLinks,
+        ...metadata,
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Failed to replace all global custom links:', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes all links for a title permanently
+ */
+export async function deleteAllGlobalCustomLinks(movieId: number | string): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  try {
+    const key = String(movieId);
+    const stored = safeGetLocalStorage('cinefuel_custom_links');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      delete parsed[key];
+      safeSetLocalStorage('cinefuel_custom_links', JSON.stringify(pruneCustomLinksCache(parsed)));
+    }
+    window.dispatchEvent(new Event('cinefuel_links_updated'));
+
+    const res = await fetch('/api/curated-links', {
+      method: 'POST',
+      headers: getAdminHeaders(),
+      body: JSON.stringify({
+        movieId: key,
+        action: 'delete_all_links',
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Failed to delete all global custom links:', err);
+    return false;
+  }
+}
+

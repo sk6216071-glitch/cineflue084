@@ -8,9 +8,13 @@ import {
   deleteMultipleLinksFromDatabase,
   seedLocalLinksToRedis,
   migrateDomainInDatabase,
+  replaceAllLinksForTitle,
+  deleteAllLinksForTitle,
+  replaceDomainForTitleInDatabase,
 } from '@/lib/redisDb';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl } from '@/lib/security';
+import { getEnv } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +34,24 @@ export async function GET(request: NextRequest) {
     }
 
     if (movieId) {
+      // Optional Rust / Axum high-performance acceleration layer
+      const rustApiUrl = getEnv('RUST_API_URL');
+      if (rustApiUrl) {
+        try {
+          const rustRes = await fetch(`${rustApiUrl}/api/curated-links?id=${encodeURIComponent(movieId)}`, {
+            signal: AbortSignal.timeout(2000),
+          });
+          if (rustRes.ok) {
+            const rustData = await rustRes.json();
+            const response = NextResponse.json(rustData);
+            response.headers.set('X-Backend-Engine', 'rust-axum');
+            return response;
+          }
+        } catch {
+          // Fallback transparently to direct MongoDB Atlas engine
+        }
+      }
+
       const result = await getLinksFromDatabase(movieId);
       return NextResponse.json({
         success: true,
@@ -66,7 +88,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { movieId, link, links, action, oldDomain, newDomain } = body;
 
-    // Handle domain migration action
+    // Handle global domain migration action
     if (action === 'migrate_domain') {
       if (!oldDomain || !newDomain) {
         return NextResponse.json({ error: 'oldDomain and newDomain are required' }, { status: 400 });
@@ -77,6 +99,41 @@ export async function POST(request: NextRequest) {
 
     if (!movieId) {
       return NextResponse.json({ error: 'movieId is required' }, { status: 400 });
+    }
+
+    // Handle specific title domain replacement
+    if (action === 'replace_domain_for_title') {
+      if (!oldDomain || !newDomain) {
+        return NextResponse.json({ error: 'oldDomain and newDomain are required' }, { status: 400 });
+      }
+      const res = await replaceDomainForTitleInDatabase(movieId, oldDomain, newDomain);
+      try { revalidatePath('/'); } catch {}
+      return NextResponse.json(res);
+    }
+
+    // Handle replacing the whole set of links for a title (Whole link replacement)
+    if (action === 'replace_all_links') {
+      const sanitizedLinks = Array.isArray(links) ? links : [];
+      for (const l of sanitizedLinks) {
+        if (!l?.url || !isValidHttpUrl(l.url)) {
+          return NextResponse.json({ error: 'Invalid URL detected in replacement set: must be a valid http or https URL' }, { status: 400 });
+        }
+      }
+      const result = await replaceAllLinksForTitle(movieId, sanitizedLinks, {
+        movieTitle: body.movieTitle,
+        posterPath: body.posterPath,
+        backdropPath: body.backdropPath,
+        mediaType: body.mediaType,
+      });
+      try { revalidatePath('/'); } catch {}
+      return NextResponse.json(result);
+    }
+
+    // Handle deleting all links for a specific title
+    if (action === 'delete_all_links') {
+      const result = await deleteAllLinksForTitle(movieId);
+      try { revalidatePath('/'); } catch {}
+      return NextResponse.json(result);
     }
 
     // Support batch saving multiple links at once

@@ -25,10 +25,10 @@ const REDIS_DELETED_KEY = 'cinefuel:deleted_link_ids';
 const LOCAL_FILE = path.join(process.cwd(), 'src', 'data', 'serverLinks.json');
 
 /**
- * Configurable catalog cache TTL in seconds (900s / 15 minutes)
+ * Configurable catalog cache TTL in seconds (3600s / 1 hour)
  * Note: atomic version counter in Redis invalidates all cached pages instantly on any write/update.
  */
-export const CATALOG_CACHE_TTL_SECONDS = 900;
+export const CATALOG_CACHE_TTL_SECONDS = 3600;
 
 let localCachedCatalogVersion = 1;
 let localCatalogVersionExpiresAt = 0;
@@ -106,23 +106,40 @@ export function decodeCatalogCursor(token?: string | null): CatalogCursorData | 
 // In-memory single-flight promise map to prevent cache stampedes in Cloudflare Worker runtime
 const inFlightCatalogRequests = new Map<string, Promise<PaginatedUploadedResult>>();
 
+let cachedLocalFallback: Record<string, any[]> | null = null;
+
 /**
  * Reads local JSON fallback file safely
  */
 export function getLocalFallbackLinks(): Record<string, any[]> {
+  const isEdge = typeof (globalThis as any).WebSocketPair !== 'undefined' || Boolean(getEnv('WORKER_NAME'));
+  if (isEdge) {
+    // On Cloudflare Workers edge, skip reading huge 4.7MB file from filesystem to avoid OOM / CPU timeout
+    return {};
+  }
+  if (cachedLocalFallback) {
+    return cachedLocalFallback;
+  }
   try {
-    if (fs.existsSync(LOCAL_FILE)) {
+    if (typeof fs !== 'undefined' && typeof fs.existsSync === 'function' && fs.existsSync(LOCAL_FILE)) {
       const raw = fs.readFileSync(LOCAL_FILE, 'utf-8');
-      return JSON.parse(raw || '{}');
+      cachedLocalFallback = JSON.parse(raw || '{}');
+      return cachedLocalFallback || {};
     }
   } catch (e) {
-    console.error('Error reading local serverLinks.json:', e);
+    // Expected on Cloudflare Workers edge environment
   }
   return {};
 }
 
 function isFileSystemWritable(): boolean {
-  if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
+  if (
+    typeof fs === 'undefined' ||
+    typeof fs.existsSync !== 'function' ||
+    process.env.NEXT_RUNTIME === 'edge' ||
+    process.env.CLOUDFLARE_WORKER ||
+    typeof (process as any).getBuiltinModule !== 'undefined'
+  ) {
     return false;
   }
   return true;
@@ -158,8 +175,28 @@ export async function getLinksFromDatabase(
   total?: number;
   source: 'mongodb_atlas' | 'upstash_redis' | 'local_json';
 }> {
-  // 1. Try MongoDB Atlas if connected
+  // 1. Try MongoDB Atlas if connected (or upstream proxy on Cloudflare Workers)
   try {
+    const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+    if (isCloudflare && movieId) {
+      try {
+        const upstreamUrl = `https://cinephile-app.vercel.app/api/curated-links?movieId=${encodeURIComponent(String(movieId))}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(upstreamUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Cloudflare-Worker-CineFuel' },
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const remoteJson: any = await res.json();
+          if (remoteJson?.success && Array.isArray(remoteJson.links)) {
+            return { links: remoteJson.links, source: 'mongodb_atlas' as any };
+          }
+        }
+      } catch {}
+    }
+
     const db = await getDatabase();
     if (db) {
       const collection = db.collection('links');
@@ -744,6 +781,188 @@ export async function migrateDomainInDatabase(
   return { success: true, updatedCount: totalUpdated, oldDomain: cleanOld, newDomain: cleanNew };
 }
 
+/**
+ * Replaces domain across all links for a specific movie or TV series
+ */
+export async function replaceDomainForTitleInDatabase(
+  movieId: number | string,
+  oldDomain: string,
+  newDomain: string
+): Promise<{ success: boolean; updatedCount: number }> {
+  const key = String(movieId);
+  const cleanOld = oldDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+  const cleanNew = newDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+  if (!cleanOld || !cleanNew || cleanOld === cleanNew) {
+    return { success: false, updatedCount: 0 };
+  }
+  let totalUpdated = 0;
+
+  // 1. Local fallback
+  try {
+    const local = getLocalFallbackLinks();
+    if (Array.isArray(local[key])) {
+      let count = 0;
+      for (const link of local[key]) {
+        if (link.url && link.url.includes(cleanOld)) {
+          link.url = link.url.replace(cleanOld, cleanNew);
+          link.updatedAt = new Date().toISOString();
+          count++;
+        }
+      }
+      if (count > 0) {
+        saveLocalFallbackLinks(local);
+        totalUpdated = Math.max(totalUpdated, count);
+      }
+    }
+  } catch {}
+
+  // 2. Upstash Redis
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      const fetched = await redisClient.hget<any>(REDIS_HASH_KEY, key);
+      let list: any[] = [];
+      if (Array.isArray(fetched)) list = fetched;
+      else if (typeof fetched === 'string') {
+        try { list = JSON.parse(fetched); } catch {}
+      }
+      let count = 0;
+      for (const link of list) {
+        if (link.url && link.url.includes(cleanOld)) {
+          link.url = link.url.replace(cleanOld, cleanNew);
+          link.updatedAt = new Date().toISOString();
+          count++;
+        }
+      }
+      if (count > 0) {
+        await redisClient.hset(REDIS_HASH_KEY, { [key]: list });
+        totalUpdated = Math.max(totalUpdated, count);
+      }
+    } catch {}
+  }
+
+  // 3. MongoDB Atlas
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const collection = db.collection('links');
+      const docs = await collection.find({ movieId: key, url: { $regex: cleanOld, $options: 'i' } }).toArray();
+      if (docs && docs.length > 0) {
+        const ops = docs.map((doc) => ({
+          updateOne: {
+            filter: { _id: doc._id },
+            update: {
+              $set: {
+                url: doc.url.replace(new RegExp(cleanOld, 'gi'), cleanNew),
+                updatedAt: new Date(),
+              },
+            },
+          },
+        }));
+        await collection.bulkWrite(ops);
+        totalUpdated = Math.max(totalUpdated, ops.length);
+      }
+    }
+  } catch {}
+
+  await invalidateCatalogCache().catch(() => {});
+  return { success: true, updatedCount: totalUpdated };
+}
+
+/**
+ * Completely replaces all links for a specific title in MongoDB Atlas, Upstash Redis, and local storage.
+ * Used by admin to change the whole link set of a particular movie or TV series.
+ */
+export async function replaceAllLinksForTitle(
+  movieId: number | string,
+  newLinks: any[],
+  metadata?: {
+    movieTitle?: string;
+    posterPath?: string;
+    backdropPath?: string;
+    mediaType?: 'movie' | 'tv';
+  }
+): Promise<{ success: boolean; count: number }> {
+  const key = String(movieId);
+  const now = new Date();
+  const sanitized = (newLinks || []).map((l, index) => ({
+    ...l,
+    movieId: key,
+    id: l.id || `rep-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: l.createdAt || new Date(Date.now() - index * 1000).toISOString(),
+    updatedAt: now.toISOString(),
+    ...(metadata?.movieTitle && !l.movieTitle ? { movieTitle: metadata.movieTitle } : {}),
+    ...(metadata?.posterPath && !l.posterPath ? { posterPath: metadata.posterPath } : {}),
+    ...(metadata?.backdropPath && !l.backdropPath ? { backdropPath: metadata.backdropPath } : {}),
+    ...(metadata?.mediaType && !l.mediaType ? { mediaType: metadata.mediaType } : {}),
+  }));
+
+  // 1. Local fallback
+  try {
+    const local = getLocalFallbackLinks();
+    if (sanitized.length > 0) {
+      local[key] = sanitized;
+    } else {
+      delete local[key];
+    }
+    saveLocalFallbackLinks(local);
+  } catch {}
+
+  // 2. Upstash Redis
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      if (sanitized.length > 0) {
+        await redisClient.hset(REDIS_HASH_KEY, { [key]: sanitized });
+      } else {
+        await redisClient.hdel(REDIS_HASH_KEY, key);
+      }
+    } catch (err: any) {
+      console.warn('Upstash Redis replaceAllLinksForTitle error:', err.message);
+    }
+  }
+
+  // 3. MongoDB Atlas
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const collection = db.collection('links');
+      let existingDoc: any = null;
+      if (!metadata?.movieTitle || !metadata?.posterPath) {
+        existingDoc = await collection.findOne({ movieId: key }, { sort: { createdAt: -1 } });
+      }
+
+      await collection.deleteMany({ movieId: key });
+
+      if (sanitized.length > 0) {
+        const docsToInsert = sanitized.map((doc) => {
+          const enriched = { ...doc };
+          if (existingDoc) {
+            if (!enriched.movieTitle) enriched.movieTitle = existingDoc.movieTitle;
+            if (!enriched.posterPath) enriched.posterPath = existingDoc.posterPath || existingDoc.poster_path;
+            if (!enriched.backdropPath) enriched.backdropPath = existingDoc.backdropPath || existingDoc.backdrop_path;
+            if (!enriched.mediaType && existingDoc.mediaType) enriched.mediaType = existingDoc.mediaType;
+          }
+          return enriched;
+        });
+        await collection.insertMany(docsToInsert);
+      }
+    }
+  } catch (err: any) {
+    console.warn('MongoDB Atlas replaceAllLinksForTitle error:', err.message);
+  }
+
+  await invalidateCatalogCache().catch(() => {});
+  return { success: true, count: sanitized.length };
+}
+
+/**
+ * Deletes all links for a specific title from all database layers.
+ */
+export async function deleteAllLinksForTitle(movieId: number | string): Promise<{ success: boolean }> {
+  return await replaceAllLinksForTitle(movieId, []);
+}
+
 // Helper to detect synthetic/dummy placeholders
 export const isDummyTitle = (t?: string) =>
   !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');
@@ -924,6 +1143,48 @@ export async function getPaginatedUploadedTitles(
   }
 
   const queryPromise = (async (): Promise<PaginatedUploadedResult> => {
+    // 2.5 Cloudflare Worker Edge Proxy Fallback:
+    // When executing inside Cloudflare Workers, fetch from primary Node.js production deployment with 3.5s timeout
+    const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+    if (isCloudflare) {
+      try {
+        const queryParams = new URLSearchParams();
+        if (type && type !== 'all') queryParams.set('type', type);
+        if (safePage > 1) queryParams.set('page', String(safePage));
+        queryParams.set('limit', String(safeLimit));
+        if (quality) queryParams.set('quality', quality);
+        if (category) queryParams.set('category', category);
+        if (audio) queryParams.set('audio', audio);
+        if (ott) queryParams.set('ott', ott);
+        if (query) queryParams.set('q', query);
+
+        const upstreamUrl = `https://cinephile-app.vercel.app/api/catalog?${queryParams.toString()}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        let res: Response | null = null;
+        try {
+          res = await fetch(upstreamUrl, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Cloudflare-Worker-CineFuel' },
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+        if (res && res.ok) {
+          const remoteJson: any = await res.json();
+          if (remoteJson && Array.isArray(remoteJson.items)) {
+            const { success, source, ...cleanResult } = remoteJson;
+            if (redisClient && cleanResult.items.length > 0) {
+              await redisClient.set(cacheKey, JSON.stringify(cleanResult), { ex: CATALOG_CACHE_TTL_SECONDS }).catch(() => {});
+            }
+            return { ...cleanResult, source: 'cache' as any };
+          }
+        }
+      } catch (upstreamErr: any) {
+        console.warn('Cloudflare upstream catalog sync error:', upstreamErr.message);
+      }
+    }
+
     // 3. Database-Level Query on MongoDB Atlas
     try {
       const db = await getDatabase();
