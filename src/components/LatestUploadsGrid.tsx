@@ -27,29 +27,14 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
   return (
     <div className="space-y-6">
       {/* Header with Title and Filter Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-800/80 pb-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/20">
-              <Flame className="w-5 h-5 fill-amber-400/30" />
-            </span>
-            <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl text-white uppercase tracking-wider leading-none">
-              Latest Uploads
-            </h2>
-            {totalCount > 0 && (
-              <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-400 text-xs font-bold font-ui">
-                {totalCount} Releases
-              </span>
-            )}
-          </div>
-          <p className="font-meta text-xs sm:text-sm text-zinc-400 mt-1.5 font-medium">
-            Recent high-speed direct downloads in 4K UHD, 1080p and 720p with multi-audio
-            {totalPages > 1 && (
-              <span className="text-zinc-500 ml-2">
-                • Page {currentPage} of {totalPages}
-              </span>
-            )}
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+        <div className="flex items-center gap-2.5">
+          <span className="p-2 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/20">
+            <Flame className="w-5 h-5 fill-amber-400/30" />
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl text-white uppercase tracking-wider leading-none">
+            Latest Uploads
+          </h2>
         </div>
 
         {/* Filter Pills */}
@@ -98,7 +83,7 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
                 key={`${item.media_type || activeType}-${item.id}-${idx}`}
                 item={item}
                 aspect="landscape"
-                priority={idx < 4}
+                priority={idx === 0}
               />
             ))}
           </div>
