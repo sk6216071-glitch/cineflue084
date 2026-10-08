@@ -175,140 +175,28 @@ function SearchContent() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      {/* Top Search & Filter Bar */}
-      <div className="bg-[#0f121a] border border-zinc-800 rounded-2xl p-4 sm:p-6 space-y-4 shadow-xl">
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Main Search Input */}
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Search uploaded files by movie title, series, or quality (e.g. 4K, Remux, Hindi)..."
-              value={query}
-              onChange={(e) => handleQueryChange(e.target.value)}
-              className="font-ui font-medium w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-11 pr-10 py-3 text-sm text-zinc-100 placeholder:font-meta placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-inner"
-              suppressHydrationWarning
-            />
-            <Search className="w-5 h-5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            {query && (
-              <button
-                onClick={() => handleQueryChange('')}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1"
-                suppressHydrationWarning
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Genre Dropdown */}
-          <div className="sm:w-56">
-            <select
-              value={selectedGenre}
-              onChange={(e) => {
-                setSelectedGenre(e.target.value);
-                updateFilters({ genre: e.target.value });
-              }}
-              className="font-ui w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl px-4 py-3 text-sm font-medium text-zinc-200 focus:outline-none focus:border-amber-500"
+      {/* Top Search Input Bar */}
+      <div className="bg-[#0f121a] border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search uploaded files by movie title or TV series..."
+            value={query}
+            onChange={(e) => handleQueryChange(e.target.value)}
+            className="font-ui font-medium w-full bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-11 pr-10 py-3 text-sm text-zinc-100 placeholder:font-meta placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-inner"
+            autoFocus
+            suppressHydrationWarning
+          />
+          <Search className="w-5 h-5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          {query && (
+            <button
+              onClick={() => handleQueryChange('')}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1"
               suppressHydrationWarning
             >
-              <option value="">All Genres</option>
-              {POPULAR_GENRES.map((g) => (
-                <option key={g.id} value={String(g.id)}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Quality Quick Explorer Filter Pills */}
-        <div className="pt-2 border-t border-zinc-800/80">
-          <div className="flex items-center gap-1.5 mb-2.5">
-            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5" /> Filter Uploaded Files by Quality:
-            </span>
-          </div>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {QUALITY_PRESETS.map((preset) => {
-              const isMatch =
-                (preset.id === 'all_uploaded' && !selectedQuality && !selectedCategory && !selectedAudio && activeTab === 'all') ||
-                (preset.query.quality && selectedQuality === preset.query.quality) ||
-                (preset.query.category && selectedCategory === preset.query.category) ||
-                (preset.query.audio && selectedAudio === preset.query.audio) ||
-                (preset.query.type && activeTab === preset.query.type && !selectedQuality);
-
-              return (
-                <button
-                  key={preset.id}
-                  onClick={() => handleQualityPresetClick(preset)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-200 border ${
-                    isMatch
-                      ? 'bg-amber-400 text-black border-amber-300 font-bold shadow-md shadow-amber-400/20 scale-105'
-                      : 'bg-zinc-900/90 text-zinc-300 border-zinc-700/70 hover:bg-zinc-800 hover:text-white'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Filters and Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-zinc-800/80">
-          {/* Category Tabs */}
-          <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 text-xs">
-            <button
-              onClick={() => {
-                setActiveTab('all');
-                updateFilters({ type: '' });
-              }}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'all' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              All Types
+              <X className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => {
-                setActiveTab('movie');
-                updateFilters({ type: 'movie' });
-              }}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'movie' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Film className="w-3.5 h-3.5" /> Movies
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('tv');
-                updateFilters({ type: 'tv' });
-              }}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'tv' ? 'bg-amber-500 text-black shadow-md' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Tv className="w-3.5 h-3.5" /> TV Shows
-            </button>
-          </div>
-
-          {/* Min Rating Filter */}
-          <div className="flex items-center gap-2 text-xs text-zinc-300">
-            <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-            <span>Min Rating:</span>
-            <select
-              value={minRating}
-              onChange={(e) => setMinRating(Number(e.target.value))}
-              className="bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1 text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
-            >
-              <option value={0}>Any Score</option>
-              <option value={6}>6.0+ Good</option>
-              <option value={7}>7.0+ Great</option>
-              <option value={8}>8.0+ Masterpiece</option>
-              <option value={9}>9.0+ Elite</option>
-            </select>
-          </div>
+          )}
         </div>
       </div>
 
