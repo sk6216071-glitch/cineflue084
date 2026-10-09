@@ -286,6 +286,7 @@ export default function AdminPage() {
   const [linkedTitlesSearch, setLinkedTitlesSearch] = useState('');
   const [quickJumpSearch, setQuickJumpSearch] = useState('');
   const [titlesViewMode, setTitlesViewMode] = useState<'linked' | 'tmdb'>('linked');
+  const [isRawLinksTableOpen, setIsRawLinksTableOpen] = useState(false);
 
   // Dedicated Title Manager & Whole Link Replacement Modal State
   const [titleManagerModalOpen, setTitleManagerModalOpen] = useState(false);
@@ -3193,9 +3194,9 @@ export default function AdminPage() {
       const q = quickJumpSearch.trim().toLowerCase();
       return list.filter(
         (t) => (t.title || '').toLowerCase().includes(q) || String(t.id).includes(q)
-      ).slice(0, 8);
+      ).slice(0, 16);
     }
-    return list.slice(0, 8);
+    return list.slice(0, 16);
   }, [linkedCatalogTitles, quickJumpSearch, customLinksMap]);
 
   // Displayed titles for Manage Titles tab (combines live search or catalog)
@@ -3654,9 +3655,49 @@ export default function AdminPage() {
                 })}
               </nav>
 
-              {/* Sidebar Footer */}
+              {/* Sidebar Footer with Service Status */}
               {isSidebarCollapsed ? (
                 <div className="pt-3 mt-2 border-t border-cyan-500/20 flex flex-col items-center gap-2 w-full">
+                  {/* Service Status Collapsed Icon with Live Pulse & Hover Tooltip */}
+                  <div
+                    className="w-10 h-10 rounded-xl bg-slate-900/80 border border-cyan-500/30 text-cyan-300 hover:text-white flex items-center justify-center relative cursor-pointer group shadow-md"
+                    title="All Services Operational: TMDB Search, TV Parser, MongoDB, Redis"
+                  >
+                    <Server className="w-4 h-4 text-cyan-400" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse absolute top-1.5 right-1.5" />
+                    {/* Hover Floating Status Card */}
+                    <div className="pointer-events-none absolute left-full ml-3 z-50 whitespace-nowrap rounded-2xl bg-[#090d18] border border-cyan-500/40 p-3 text-xs text-white shadow-2xl opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all space-y-1.5 min-w-[200px]">
+                      <div className="font-black text-cyan-400 uppercase text-[10px] tracking-wider border-b border-cyan-500/20 pb-1 flex items-center justify-between">
+                        <span>Service Status</span>
+                        <span className="text-emerald-400 font-mono">100% Live</span>
+                      </div>
+                      <div className="text-slate-300 text-[11px] flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> TMDB Universal Search
+                        </span>
+                        <span className="text-[9px] text-emerald-300 font-bold bg-emerald-950/80 border border-emerald-500/30 px-1.5 rounded">Live</span>
+                      </div>
+                      <div className="text-slate-300 text-[11px] flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> TV Parser Engine
+                        </span>
+                        <span className="text-[9px] text-emerald-300 font-bold bg-emerald-950/80 border border-emerald-500/30 px-1.5 rounded">Active</span>
+                      </div>
+                      <div className="text-slate-300 text-[11px] flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> MongoDB Atlas
+                        </span>
+                        <span className="text-[9px] text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30 px-1.5 rounded">12K</span>
+                      </div>
+                      <div className="text-slate-300 text-[11px] flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Upstash Redis
+                        </span>
+                        <span className="text-[9px] text-emerald-300 font-bold bg-emerald-500/15 border border-emerald-500/30 px-1.5 rounded">Active</span>
+                      </div>
+                    </div>
+                  </div>
+
                   <Link
                     href="/"
                     title="View Public Site"
@@ -3675,32 +3716,52 @@ export default function AdminPage() {
                   </button>
                 </div>
               ) : (
-                <div className="pt-3 mt-2 border-t border-cyan-500/20 space-y-3 w-full">
-                  <div className="p-2.5 rounded-2xl bg-black/50 border border-white/5 space-y-1.5 text-[11px]">
-                    <div className="flex items-center justify-between text-slate-300">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> MongoDB Atlas
+                <div className="pt-3 mt-2 border-t border-cyan-500/20 space-y-2.5 w-full">
+                  {/* Service Status Shifted to Sidebar */}
+                  <div className="p-2.5 rounded-2xl bg-black/60 border border-cyan-500/20 space-y-1.5 text-[11px] shadow-inner">
+                    <div className="flex items-center justify-between text-cyan-400 font-bold uppercase tracking-wider text-[10px] border-b border-cyan-500/15 pb-1">
+                      <span className="flex items-center gap-1.5">
+                        <Server className="w-3.5 h-3.5 text-cyan-400" /> Service Status
                       </span>
-                      <span className="text-[10px] text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold font-mono">12K Links</span>
+                      <span className="text-[9px] text-emerald-400 font-mono font-bold">Online</span>
                     </div>
                     <div className="flex items-center justify-between text-slate-300">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400" /> Upstash Redis
+                      <span className="flex items-center gap-1.5 font-medium truncate">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" /> TMDB Universal Search
                       </span>
-                      <span className="text-[10px] text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold font-mono">v2 Active</span>
+                      <span className="text-[9px] text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold font-mono shrink-0">Live</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span className="flex items-center gap-1.5 font-medium truncate">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" /> TV Parser Engine
+                      </span>
+                      <span className="text-[9px] text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold font-mono shrink-0">Active</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span className="flex items-center gap-1.5 font-medium truncate">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" /> MongoDB Atlas
+                      </span>
+                      <span className="text-[9px] text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.2 rounded font-bold font-mono shrink-0">12K</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span className="flex items-center gap-1.5 font-medium truncate">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" /> Upstash Redis
+                      </span>
+                      <span className="text-[9px] text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold font-mono shrink-0">v2 Active</span>
                     </div>
                   </div>
+
                   <div className="flex items-center gap-2">
                     <Link
                       href="/"
-                      className="flex-1 px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 hover:border-cyan-500/30 text-slate-200 hover:text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="flex-1 px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 hover:border-cyan-500/30 text-slate-200 hover:text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                     >
                       <ExternalLink className="w-3.5 h-3.5 text-cyan-400" /> Public Site
                     </Link>
                     <button
                       type="button"
                       onClick={handleLogout}
-                      className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:border-rose-400/50"
                       suppressHydrationWarning
                     >
                       <Lock className="w-3.5 h-3.5" /> Logout
@@ -4035,121 +4096,91 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Quick Title Jump & Manage + Service Status */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Quick Title Jump & Manage (3 cols) */}
-            <div className="lg:col-span-3 p-6 rounded-[26px] bg-[#090d18]/90 backdrop-blur-xl border border-cyan-500/30 shadow-2xl space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-cyan-500/15 pb-3">
-                <div>
-                  <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                    <LayoutGrid className="w-4 h-4 text-cyan-400" /> Quick Title Jump & Manage
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-mono font-bold">
-                      {linkedTitlesTotal > 0 ? `${linkedTitlesTotal} Linked` : 'Catalog'}
-                    </span>
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Quick filter..."
-                      value={quickJumpSearch}
-                      onChange={(e) => setQuickJumpSearch(e.target.value)}
-                      className="w-32 sm:w-40 bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-7 pr-6 py-1 text-[11px] text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-400"
-                    />
-                    <Search className="w-3 h-3 text-zinc-500 absolute left-2 top-1/2 -translate-y-1/2" />
-                    {quickJumpSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setQuickJumpSearch('')}
-                        className="text-zinc-500 hover:text-white absolute right-2 top-1/2 -translate-y-1/2 text-xs"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setActiveTab('titles')}
-                    className="text-xs text-amber-400 font-bold hover:underline cursor-pointer shrink-0"
-                  >
-                    View All Titles ({linkedTitlesTotal || 394}) →
-                  </button>
-                </div>
+          {/* Quick Title Jump & Manage (Full Width, Service Status Shifted to Sidebar) */}
+          <div className="w-full p-6 rounded-[26px] bg-[#090d18]/90 backdrop-blur-xl border border-cyan-500/30 shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-cyan-500/15 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <LayoutGrid className="w-4 h-4 text-cyan-400" /> Quick Title Jump & Manage
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-mono font-bold">
+                    {linkedTitlesTotal > 0 ? `${linkedTitlesTotal} Linked` : 'Catalog'}
+                  </span>
+                </h3>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {displayedQuickJumpTitles.map((pt) => (
-                  <button
-                    key={`${pt.media_type}-${pt.id}`}
-                    type="button"
-                    onClick={() => openTitleManager(pt, 'view')}
-                    className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/40 flex items-center gap-3 transition-all text-left group cursor-pointer hover:bg-slate-900/90"
-                    title={`Click to manage links for ${pt.title}`}
-                  >
-                    {/* Short Poster with Reliable Fallback */}
-                    <div className="w-10 h-14 rounded-lg bg-slate-800 relative overflow-hidden shrink-0 border border-white/10 shadow-sm flex items-center justify-center">
-                      <img
-                        src={getImageURL(pt.poster_path, 'w200')}
-                        alt={pt.title}
-                        onError={(e) => {
-                          e.currentTarget.onerror = null;
-                          e.currentTarget.src = '/placeholder-poster.svg';
-                        }}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </div>
-                    <div className="overflow-hidden flex-1 min-w-0 space-y-1">
-                      <span className="text-xs font-bold text-white group-hover:text-cyan-300 truncate block">
-                        {pt.title}
-                      </span>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-black ${
-                          pt.media_type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'
-                        }`}>
-                          {pt.media_type.toUpperCase()}
-                        </span>
-                        {pt.year && (
-                          <span className="text-[10px] text-slate-400 font-mono">• {pt.year}</span>
-                        )}
-                        {typeof pt.linksCount === 'number' && pt.linksCount > 0 && (
-                          <span className="text-[9px] font-bold text-emerald-400 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20 font-mono">
-                            🔥 {pt.linksCount}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-cyan-400 transition-colors shrink-0" />
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Quick filter titles..."
+                    value={quickJumpSearch}
+                    onChange={(e) => setQuickJumpSearch(e.target.value)}
+                    className="w-36 sm:w-48 bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-7 pr-6 py-1.5 text-[11px] text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-400"
+                  />
+                  <Search className="w-3 h-3 text-zinc-500 absolute left-2 top-1/2 -translate-y-1/2" />
+                  {quickJumpSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setQuickJumpSearch('')}
+                      className="text-zinc-500 hover:text-white absolute right-2 top-1/2 -translate-y-1/2 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => setActiveTab('titles')}
+                  className="text-xs text-amber-400 font-bold hover:underline cursor-pointer shrink-0"
+                >
+                  View All Titles ({linkedTitlesTotal || 394}) →
+                </button>
               </div>
             </div>
 
-            {/* Service Status (2 cols) */}
-            <div className="lg:col-span-2 p-6 rounded-[26px] bg-[#090d18]/90 backdrop-blur-xl border border-cyan-500/30 shadow-2xl space-y-4">
-              <div className="border-b border-cyan-500/15 pb-3">
-                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                  <Server className="w-4 h-4 text-cyan-400" /> Service Status
-                </h3>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/60 border border-white/5">
-                  <span className="text-xs font-bold text-white flex items-center gap-2.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> TMDB Universal Search
-                  </span>
-                  <span className="text-xs font-bold text-emerald-300 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 shadow-sm">
-                    Live Operational
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/60 border border-white/5">
-                  <span className="text-xs font-bold text-white flex items-center gap-2.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> TV Season Parser Engine (S01/S02)
-                  </span>
-                  <span className="text-xs font-bold text-emerald-300 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 shadow-sm">
-                    Active
-                  </span>
-                </div>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {displayedQuickJumpTitles.map((pt) => (
+                <button
+                  key={`${pt.media_type}-${pt.id}`}
+                  type="button"
+                  onClick={() => openTitleManager(pt, 'view')}
+                  className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/40 flex items-center gap-3 transition-all text-left group cursor-pointer hover:bg-slate-900/90"
+                  title={`Click to manage links for ${pt.title}`}
+                >
+                  {/* Short Poster with Reliable Fallback */}
+                  <div className="w-10 h-14 rounded-lg bg-slate-800 relative overflow-hidden shrink-0 border border-white/10 shadow-sm flex items-center justify-center">
+                    <img
+                      src={getImageURL(pt.poster_path, 'w200')}
+                      alt={pt.title}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = '/placeholder-poster.svg';
+                      }}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="overflow-hidden flex-1 min-w-0 space-y-1">
+                    <span className="text-xs font-bold text-white group-hover:text-cyan-300 truncate block">
+                      {pt.title}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-black ${
+                        pt.media_type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {pt.media_type.toUpperCase()}
+                      </span>
+                      {pt.year && (
+                        <span className="text-[10px] text-slate-400 font-mono">• {pt.year}</span>
+                      )}
+                      {typeof pt.linksCount === 'number' && pt.linksCount > 0 && (
+                        <span className="text-[9px] font-bold text-emerald-400 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20 font-mono">
+                          🔥 {pt.linksCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-cyan-400 transition-colors shrink-0" />
+                </button>
+              ))}
             </div>
           </div>
 
@@ -5101,8 +5132,92 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Links Moderation Table */}
-          <div className="p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
+          {/* Quick Title Jump on Links Tab */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-[#090d18]/90 backdrop-blur-xl border border-cyan-500/30 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-cyan-500/15 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <LayoutGrid className="w-4 h-4 text-cyan-400" /> Manage Links by Title
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-mono font-bold">
+                    {linkedTitlesTotal > 0 ? `${linkedTitlesTotal} Linked` : 'Catalog'}
+                  </span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Click any title to view all links, batch-replace URLs, or delete dead links in 1 click.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Quick title filter..."
+                    value={quickJumpSearch}
+                    onChange={(e) => setQuickJumpSearch(e.target.value)}
+                    className="w-36 sm:w-48 bg-zinc-900/90 border border-zinc-700/80 rounded-xl pl-7 pr-6 py-1.5 text-[11px] text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-400"
+                  />
+                  <Search className="w-3 h-3 text-zinc-500 absolute left-2 top-1/2 -translate-y-1/2" />
+                  {quickJumpSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setQuickJumpSearch('')}
+                      className="text-zinc-500 hover:text-white absolute right-2 top-1/2 -translate-y-1/2 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {displayedQuickJumpTitles.map((pt) => (
+                <button
+                  key={`links-tab-${pt.media_type}-${pt.id}`}
+                  type="button"
+                  onClick={() => openTitleManager(pt, 'view')}
+                  className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/40 flex items-center gap-3 transition-all text-left group cursor-pointer hover:bg-slate-900/90"
+                  title={`Click to manage links for ${pt.title}`}
+                >
+                  <div className="w-10 h-14 rounded-lg bg-slate-800 relative overflow-hidden shrink-0 border border-white/10 shadow-sm flex items-center justify-center">
+                    <img
+                      src={getImageURL(pt.poster_path, 'w200')}
+                      alt={pt.title}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = '/placeholder-poster.svg';
+                      }}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="overflow-hidden flex-1 min-w-0 space-y-1">
+                    <span className="text-xs font-bold text-white group-hover:text-cyan-300 truncate block">
+                      {pt.title}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-black ${
+                        pt.media_type === 'tv' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {pt.media_type.toUpperCase()}
+                      </span>
+                      {pt.year && (
+                        <span className="text-[10px] text-slate-400 font-mono">• {pt.year}</span>
+                      )}
+                      {typeof pt.linksCount === 'number' && pt.linksCount > 0 && (
+                        <span className="text-[9px] font-bold text-emerald-400 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20 font-mono">
+                          🔥 {pt.linksCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-cyan-400 transition-colors shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Links Moderation Table (Collapsible Space Saver) */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-[#0f121a] border border-zinc-800 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
@@ -5123,56 +5238,87 @@ export default function AdminPage() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search links, titles..."
-                    value={linkSearchQuery}
-                    onChange={(e) => {
-                      setLinkSearchQuery(e.target.value);
-                      setLinksCurrentPage(1);
-                    }}
-                    className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-44"
-                  />
-                  <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                </div>
-
-                <select
-                  value={linkCategoryFilter}
-                  onChange={(e) => {
-                    setLinkCategoryFilter(e.target.value);
-                    setLinksCurrentPage(1);
-                  }}
-                  className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
+                <button
+                  type="button"
+                  onClick={() => setIsRawLinksTableOpen(!isRawLinksTableOpen)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs font-bold text-zinc-200 hover:text-white transition-all cursor-pointer shadow-sm"
+                  title={isRawLinksTableOpen ? 'Collapse table to clear space' : 'Expand full raw links table'}
                 >
-                  <option value="All">All Categories</option>
-                  <option value="Recent">⚡ Recent Uploads</option>
-                  <option value="Streaming">Streaming</option>
-                  <option value="Download">Download</option>
-                  <option value="ZipPack">ZipPack</option>
-                  <option value="SingleEpisode">SingleEpisode</option>
-                  <option value="Subtitles">Subtitles</option>
-                  <option value="Discussion">Discussion</option>
-                  <option value="Review">Review</option>
-                  <option value="Official">Official</option>
-                </select>
-
-                <select
-                  value={linksPerPage}
-                  onChange={(e) => {
-                    setLinksPerPage(Number(e.target.value));
-                    setLinksCurrentPage(1);
-                  }}
-                  className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
-                  title="Rows per page"
-                >
-                  <option value={25}>25 / page</option>
-                  <option value={50}>50 / page</option>
-                  <option value={100}>100 / page</option>
-                  <option value={200}>200 / page</option>
-                </select>
+                  <span>{isRawLinksTableOpen ? 'Hide Raw Table' : 'Show Raw Table'}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isRawLinksTableOpen ? 'rotate-180 text-amber-400' : ''}`} />
+                </button>
               </div>
             </div>
+
+            {!isRawLinksTableOpen ? (
+              <div className="p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-zinc-400">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  <span>
+                    Raw URL table hidden to clear workspace space. All <strong className="text-white font-mono">{effectiveTotalLinks.toLocaleString()}</strong> URLs are active in database. Manage and replace links per-title above.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsRawLinksTableOpen(true)}
+                  className="text-xs font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer shrink-0"
+                >
+                  Expand Full Table ({effectiveTotalLinks.toLocaleString()} Rows) →
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Search & Filter Row */}
+                <div className="flex items-center justify-end gap-2 flex-wrap pt-1 border-t border-zinc-800/80">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search links, titles..."
+                      value={linkSearchQuery}
+                      onChange={(e) => {
+                        setLinkSearchQuery(e.target.value);
+                        setLinksCurrentPage(1);
+                      }}
+                      className="bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-44"
+                    />
+                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  </div>
+
+                  <select
+                    value={linkCategoryFilter}
+                    onChange={(e) => {
+                      setLinkCategoryFilter(e.target.value);
+                      setLinksCurrentPage(1);
+                    }}
+                    className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
+                  >
+                    <option value="All">All Categories</option>
+                    <option value="Recent">⚡ Recent Uploads</option>
+                    <option value="Streaming">Streaming</option>
+                    <option value="Download">Download</option>
+                    <option value="ZipPack">ZipPack</option>
+                    <option value="SingleEpisode">SingleEpisode</option>
+                    <option value="Subtitles">Subtitles</option>
+                    <option value="Discussion">Discussion</option>
+                    <option value="Review">Review</option>
+                    <option value="Official">Official</option>
+                  </select>
+
+                  <select
+                    value={linksPerPage}
+                    onChange={(e) => {
+                      setLinksPerPage(Number(e.target.value));
+                      setLinksCurrentPage(1);
+                    }}
+                    className="bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-semibold"
+                    title="Rows per page"
+                  >
+                    <option value={25}>25 / page</option>
+                    <option value={50}>50 / page</option>
+                    <option value={100}>100 / page</option>
+                    <option value={200}>200 / page</option>
+                  </select>
+                </div>
 
             {/* Bulk Action Controls */}
             {selectedLinkIds.size > 0 && (
@@ -5424,6 +5570,8 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
         </div>
