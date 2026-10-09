@@ -3,12 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Search, Menu, X, ChevronDown } from 'lucide-react';
+import { Search, Menu, X, ChevronDown, Film } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/context/AuthContext';
 import NotificationBell from './NotificationBell';
+import ThemeToggle from './ThemeToggle';
 
 const AuthModal = dynamic(() => import('./AuthModal'), { ssr: false });
+const RequestLinkModal = dynamic(() => import('./RequestLinkModal'), { ssr: false });
 
 interface NavDropdownItem {
   label: string;
@@ -74,17 +76,20 @@ export const Header: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
 
   useEffect(() => {
+    if (pathname?.startsWith('/admin')) return;
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
     };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [pathname]);
 
   // Hotkey listener for '/' or 'Ctrl+K'
   useEffect(() => {
+    if (pathname?.startsWith('/admin')) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.key === '/' || (e.ctrlKey && e.key === 'k')) && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault();
@@ -93,7 +98,7 @@ export const Header: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [router]);
+  }, [pathname, router]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +106,11 @@ export const Header: React.FC = () => {
       router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
+
+  // Do not render public website header on admin routes
+  if (pathname?.startsWith('/admin')) {
+    return null;
+  }
 
   return (
     <>
@@ -139,16 +149,30 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Right Action Bar */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 sm:gap-2.5">
             {/* Mobile Search Button */}
             <Link
               href="/search"
-              className="sm:hidden p-2 rounded-lg bg-zinc-800/80 text-zinc-300 hover:text-white border border-zinc-700"
+              className="sm:hidden p-2 rounded-xl bg-zinc-850 text-zinc-300 hover:text-white border border-zinc-750"
               aria-label="Search catalog"
               suppressHydrationWarning
             >
               <Search className="w-4 h-4" />
             </Link>
+
+            {/* Quick Request Button */}
+            <button
+              type="button"
+              onClick={() => setIsRequestModalOpen(true)}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0"
+              title="Request a movie or web series link"
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span>Request</span>
+            </button>
+
+            {/* Theme Toggle Button */}
+            <ThemeToggle />
 
             {/* User Notifications Bell */}
             <NotificationBell />
@@ -208,7 +232,20 @@ export const Header: React.FC = () => {
 
         {/* Mobile Navigation Drawer */}
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-[#0e1117] border-b border-white/10 px-4 py-4 space-y-1.5 max-h-[80vh] overflow-y-auto animate-fadeIn">
+          <div className="lg:hidden bg-[#0e1117] border-b border-white/10 px-4 py-4 space-y-2.5 max-h-[80vh] overflow-y-auto animate-fadeIn">
+            {/* Quick Mobile Request Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setIsRequestModalOpen(true);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:text-amber-300 font-bold text-xs transition-all active:scale-98"
+            >
+              <Film className="w-4 h-4 text-amber-400" />
+              <span>Request Movie or TV Series</span>
+            </button>
+
             {NAVIGATION_ITEMS.map((item) => {
               if (item.children) {
                 const isExpanded = mobileExpanded === item.label;
@@ -317,6 +354,14 @@ export const Header: React.FC = () => {
 
       {/* Auth Modal */}
       {isAuthOpen && <AuthModal onClose={() => setIsAuthOpen(false)} />}
+
+      {/* General User Request Modal */}
+      {isRequestModalOpen && (
+        <RequestLinkModal
+          isOpen={isRequestModalOpen}
+          onClose={() => setIsRequestModalOpen(false)}
+        />
+      )}
     </>
   );
 };

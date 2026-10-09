@@ -20,7 +20,13 @@ const AdminDashboard = dynamic(
 );
 
 export default function AdminPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(() => {
+    if (typeof window === 'undefined') return false;
+    const sessionToken =
+      sessionStorage.getItem('cinefuel_admin_token') ||
+      localStorage.getItem('cinefuel_id_token');
+    return sessionToken ? null : false;
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

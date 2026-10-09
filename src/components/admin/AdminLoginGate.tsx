@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import {
   Flame,
   Lock,
@@ -107,40 +106,26 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
   };
 
   return (
-    <div className="relative min-h-[92vh] w-full flex flex-col justify-between items-center px-4 py-8 overflow-hidden">
-      {/* High-priority preload for backdrop to eliminate mobile LCP delay */}
-      {backdropUrl && (
-        <link
-          rel="preload"
-          as="image"
-          href={backdropUrl}
-          fetchPriority="high"
-        />
-      )}
-
-      {/* 1. Full-Screen Cinematic Backdrop Layer */}
-      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none">
-        <Image
-          src={backdropUrl}
-          alt={currentTheme.name}
-          fill
-          priority
-          fetchPriority="high"
-          sizes="100vw"
-          className="object-cover object-center opacity-30 scale-105 transition-all duration-1000 filter brightness-90 contrast-125"
-        />
+    <div className="relative min-h-[calc(100vh-4rem)] w-full flex flex-col justify-between items-center px-4 py-8 overflow-hidden">
+      {/* 1. Full-Screen Cinematic Backdrop Layer (Pseudo-element GPU rendering, no LCP penalty) */}
+      <div
+        className="admin-theme-backdrop absolute inset-0 z-0 overflow-hidden pointer-events-none select-none bg-[#07090e]"
+        style={{
+          ['--admin-backdrop' as any]: backdropUrl ? `url('${backdropUrl}')` : undefined,
+        }}
+      >
         {/* Multi-layered cinematic vignette & dark depth gradients */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#07090e] via-[#07090e]/75 to-black/70" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#07090e]/90 via-transparent to-[#07090e]/90" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#07090e] via-[#07090e]/75 to-black/70 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#07090e]/90 via-transparent to-[#07090e]/90 pointer-events-none" />
 
-        {/* Ambient Cinematic Glow Orbs */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-amber-500/10 rounded-full blur-[160px]" />
-        <div className="absolute bottom-10 left-10 w-96 h-96 bg-blue-600/10 rounded-full blur-[140px]" />
-        <div className="absolute top-12 right-10 w-96 h-96 bg-rose-600/10 rounded-full blur-[140px]" />
+        {/* Ambient Cinematic Glow Orbs - GPU Radial Gradients (0 CPU blur convolutions) */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full bg-[radial-gradient(circle,_rgba(245,158,11,0.12)_0%,_transparent_70%)] pointer-events-none" />
+        <div className="absolute bottom-10 left-10 w-96 h-96 rounded-full bg-[radial-gradient(circle,_rgba(37,99,235,0.10)_0%,_transparent_70%)] pointer-events-none" />
+        <div className="absolute top-12 right-10 w-96 h-96 rounded-full bg-[radial-gradient(circle,_rgba(225,29,72,0.10)_0%,_transparent_70%)] pointer-events-none" />
       </div>
 
       {/* 2. Top Floating Glass Navigation Header */}
-      <header className="relative z-10 w-full max-w-4xl flex items-center justify-between py-2.5 px-4 sm:px-6 rounded-2xl bg-zinc-950/40 backdrop-blur-xl border border-white/10 shadow-xl mb-6">
+      <header className="relative z-10 w-full max-w-4xl flex items-center justify-between py-2.5 px-4 sm:px-6 rounded-2xl bg-zinc-950/60 backdrop-blur-md border border-white/10 shadow-xl mb-6">
         <Link href="/" className="flex items-center gap-2.5 group">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-black font-black text-xs shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
             <Flame className="w-4 h-4 fill-black" />
@@ -182,13 +167,13 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
 
       {/* 3. Center Glassmorphic Master Control Card */}
       <div className="relative z-10 w-full max-w-md my-auto py-4">
-        <div className="relative backdrop-blur-2xl bg-[#0b0e17]/75 border border-white/10 hover:border-amber-500/40 rounded-3xl p-7 sm:p-9 shadow-[0_20px_70px_-10px_rgba(0,0,0,0.95)] space-y-6 transition-all duration-300 overflow-hidden">
+        <div className="relative backdrop-blur-md bg-[#0b0e17]/85 border border-white/10 hover:border-amber-500/40 rounded-3xl p-7 sm:p-9 shadow-[0_20px_70px_-10px_rgba(0,0,0,0.95)] space-y-6 transition-all duration-300 overflow-hidden">
           {/* Top Amber Accent Line */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
 
           {/* Glowing Lock Icon */}
           <div className="relative mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-transparent border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-xl shadow-amber-500/10">
-            <div className="absolute inset-0 rounded-2xl bg-amber-400/15 blur-md -z-10 animate-pulse" />
+            <div className="absolute inset-0 rounded-2xl bg-amber-400/15 blur-sm -z-10" />
             <Lock className="w-7 h-7" />
           </div>
 

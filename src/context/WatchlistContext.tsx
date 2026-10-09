@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { WatchlistItem, CustomLink, MdblistConfig, AppSettings, TitleDetails } from '@/types';
 import { DEFAULT_MDBLIST_CONFIG, testMdblistApiKey } from '@/lib/mdblist';
 
@@ -145,14 +145,12 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [mdblistConfig, setMdblistConfig] = useState<MdblistConfig>(DEFAULT_MDBLIST_CONFIG);
   const [isMounted, setIsMounted] = useState(false);
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount (read-only, zero redundant disk writes)
   useEffect(() => {
     try {
       const storedWatchlist = localStorage.getItem('cinefuel_watchlist');
       if (storedWatchlist) {
         setWatchlist(JSON.parse(storedWatchlist));
-      } else {
-        localStorage.setItem('cinefuel_watchlist', JSON.stringify(INITIAL_WATCHLIST));
       }
 
       const storedSettings = localStorage.getItem('cinefuel_settings');
@@ -171,9 +169,14 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  // Save to localStorage when state updates
+  // Save to localStorage ONLY when state updates after mount (skip initial render cycle)
+  const isFirstWatchlistSave = useRef(true);
   useEffect(() => {
     if (!isMounted) return;
+    if (isFirstWatchlistSave.current) {
+      isFirstWatchlistSave.current = false;
+      return;
+    }
     try {
       localStorage.setItem('cinefuel_watchlist', JSON.stringify(watchlist));
     } catch (e) {
@@ -181,8 +184,13 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [watchlist, isMounted]);
 
+  const isFirstSettingsSave = useRef(true);
   useEffect(() => {
     if (!isMounted) return;
+    if (isFirstSettingsSave.current) {
+      isFirstSettingsSave.current = false;
+      return;
+    }
     try {
       localStorage.setItem('cinefuel_settings', JSON.stringify(settings));
     } catch (e) {
@@ -190,8 +198,13 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [settings, isMounted]);
 
+  const isFirstMdblistSave = useRef(true);
   useEffect(() => {
     if (!isMounted) return;
+    if (isFirstMdblistSave.current) {
+      isFirstMdblistSave.current = false;
+      return;
+    }
     try {
       localStorage.setItem('cinefuel_mdblist_config', JSON.stringify(mdblistConfig));
     } catch (e) {

@@ -261,3 +261,91 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Optimized Admin Backdrop: Rendered via pseudo-element to bypass Chromium LCP penalty and GPU-accelerate rasterization */
+.admin-theme-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  background-color: #07090e;
+}
+
+.admin-theme-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--admin-backdrop);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.32;
+  transform: scale(1.05);
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ========================================================= */
+/* LIGHT MODE THEME SYSTEM */
+/* ========================================================= */
+html.light {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-raised: #f1f5f9;
+  --surface-border: #e2e8f0;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html.light header {
+  background-color: rgba(248, 250, 252, 0.92) !important;
+  border-bottom-color: rgba(226, 232, 240, 0.9) !important;
+}
+
+html.light header input {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light header input::placeholder {
+  color: #94a3b8 !important;
+}
+
+html.light .glass-panel {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+  color: #0f172a !important;
+}
+
+html.light .glass-card {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light .glass-card:hover {
+  border-color: rgba(245, 197, 24, 0.8) !important;
+  box-shadow: 0 14px 28px -10px rgba(0, 0, 0, 0.12), 0 0 20px -5px rgba(245, 197, 24, 0.15) !important;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
