@@ -1,6 +1,5 @@
 import React from 'react';
 import Link from 'next/link';
-import { Flame, Heart, Sparkles } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -10,13 +9,8 @@ export const Footer: React.FC = () => {
           {/* Brand */}
           <div className="space-y-3 md:col-span-1">
             <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-red-600 p-0.5">
-                <div className="w-full h-full bg-[#090b0e] rounded-[6px] flex items-center justify-center">
-                  <Flame className="w-4 h-4 text-amber-400" />
-                </div>
-              </div>
-              <span className="text-lg font-bold text-white tracking-tight">
-                CiNE<span className="text-gradient-gold">PHiLE</span>
+              <span className="font-logo text-2xl text-[#9d8ec2] tracking-wide select-none">
+                Cinephile
               </span>
             </div>
             <p className="text-xs text-zinc-500 leading-relaxed">
@@ -41,8 +35,7 @@ export const Footer: React.FC = () => {
             <ul className="space-y-2 text-xs">
               <li><Link href="/search" className="hover:text-amber-400 transition-colors">Advanced Search</Link></li>
               <li><Link href="/movies?quality=4k" className="hover:text-amber-400 transition-colors">4K Ultra HD Movies</Link></li>
-              <li><Link href="/tv?category=zippack" className="hover:text-amber-400 transition-colors">Season Zip Packs</Link></li>
-              <li><Link href="/admin" className="hover:text-amber-400 transition-colors font-semibold text-amber-500/90">🛡️ Admin Portal</Link></li>
+              <li><Link href="/search?sort=top_rated" className="hover:text-amber-400 transition-colors">Top Rated Vault</Link></li>
             </ul>
           </div>
 
@@ -65,7 +58,7 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="border-t border-zinc-800/60 mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-3">
-          <p suppressHydrationWarning>© {new Date().getFullYear()} CiNEPHiLE. Built for cinema lovers.</p>
+          <p suppressHydrationWarning>© {new Date().getFullYear()} Cinephile. Built for cinema lovers.</p>
           <div className="flex items-center gap-4 text-xs">
             <span>Data from TMDB & IMDb</span>
           </div>

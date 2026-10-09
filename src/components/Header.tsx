@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Film, Search, Sparkles, RefreshCw, Flame, Menu, X, User as UserIcon, Layers, Compass, Shield, ChevronDown } from 'lucide-react';
+import { Search, Menu, X, ChevronDown } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -73,20 +73,7 @@ export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isScrolled, setIsScrolled] = useState(false);
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
-  const dropdownTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-
-  const handleMouseEnter = (label: string) => {
-    if (dropdownTimeoutRef.current) clearTimeout(dropdownTimeoutRef.current);
-    setOpenDropdown(label);
-  };
-
-  const handleMouseLeave = () => {
-    dropdownTimeoutRef.current = setTimeout(() => {
-      setOpenDropdown(null);
-    }, 150);
-  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -126,137 +113,33 @@ export const Header: React.FC = () => {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group shrink-0" aria-label="CiNEPHiLE Home">
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 via-orange-600 to-red-600 p-0.5 shadow-lg shadow-orange-500/20 group-hover:scale-105 transition-transform">
-              <div className="w-full h-full bg-[#090b0e] rounded-[10px] flex items-center justify-center">
-                <Flame className="w-5 h-5 text-amber-400 group-hover:text-amber-300 transition-colors" />
-              </div>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-ui text-xl font-bold tracking-wider text-white flex items-center gap-1">
-                CiNE<span className="text-gradient-gold">PHiLE</span>
-              </span>
-              <span className="font-meta text-[10px] tracking-widest uppercase text-zinc-400 font-medium -mt-0.5">
-                Discover & Track
-              </span>
-            </div>
+          <Link href="/" className="inline-flex items-center group shrink-0" aria-label="Cinephile Home">
+            <span className="font-logo text-[26px] sm:text-[30px] leading-none tracking-[0.06em] text-[#9d8ec2] group-hover:text-[#bcaedb] transition-colors drop-shadow-sm select-none">
+              Cinephile
+            </span>
           </Link>
 
-          {/* Desktop Nav Links */}
-          <nav className="hidden lg:flex items-center gap-1">
-            {NAVIGATION_ITEMS.map((item) => {
-              if (item.children) {
-                const isChildActive = item.children.some((c) => pathname === c.href);
-                const isDirectActive = item.href && pathname === item.href;
-                const isOpen = openDropdown === item.label;
-
-                return (
-                  <div
-                    key={item.label}
-                    className="relative group"
-                    onMouseEnter={() => handleMouseEnter(item.label)}
-                    onMouseLeave={handleMouseLeave}
-                  >
-                    {item.href ? (
-                      <Link
-                        href={item.href}
-                        className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          isDirectActive || isChildActive || isOpen
-                            ? 'text-amber-400 bg-amber-400/10'
-                            : 'text-zinc-300 hover:text-white hover:bg-white/5'
-                        }`}
-                      >
-                        <span>{item.label}</span>
-                        <ChevronDown
-                          className={`w-3.5 h-3.5 opacity-70 transition-transform duration-200 ${
-                            isOpen ? 'rotate-180 text-amber-400 opacity-100' : ''
-                          }`}
-                        />
-                      </Link>
-                    ) : (
-                      <button
-                        onClick={() => setOpenDropdown(isOpen ? null : item.label)}
-                        className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          isChildActive || isOpen
-                            ? 'text-amber-400 bg-amber-400/10'
-                            : 'text-zinc-300 hover:text-white hover:bg-white/5'
-                        }`}
-                      >
-                        <span>{item.label}</span>
-                        <ChevronDown
-                          className={`w-3.5 h-3.5 opacity-70 transition-transform duration-200 ${
-                            isOpen ? 'rotate-180 text-amber-400 opacity-100' : ''
-                          }`}
-                        />
-                      </button>
-                    )}
-
-                    {isOpen && (
-                      <div
-                        className="absolute top-full left-0 mt-1 w-52 bg-[#0c0e14]/95 backdrop-blur-xl border border-zinc-800/90 rounded-xl shadow-2xl p-1.5 z-50 animate-fadeIn"
-                        onMouseEnter={() => handleMouseEnter(item.label)}
-                        onMouseLeave={handleMouseLeave}
-                      >
-                        {item.children.map((sub) => {
-                          const isSubActive = pathname === sub.href;
-                          return (
-                            <Link
-                              key={sub.label}
-                              href={sub.href}
-                              onClick={() => setOpenDropdown(null)}
-                              className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                                isSubActive
-                                  ? 'bg-amber-500/15 text-amber-400 font-bold'
-                                  : 'text-zinc-300 hover:text-white hover:bg-amber-500/10 hover:text-amber-400'
-                              }`}
-                            >
-                              <span>{sub.label}</span>
-                              {sub.badge && <span className="text-[11px]">{sub.badge}</span>}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href || '/'}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    isActive
-                      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/20 shadow-sm'
-                      : 'text-zinc-300 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Right Action Bar */}
-          <div className="flex items-center gap-2.5">
-            {/* Search Bar Input */}
-            <form onSubmit={handleSearchSubmit} className="relative hidden sm:block w-40 md:w-52 lg:w-60">
+          {/* Centered Modern Search Bar */}
+          <div className="relative flex-1 max-w-md mx-2 sm:mx-6 hidden sm:block">
+            <form onSubmit={handleSearchSubmit} className="relative w-full">
               <input
                 type="text"
-                placeholder="Search... (Press /)"
+                placeholder="Search movies, series, collections... (Press /)"
                 aria-label="Search movies and TV shows"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="font-ui w-full bg-zinc-900/80 hover:bg-zinc-900 focus:bg-zinc-900 text-xs font-medium text-zinc-100 placeholder:font-meta placeholder-zinc-500 rounded-full pl-8 pr-8 py-1.5 border border-zinc-700/60 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all"
+                className="w-full bg-[#14121f] hover:bg-[#1a1728] focus:bg-[#1a1728] text-xs font-medium text-zinc-100 placeholder:text-zinc-500 rounded-xl pl-9 pr-9 py-2 border border-[#2b2542] focus:border-purple-500/60 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all shadow-inner"
                 suppressHydrationWarning
               />
-              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <kbd className="hidden md:inline-flex items-center absolute right-2.5 top-1/2 -translate-y-1/2 px-1 py-0.5 text-[9px] text-zinc-400 bg-zinc-800 rounded border border-zinc-700">
+              <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <kbd className="hidden md:inline-flex items-center absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[9px] text-zinc-400 bg-zinc-800/80 rounded border border-zinc-700/60">
                 /
               </kbd>
             </form>
+          </div>
 
+          {/* Right Action Bar */}
+          <div className="flex items-center gap-2.5">
             {/* Mobile Search Button */}
             <Link
               href="/search"

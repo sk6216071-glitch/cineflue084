@@ -3,7 +3,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  Flame,
   Home,
   Film,
   Tv,
@@ -81,21 +80,12 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header with Title and Filter Tabs */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
-        <div className="flex items-center gap-2.5">
-          <span className="p-2 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/20">
-            <Flame className="w-5 h-5 fill-amber-400/30" />
-          </span>
-          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl text-white uppercase tracking-wider leading-none">
-            Latest Uploads
-          </h2>
-        </div>
-
-        {/* Filter Pills Container matching User Screenshot */}
+      {/* Filter Tabs matching Ola Movies styling */}
+      <div className="flex items-center justify-between gap-4 border-b border-zinc-800/80 pb-3">
+        {/* Filter Pills Container */}
         <div
           ref={dropdownRef}
-          className="relative flex items-center gap-1.5 p-1 rounded-2xl bg-[#14121f] border border-[#2b2542] max-w-full overflow-x-auto no-scrollbar scroll-smooth self-start lg:self-auto shadow-inner"
+          className="relative flex items-center gap-1.5 p-1 rounded-2xl bg-[#14121f] border border-[#2b2542] max-w-full overflow-x-auto no-scrollbar scroll-smooth shadow-inner"
         >
           {/* 1. Home / All */}
           <Link
