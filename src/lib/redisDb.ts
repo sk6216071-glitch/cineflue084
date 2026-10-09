@@ -1058,6 +1058,7 @@ export interface PaginatedUploadedOptions {
   ott?: string;
   query?: string;
   genre?: string | number;
+  sort?: 'latest' | 'top_rated' | 'rating' | 'popular';
   skipCount?: boolean;
 }
 
@@ -1110,7 +1111,7 @@ export async function getPaginatedUploadedTitles(
   const redisClient = getRedisClient();
   const env = (getEnv('APP_ENV') || getEnv('CINEFUEL_ENV') || 'staging').toLowerCase();
   const version = await getCatalogCacheVersion();
-  const filterKey = `${quality || '_'}:${audio || '_'}:${category || '_'}:${ott || '_'}:${query || '_'}`.toLowerCase();
+  const filterKey = `${quality || '_'}:${audio || '_'}:${category || '_'}:${ott || '_'}:${options.genre || '_'}:${(options.sort as any) || '_'}:${query || '_'}`.toLowerCase();
   const countTag = options.skipCount ? 'fast' : 'full';
   const cacheKey = `cinefuel:${env}:catalog:v${version}:${type}:p${safePage}:l${safeLimit}:${countTag}:${filterKey}`;
   const fullCacheKey = `cinefuel:${env}:catalog:v${version}:${type}:p${safePage}:l${safeLimit}:full:${filterKey}`;
@@ -1156,6 +1157,8 @@ export async function getPaginatedUploadedTitles(
         if (category) queryParams.set('category', category);
         if (audio) queryParams.set('audio', audio);
         if (ott) queryParams.set('ott', ott);
+        if (options.genre) queryParams.set('genre', String(options.genre));
+        if (options.sort) queryParams.set('sort', String(options.sort));
         if (query) queryParams.set('q', query);
 
         const upstreamUrl = `https://cinephile-app.vercel.app/api/catalog?${queryParams.toString()}`;
@@ -1192,40 +1195,43 @@ export async function getPaginatedUploadedTitles(
         const collection = db.collection('links');
 
         // Build Match Stage
-        const matchStage: any = {};
+        const andConditions: any[] = [];
         if (type === 'movie') {
-          matchStage.$or = [
-            { mediaType: 'movie' },
-            {
-              mediaType: { $ne: 'tv' },
-              seasonNumber: { $in: [null, 0] },
-              linkType: { $nin: ['zip_pack', 'single_episode'] },
-              category: { $nin: ['ZipPack', 'SingleEpisode'] },
-            },
-          ];
+          andConditions.push({
+            $or: [
+              { mediaType: 'movie' },
+              {
+                mediaType: { $ne: 'tv' },
+                seasonNumber: { $in: [null, 0] },
+                linkType: { $nin: ['zip_pack', 'single_episode'] },
+                category: { $nin: ['ZipPack', 'SingleEpisode'] },
+              },
+            ],
+          });
         } else if (type === 'tv') {
-          matchStage.$or = [
-            { mediaType: 'tv' },
-            { linkType: { $in: ['zip_pack', 'single_episode'] } },
-            { category: { $in: ['ZipPack', 'SingleEpisode'] } },
-            { seasonNumber: { $gt: 0 } },
-          ];
+          andConditions.push({
+            $or: [
+              { mediaType: 'tv' },
+              { linkType: { $in: ['zip_pack', 'single_episode'] } },
+              { category: { $in: ['ZipPack', 'SingleEpisode'] } },
+              { seasonNumber: { $gt: 0 } },
+            ],
+          });
         }
-        // When type === 'all', no mediaType filter needed
 
         // Quality filter
         if (quality) {
           const qLower = quality.toLowerCase();
           if (qLower === '4k' || qLower === '2160p') {
-            matchStage.$or = [{ quality: /4k|2160p|uhd/i }, { title: /4k|2160p|uhd/i }];
+            andConditions.push({ $or: [{ quality: /4k|2160p|uhd/i }, { title: /4k|2160p|uhd/i }] });
           } else if (qLower === 'remux') {
-            matchStage.$or = [{ quality: /remux/i }, { title: /remux/i }];
+            andConditions.push({ $or: [{ quality: /remux/i }, { title: /remux/i }] });
           } else if (qLower === 'hdr' || qLower === '4k_hdr') {
-            matchStage.$or = [{ quality: /hdr|dovi|dolby\s*vision/i }, { title: /hdr|dovi|dolby\s*vision/i }];
+            andConditions.push({ $or: [{ quality: /hdr|dovi|dolby\s*vision/i }, { title: /hdr|dovi|dolby\s*vision/i }] });
           } else if (qLower === '1080p') {
-            matchStage.$or = [{ quality: /1080p|fhd/i }, { title: /1080p|fhd/i }];
+            andConditions.push({ $or: [{ quality: /1080p|fhd/i }, { title: /1080p|fhd/i }] });
           } else if (qLower === '720p') {
-            matchStage.$or = [{ quality: /720p/i }, { title: /720p/i }];
+            andConditions.push({ $or: [{ quality: /720p/i }, { title: /720p/i }] });
           }
         }
 
@@ -1233,11 +1239,11 @@ export async function getPaginatedUploadedTitles(
         if (audio) {
           const aLower = audio.toLowerCase();
           if (aLower === 'hindi') {
-            matchStage.$or = [{ audioLanguage: /hindi/i }, { title: /hindi/i }];
+            andConditions.push({ $or: [{ audioLanguage: /hindi/i }, { title: /hindi/i }] });
           } else if (aLower === 'dual') {
-            matchStage.$or = [{ audioLanguage: /dual|\+|hindi.*eng/i }, { title: /dual|\+|hindi.*eng/i }];
+            andConditions.push({ $or: [{ audioLanguage: /dual|\+|hindi.*eng/i }, { title: /dual|\+|hindi.*eng/i }] });
           } else if (aLower === 'english') {
-            matchStage.$or = [{ audioLanguage: /english|eng/i }, { title: /english|eng/i }];
+            andConditions.push({ $or: [{ audioLanguage: /english|eng/i }, { title: /english|eng/i }] });
           }
         }
 
@@ -1245,22 +1251,68 @@ export async function getPaginatedUploadedTitles(
         if (category) {
           const cLower = category.toLowerCase();
           if (cLower === 'zippack' || cLower === 'zip') {
-            matchStage.$or = [
-              { linkType: 'zip_pack' },
-              { category: 'ZipPack' },
-              { title: /season.*complete|zip.*pack|\bpacks?\b/i },
-              { url: /(?:drive\/)?packs?/i },
-            ];
+            andConditions.push({
+              $or: [
+                { linkType: 'zip_pack' },
+                { category: 'ZipPack' },
+                { title: /season.*complete|zip.*pack|\bpacks?\b/i },
+                { url: /(?:drive\/)?packs?/i },
+              ],
+            });
+          }
+        }
+
+        // OTT Provider Filter
+        if (ott) {
+          const oLower = ott.toLowerCase();
+          let ottRegex: RegExp;
+          if (oLower === 'netflix') ottRegex = /\b(nf|netflix)\b/i;
+          else if (oLower === 'prime' || oLower === 'amazon') ottRegex = /\b(amzn|amazon|prime)\b/i;
+          else if (oLower === 'hotstar') ottRegex = /\b(hs|hotstar|disney)\b/i;
+          else if (oLower === 'jiocinema') ottRegex = /\b(jio|jiocinema)\b/i;
+          else if (oLower === 'sonyliv') ottRegex = /\b(sony|sonyliv|liv)\b/i;
+          else if (oLower === 'zee5') ottRegex = /\b(zee|zee5)\b/i;
+          else if (oLower === 'appletv') ottRegex = /\b(atvp|apple)\b/i;
+          else ottRegex = /\b(nf|netflix|amzn|amazon|prime|hs|hotstar|disney|jio|jiocinema|sony|sonyliv|liv|zee|zee5|atvp|apple)\b/i;
+
+          andConditions.push({
+            $or: [
+              { audioLanguage: ottRegex },
+              { title: ottRegex },
+              { quality: ottRegex },
+              { url: ottRegex },
+              { movieTitle: ottRegex },
+            ],
+          });
+        }
+
+        // Genre / Anime filter
+        if (options.genre) {
+          const gLower = String(options.genre).toLowerCase();
+          if (gLower === '16' || gLower === 'anime' || gLower === 'animation') {
+            andConditions.push({
+              $or: [
+                { category: /anime/i },
+                { originalLanguage: 'ja' },
+                { original_language: 'ja' },
+                { title: /anime|animation|crunchyroll|naruto|one\s*piece|bleach|attack\s*on\s*titan|jujutsu|demon\s*slayer|dragon\s*ball|chainsaw|solo\s*leveling|ghibli/i },
+                { movieTitle: /anime|animation|naruto|one\s*piece|bleach|attack\s*on\s*titan|jujutsu|demon\s*slayer|dragon\s*ball|chainsaw|solo\s*leveling|ghibli/i },
+              ],
+            });
           }
         }
 
         // Query filter
         if (query && query.trim()) {
           const words = query.trim().split(/\s+/).map((w) => new RegExp(w, 'i'));
-          matchStage.$and = words.map((w) => ({
-            $or: [{ title: w }, { movieTitle: w }],
-          }));
+          andConditions.push({
+            $and: words.map((w) => ({
+              $or: [{ title: w }, { movieTitle: w }],
+            })),
+          });
         }
+
+        const matchStage: any = andConditions.length > 0 ? { $and: andConditions } : {};
 
         // Distinct titles count (cached in Redis with 300s TTL)
         const countCacheKey = `cinefuel:${env}:catalog:v${version}:count:${type}:${filterKey}`;
@@ -1305,6 +1357,10 @@ export async function getPaginatedUploadedTitles(
           pipeline.push({ $match: matchStage });
         }
 
+        const sortStage: any = options.sort === 'top_rated'
+          ? { groupVoteAverage: -1, sortDate: -1, _id: 1 }
+          : { sortDate: -1, _id: 1 };
+
         pipeline.push(
           { $sort: { createdAt: -1, updatedAt: -1, movieId: 1 } },
           {
@@ -1340,9 +1396,10 @@ export async function getPaginatedUploadedTitles(
               groupBackdropPath: { $max: '$backdropPath' },
               groupPosterPathSnake: { $max: '$poster_path' },
               groupBackdropPathSnake: { $max: '$backdrop_path' },
+              groupVoteAverage: { $max: { $ifNull: ['$voteAverage', 7.5] } },
             },
           },
-          { $sort: { sortDate: -1, _id: 1 } },
+          { $sort: sortStage },
           { $skip: (safePage - 1) * safeLimit },
           { $limit: safeLimit }
         );
@@ -1521,6 +1578,8 @@ export interface FilterUploadedOptions {
   audio?: string;
   ott?: string;
   query?: string;
+  genre?: string | number;
+  sort?: 'latest' | 'top_rated' | 'rating' | 'popular';
   limit?: number;
 }
 
@@ -1654,7 +1713,7 @@ export async function getFilteredUploadedTitles(
     else if (oLower === 'jiocinema') ottRegex = /\b(jio|jiocinema)\b/i;
     else if (oLower === 'sonyliv') ottRegex = /\b(sony|sonyliv|liv)\b/i;
     else if (oLower === 'zee5') ottRegex = /\b(zee|zee5)\b/i;
-    else if (oLower === 'appletv') ottRegex = /\b(atvp|apple)\b/i;
+    else ottRegex = /\b(nf|netflix|amzn|amazon|prime|hs|hotstar|disney|jio|jiocinema|sony|sonyliv|liv|zee|zee5|atvp|apple)\b/i;
 
     filterConditions.push({
       $or: [
@@ -1662,8 +1721,25 @@ export async function getFilteredUploadedTitles(
         { title: ottRegex },
         { quality: ottRegex },
         { url: ottRegex },
+        { movieTitle: ottRegex },
       ],
     });
+  }
+
+  // 5b. Genre / Anime Filter
+  if (options.genre) {
+    const gLower = String(options.genre).toLowerCase();
+    if (gLower === '16' || gLower === 'anime' || gLower === 'animation') {
+      filterConditions.push({
+        $or: [
+          { category: /anime/i },
+          { originalLanguage: 'ja' },
+          { original_language: 'ja' },
+          { title: /anime|animation|crunchyroll|naruto|one\s*piece|bleach|attack\s*on\s*titan|jujutsu|demon\s*slayer|dragon\s*ball|chainsaw|solo\s*leveling|ghibli/i },
+          { movieTitle: /anime|animation|naruto|one\s*piece|bleach|attack\s*on\s*titan|jujutsu|demon\s*slayer|dragon\s*ball|chainsaw|solo\s*leveling|ghibli/i },
+        ],
+      });
+    }
   }
 
   // 6. Text Query
@@ -1744,9 +1820,14 @@ export async function getFilteredUploadedTitles(
   }
 
   // Filter out any dummy title
-  const finalItems = Array.from(groupedTitles.values())
-    .filter((t) => t.title && !t.title.startsWith('Series Feature #') && !t.title.startsWith('Cinema Feature #'))
-    .slice(0, limit);
+  let finalItems = Array.from(groupedTitles.values())
+    .filter((t) => t.title && !t.title.startsWith('Series Feature #') && !t.title.startsWith('Cinema Feature #'));
+
+  if (options.sort === 'top_rated') {
+    finalItems.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+  }
+
+  finalItems = finalItems.slice(0, limit);
 
   return { items: finalItems, total: finalItems.length };
 }
