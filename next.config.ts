@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  compress: true,
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'clsx', 'tailwind-merge'],
+  },
   allowedDevOrigins: ['192.168.1.7', 'localhost', '127.0.0.1'],
   images: {
     unoptimized: true,
@@ -25,6 +30,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "assets.fanart.tv",
       },
+      {
+        protocol: "https",
+        hostname: "upload.wikimedia.org",
+      },
     ],
   },
   async redirects() {
@@ -43,6 +52,24 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/:path*.(svg|png|jpg|jpeg|webp|ico|woff2)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
       {
         source: '/:path*',
         headers: [

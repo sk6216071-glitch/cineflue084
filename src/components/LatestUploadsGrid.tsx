@@ -376,7 +376,8 @@ export const LatestUploadsGrid: React.FC<LatestUploadsGridProps> = ({
                 key={`${item.media_type || activeType}-${item.id}-${idx}`}
                 item={item}
                 aspect="landscape"
-                priority={idx === 0}
+                priority={idx < 2}
+                isLcp={idx === 0}
               />
             ))}
           </div>

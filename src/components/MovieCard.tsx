@@ -12,6 +12,7 @@ interface MovieCardProps {
   item: TitleDetails;
   priority?: boolean;
   aspect?: 'portrait' | 'landscape';
+  isLcp?: boolean;
 }
 
 function formatTimeAgo(dateStr?: string): string {
@@ -32,10 +33,17 @@ function formatTimeAgo(dateStr?: string): string {
   }
 }
 
+const HOLLYWOOD_REGEX =
+  /(?:marvel|avenger|spider[- ]*man|spiderman|iron[- ]*man|thor|captain\s*america|captain\s*marvel|black\s*widow|ant[- ]*man|antman|doctor\s*strange|black\s*panther|guardians\s*of\s*the\s*galaxy|deadpool|wolverine|x[- ]*men|eternals|shang[- ]*chi|loki|hawkeye|daredevil|punisher|batman|superman|justice\s*league|wonder\s*woman|aquaman|flash|joker|harley\s*quinn|shazam|lanterns|star\s*wars|avatar|jurassic|fast\s*(?:and|&)\s*furious|mission:?\s*impossible|transformers?|harry\s*potter|fantastic\s*beasts|lord\s*of\s*the\s*rings|hobbit|game\s*of\s*thrones|house\s*of\s*the\s*dragon|stranger\s*things|godzilla|kong|john\s*wick|dune|oppenheimer|interstellar|inception|matrix|terminator|gladiator|alien|predator|blade\s*runner|mad\s*max|planet\s*of\s*the\s*apes|fallout|the\s*boys|reacher|jack\s*ryan|witcher|halo|peaky\s*blinders|walking\s*dead|american\s*primeval|squid\s*game|toy\s*story|pixar|disney)/i;
+
+const ENGLISH_OR_DUAL_REGEX =
+  /(?:dual|multi|english|eng|\+\s*eng|eng\s*\+|org\s*eng|atmos|truehd)/i;
+
 export const MovieCard: React.FC<MovieCardProps> = ({
   item,
   priority = false,
   aspect = 'portrait',
+  isLcp = false,
 }) => {
   const mediaType = item.media_type || (item.name ? 'tv' : 'movie');
   const title = item.title || item.name || 'Untitled';
@@ -43,9 +51,23 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   const year = releaseDate ? releaseDate.split('-')[0] : '';
 
   const isLandscape = aspect === 'landscape';
-  const posterUrl = isLandscape
-    ? getImageURL(item.backdrop_path || item.poster_path, 'w780')
-    : getImageURL(item.poster_path, 'w500');
+  const hasValidBackdrop = typeof item.backdrop_path === 'string' && !item.backdrop_path.includes('placeholder');
+  const hasValidPoster = typeof item.poster_path === 'string' && !item.poster_path.includes('placeholder');
+  
+  const chosenPath = isLandscape
+    ? (hasValidBackdrop ? item.backdrop_path : hasValidPoster ? item.poster_path : item.backdrop_path || item.poster_path)
+    : (hasValidPoster ? item.poster_path : hasValidBackdrop ? item.backdrop_path : item.poster_path);
+
+  const fallbackUrl = isLandscape ? '/placeholder-backdrop.svg' : '/placeholder-poster.svg';
+  const computedPosterUrl = typeof chosenPath === 'string' && !chosenPath.includes('placeholder')
+    ? getImageURL(chosenPath, isLandscape ? 'w500' : 'w300')
+    : fallbackUrl;
+
+  const [imgSrc, setImgSrc] = React.useState(computedPosterUrl);
+
+  React.useEffect(() => {
+    setImgSrc(computedPosterUrl);
+  }, [computedPosterUrl]);
 
   // Upload metadata sensing (DV, 4K, Platform, Category, Size)
   const uploadMeta = item.uploadMeta || {};
@@ -91,11 +113,9 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     const isHollywood =
       origLang === 'en' ||
       origCountry.some((c: string) => ['US', 'GB', 'CA', 'AU', 'NZ'].includes(c)) ||
-      /(?:marvel|avenger|spider[- ]*man|spiderman|iron[- ]*man|thor|captain\s*america|captain\s*marvel|black\s*widow|ant[- ]*man|antman|doctor\s*strange|black\s*panther|guardians\s*of\s*the\s*galaxy|deadpool|wolverine|x[- ]*men|eternals|shang[- ]*chi|loki|hawkeye|daredevil|punisher|batman|superman|justice\s*league|wonder\s*woman|aquaman|flash|joker|harley\s*quinn|shazam|lanterns|star\s*wars|avatar|jurassic|fast\s*(?:and|&)\s*furious|mission:?\s*impossible|transformers?|harry\s*potter|fantastic\s*beasts|lord\s*of\s*the\s*rings|hobbit|game\s*of\s*thrones|house\s*of\s*the\s*dragon|stranger\s*things|godzilla|kong|john\s*wick|dune|oppenheimer|interstellar|inception|matrix|terminator|gladiator|alien|predator|blade\s*runner|mad\s*max|planet\s*of\s*the\s*apes|fallout|the\s*boys|reacher|jack\s*ryan|witcher|halo|peaky\s*blinders|walking\s*dead|american\s*primeval|squid\s*game|toy\s*story|pixar|disney)/i.test(
-        titleCombined
-      );
+      HOLLYWOOD_REGEX.test(titleCombined);
 
-    const hasEnglishOrDual = /(?:dual|multi|english|eng|\+\s*eng|eng\s*\+|org\s*eng|atmos|truehd)/i.test(
+    const hasEnglishOrDual = ENGLISH_OR_DUAL_REGEX.test(
       `${uploadMeta.rawTitle || ''} ${(item as any).audioLanguage || ''}`
     );
 
@@ -139,20 +159,32 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   // Landscape Mode (Matching Reference Screenshot Aspect Ratio & Badges)
   if (isLandscape) {
     return (
-      <div className="group relative flex flex-col rounded-2xl bg-[#12101c] border border-[#252038] hover:border-amber-400/50 overflow-hidden cursor-pointer select-none transition-all duration-300 shadow-md hover:shadow-2xl hover:shadow-purple-950/20">
+      <div className={`group relative flex flex-col rounded-2xl bg-[#12101c] border border-[#252038] hover:border-amber-400/50 overflow-hidden cursor-pointer select-none transition-all duration-300 shadow-md hover:shadow-2xl hover:shadow-purple-950/20 ${!priority ? '[content-visibility:auto] [contain-intrinsic-size:240px]' : ''}`}>
         {/* 16:9 Landscape Poster Image Container */}
         <Link
           href={`/${mediaType}/${item.id}`}
+          prefetch={false}
           className="relative aspect-[16/9] w-full overflow-hidden bg-[#181524] block"
         >
           <Image
-            src={posterUrl}
+            src={imgSrc}
             alt={title}
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
             priority={priority}
+            fetchPriority={isLcp ? 'high' : undefined}
+            onError={() => setImgSrc(fallbackUrl)}
             className="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
           />
+
+          {/* Branded fallback overlay if no remote image exists */}
+          {Boolean(imgSrc && typeof imgSrc === 'string' && imgSrc.includes('placeholder')) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-zinc-950/75 backdrop-blur-[2px] z-[5]">
+              <Film className="w-8 h-8 text-amber-400/90 mb-1.5" />
+              <span className="text-sm font-bold text-zinc-100 line-clamp-1 px-3 tracking-wide">{title}</span>
+              <span className="text-[11px] font-medium text-zinc-400 mt-0.5">{year || 'Latest Release'}</span>
+            </div>
+          )}
 
           {/* Top Gradient for badge legibility */}
           <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/85 via-black/35 to-transparent pointer-events-none z-10" />
@@ -258,17 +290,28 @@ export const MovieCard: React.FC<MovieCardProps> = ({
 
   // Portrait Mode (Default for Catalog / Search / Actor pages)
   return (
-    <div className="group cine-card-glow relative flex flex-col rounded-2xl bg-[#10131b] border border-white/10 overflow-hidden cursor-pointer select-none">
+    <div className={`group cine-card-glow relative flex flex-col rounded-2xl bg-[#10131b] border border-white/10 overflow-hidden cursor-pointer select-none ${!priority ? '[content-visibility:auto] [contain-intrinsic-size:360px]' : ''}`}>
       {/* Poster Image Container with Shimmer and Zoom */}
-      <Link href={`/${mediaType}/${item.id}`} className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-950 block">
+      <Link href={`/${mediaType}/${item.id}`} prefetch={false} className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-950 block">
         <Image
-          src={posterUrl}
+          src={imgSrc}
           alt={title}
           fill
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
           priority={priority}
+          fetchPriority={isLcp ? 'high' : undefined}
+          onError={() => setImgSrc(fallbackUrl)}
           className="object-cover transition-transform duration-700 ease-out group-hover:scale-110"
         />
+
+        {/* Branded fallback overlay if no remote image exists */}
+        {Boolean(imgSrc && typeof imgSrc === 'string' && imgSrc.includes('placeholder')) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-zinc-950/75 backdrop-blur-[2px] z-[5]">
+            <Film className="w-10 h-10 text-amber-400/90 mb-2" />
+            <span className="text-xs font-bold text-zinc-100 line-clamp-2 px-2 tracking-wide">{title}</span>
+            <span className="text-[10px] font-medium text-zinc-400 mt-1">{year || 'Latest Release'}</span>
+          </div>
+        )}
 
         {/* Diagonal Light Shimmer Sweep on Hover */}
         <div className="cine-shimmer" />

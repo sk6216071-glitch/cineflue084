@@ -1,6 +1,7 @@
 import React from 'react';
 import { getPaginatedUploadedTitles } from '@/lib/redisDb';
 import LatestUploadsGrid from '@/components/LatestUploadsGrid';
+import { getLcpCardImageUrl } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,8 +70,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     sort: sortOption,
   });
 
+  const firstItem = result.items && result.items.length > 0 ? result.items[0] : null;
+  const lcpImageUrl = getLcpCardImageUrl(firstItem, 'landscape');
+
   return (
     <div className="min-h-screen pb-16 space-y-8 pt-6">
+      {/* High-priority preload for mobile/desktop LCP image to eliminate resource discovery delay */}
+      {lcpImageUrl && (
+        <link
+          rel="preload"
+          as="image"
+          href={lcpImageUrl}
+          fetchPriority="high"
+        />
+      )}
+
       {/* Latest Uploads Section with 16:9 Landscape Poster Grid and Full Pagination */}
       <section id="latest-uploads-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <LatestUploadsGrid
@@ -88,3 +102,4 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     </div>
   );
 }
+

@@ -13,7 +13,7 @@ interface PageProps {
   }>;
 }
 
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 export default async function TitleDetailPage({ params }: PageProps) {
   const { type, id } = await params;
@@ -25,10 +25,18 @@ export default async function TitleDetailPage({ params }: PageProps) {
   const releaseDate = titleDetails.release_date || titleDetails.first_air_date || '';
   const releaseYear = releaseDate.split('-')[0];
   const posterUrl = getImageURL(titleDetails.poster_path, 'w780');
-  const backdropUrl = getBackdropURL(titleDetails.backdrop_path, 'original');
+  const backdropUrl = getBackdropURL(titleDetails.backdrop_path, 'w1280');
 
   return (
     <div className="min-h-screen pb-20 space-y-10">
+      {backdropUrl && !backdropUrl.includes('placeholder') && (
+        <link
+          rel="preload"
+          as="image"
+          href={backdropUrl}
+          fetchPriority="high"
+        />
+      )}
       {/* 1. Hero Backdrop Header */}
       <div className="relative w-full min-h-[500px] lg:min-h-[580px] bg-black">
         {/* Backdrop Image */}
@@ -38,6 +46,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
             alt={title}
             fill
             priority
+            fetchPriority="high"
             sizes="100vw"
             className="object-cover object-center opacity-40 scale-105"
           />
