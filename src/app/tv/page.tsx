@@ -28,7 +28,7 @@ export default async function TVShowsPage({ searchParams }: TVShowsPageProps) {
   const result = await getPaginatedUploadedTitles({
     type: 'tv',
     page,
-    limit: 24,
+    limit: 16,
     quality: quality || undefined,
     category: category || undefined,
     audio: audio || undefined,
@@ -139,7 +139,7 @@ export default async function TVShowsPage({ searchParams }: TVShowsPageProps) {
               <MovieCard
                 key={`tv-${item.id}-${idx}`}
                 item={item}
-                priority={idx < 6}
+                priority={idx < 2}
                 aspect="portrait"
               />
             ))}

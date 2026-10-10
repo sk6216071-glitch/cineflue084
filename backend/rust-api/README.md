@@ -111,20 +111,43 @@ The client streams video or downloads subtitles directly from Cloudflare R2 with
 
 ---
 
-## 6. Running Locally
+## 6. Running in Docker Linux Container
+
+Due to Windows Smart App Control policy blocking local execution of newly generated native `.exe` binaries, the Rust API is containerized inside a hardened Linux container:
 
 ```bash
-# Check formatting
-cargo fmt --check
+# 1. Build the multi-stage Linux container image
+docker build -t cinephile-rust-api:staging ./backend/rust-api
 
-# Run linter
-cargo clippy
+# 2. Run container with environment configuration
+docker run -d \
+  --name cinephile-rust-api \
+  -p 8080:8080 \
+  --env-file ./backend/rust-api/.env \
+  cinephile-rust-api:staging
 
-# Run test suite
-cargo test
+# Or using Docker Compose:
+docker compose up -d
+```
 
-# Build and run server
-cargo run
+### Local / Staging Container Health & API Verification
+
+```bash
+# 1. System Health Check
+curl http://localhost:8080/health
+
+# 2. High-Performance Catalog
+curl http://localhost:8080/api/catalog?page=1&limit=20
+
+# 3. Media Presigned Streaming URL (Zero-Egress GET)
+curl -X POST http://localhost:8080/api/media/presign \
+  -H "Content-Type: application/json" \
+  -d '{"key": "movies/550/1080p.mp4", "action": "get"}'
+
+# 4. Media Asset Verification (HEAD via R2)
+curl -X POST http://localhost:8080/api/media/verify \
+  -H "Content-Type: application/json" \
+  -d '{"key": "movies/550/1080p.mp4"}'
 ```
 
 ---
@@ -132,7 +155,9 @@ cargo run
 ## 7. Migration & Rollout Strategy
 
 1. **Phase 1 (Completed)**: Rust service created with full API contracts matching Next.js endpoints.
-2. **Phase 2 (Completed)**: Cloudflare R2 integration implemented with presigned URL streaming and zero egress.
-3. **Phase 3**: Run Rust API locally alongside Next.js (`http://localhost:8080`).
-4. **Phase 4**: Gradual proxying of high-traffic read routes (`/api/catalog`, `/api/media/presign`) using `NEXT_PUBLIC_API_BACKEND`.
-5. **Phase 5**: Staging environment verification.
+2. **Phase 2 (Completed)**: Cloudflare R2 integration implemented with AWS SigV4 presigned URL streaming and zero application egress.
+3. **Phase 3 (Completed)**: Multi-stage Docker Linux containerization implemented with non-root security and zero credentials baked into images.
+4. **Phase 4**: Staging R2 bucket provisioning (once Cloudflare R2 is enabled on account `46f7bef008a04d13a6bd134c3a291006`).
+5. **Phase 5**: Real wire network benchmarks against staging R2 bucket.
+6. **Phase 6**: Selective routing of high-traffic endpoints (`/api/catalog`, `/api/media/presign`) to Rust backend.
+

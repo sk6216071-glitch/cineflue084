@@ -98,7 +98,7 @@ export const SectionCarousel: React.FC<SectionCarouselProps> = ({
                   : 'w-[160px] sm:w-[190px] md:w-[210px] shrink-0 snap-start'
               }
             >
-              <MovieCard item={item} aspect={aspect} priority={idx < 4} />
+              <MovieCard item={item} aspect={aspect} priority={idx < 2} />
             </div>
           ))}
         </div>

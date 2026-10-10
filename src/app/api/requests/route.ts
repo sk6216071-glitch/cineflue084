@@ -5,9 +5,13 @@ import { saveLinkToDatabase } from '@/lib/redisDb';
 import { UserRequest, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
+import { createRequestFulfilledNotification, createAdminReplyNotification } from '@/lib/notificationsDb';
+import {
+  dispatchTelegramNotificationForRequest,
+  notifyAdminOnTelegramNewRequest,
+  dispatchTelegramAdminReply,
+} from '@/lib/telegramNotifications';
 import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
-import { createRequestFulfilledNotification } from '@/lib/notificationsDb';
-import { dispatchTelegramNotificationForRequest } from '@/lib/telegramNotifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -136,6 +140,13 @@ export async function POST(req: NextRequest) {
       console.warn('Failed to auto-sync user to usersDb from request:', uErr);
     }
 
+    // Auto-alert Admin via Telegram
+    try {
+      await notifyAdminOnTelegramNewRequest(newRequest);
+    } catch (alertErr) {
+      console.warn('Failed to alert admin on Telegram for request:', alertErr);
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Request submitted successfully! Our team will add this link soon.',
@@ -167,28 +178,23 @@ export async function PATCH(req: NextRequest) {
       fulfilledLinkId,
       fulfilledLinkUrl,
       adminNote,
+      adminReply,
       // Optional fulfillment link creation
       createLink,
       titleId,
       linkPayload,
     } = body;
 
-    if (!id || !status) {
-      return NextResponse.json({ error: 'Request ID and status are required' }, { status: 400 });
-    }
-
-    if (fulfilledLinkUrl && !isValidHttpUrl(fulfilledLinkUrl)) {
-      return NextResponse.json({ error: 'Invalid fulfilledLinkUrl: must be a valid http or https URL' }, { status: 400 });
-    }
-
-    if (linkPayload?.url && !isValidHttpUrl(linkPayload.url)) {
-      return NextResponse.json({ error: 'Invalid linkPayload.url: must be a valid http or https URL' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'Request ID is required' }, { status: 400 });
     }
 
     const existingReq = await getRequestById(id);
     if (!existingReq) {
       return NextResponse.json({ error: 'Request not found' }, { status: 404 });
     }
+
+    const targetStatus = status || existingReq.status || 'pending';
 
     let createdCustomLinkId = fulfilledLinkId;
 
@@ -215,19 +221,20 @@ export async function PATCH(req: NextRequest) {
 
     const targetUrl = fulfilledLinkUrl || linkPayload?.url;
 
-    await updateRequestStatus(id, status, {
+    await updateRequestStatus(id, targetStatus, {
       fulfilledLinkId: createdCustomLinkId,
       fulfilledLinkUrl: targetUrl,
       adminNote,
+      adminReply,
     });
 
     let notificationInfo = null;
-    if (status === 'fulfilled') {
+    if (targetStatus === 'fulfilled') {
       try {
         const notifResult = await createRequestFulfilledNotification(existingReq, {
           fulfilledLinkId: createdCustomLinkId,
           fulfilledLinkUrl: targetUrl,
-          adminNote,
+          adminNote: adminNote || adminReply,
         });
         notificationInfo = notifResult;
 
@@ -243,9 +250,20 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // If admin replied, send user reply notification
+    if (adminReply && adminReply.trim()) {
+      try {
+        const replyNotif = await createAdminReplyNotification('request', existingReq, adminReply.trim());
+        if (!notificationInfo) notificationInfo = replyNotif;
+        await dispatchTelegramAdminReply(existingReq, 'request', adminReply.trim());
+      } catch (replyErr) {
+        console.warn('Failed to dispatch admin reply notification for request:', replyErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Request status updated to ${status}`,
+      message: `Request status updated to ${targetStatus}`,
       notification: notificationInfo,
     });
   } catch (error: any) {

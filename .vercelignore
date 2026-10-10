@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+.next
+.open-next
+.vercel
+.wrangler
+target
+backend/rust-api/target
+**/target/**
+*.exe
+*.dll
+*.pdb
+*.log
+*.zip
+scripts/*.jpg

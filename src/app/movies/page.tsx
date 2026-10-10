@@ -28,7 +28,7 @@ export default async function MoviesPage({ searchParams }: MoviesPageProps) {
   const result = await getPaginatedUploadedTitles({
     type: 'movie',
     page,
-    limit: 24,
+    limit: 16,
     quality: quality || undefined,
     audio: audio || undefined,
     genre: genre || undefined,
@@ -139,7 +139,7 @@ export default async function MoviesPage({ searchParams }: MoviesPageProps) {
               <MovieCard
                 key={`movie-${item.id}-${idx}`}
                 item={item}
-                priority={idx < 4}
+                priority={idx === 0}
                 aspect="landscape"
               />
             ))}

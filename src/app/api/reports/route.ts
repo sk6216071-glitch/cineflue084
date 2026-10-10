@@ -5,9 +5,13 @@ import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
+import { createReportNotification, createAdminReplyNotification } from '@/lib/notificationsDb';
+import {
+  dispatchTelegramNotificationForReport,
+  notifyAdminOnTelegramNewReport,
+  dispatchTelegramAdminReply,
+} from '@/lib/telegramNotifications';
 import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
-import { createReportNotification } from '@/lib/notificationsDb';
-import { dispatchTelegramNotificationForReport } from '@/lib/telegramNotifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -157,6 +161,13 @@ export async function POST(req: NextRequest) {
       console.warn('Failed to auto-sync reporter to usersDb:', uErr);
     }
 
+    // Auto-alert Admin via Telegram
+    try {
+      await notifyAdminOnTelegramNewReport(newReport);
+    } catch (alertErr) {
+      console.warn('Failed to alert admin on Telegram for report:', alertErr);
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Report submitted! Our team will verify and resolve this link shortly.',
@@ -187,6 +198,7 @@ export async function PATCH(req: NextRequest) {
       status,
       replacementUrl,
       adminNote,
+      adminReply,
       // Optional: replace or delete link directly
       replaceInDatabase,
       deleteInDatabase,
@@ -234,24 +246,27 @@ export async function PATCH(req: NextRequest) {
       await deleteLinkFromDatabase(movieId, linkId);
     }
 
+    const targetStatus = status || existingReport?.status || 'pending';
+
     // 3. Update report status in storage
-    await updateReportStatus(id, status, {
+    await updateReportStatus(id, targetStatus, {
       replacementUrl,
       adminNote,
+      adminReply,
     });
 
     let notificationInfo = null;
-    if (existingReport && (status === 'fixed' || status === 'dismissed')) {
+    if (existingReport && (targetStatus === 'fixed' || targetStatus === 'dismissed')) {
       try {
-        const notifResult = await createReportNotification(existingReport, status, {
+        const notifResult = await createReportNotification(existingReport, targetStatus, {
           replacementUrl,
-          adminNote,
+          adminNote: adminNote || adminReply,
         });
         notificationInfo = notifResult;
 
         if (notifResult?.notification) {
           try {
-            await dispatchTelegramNotificationForReport(existingReport, status, notifResult.notification);
+            await dispatchTelegramNotificationForReport(existingReport, targetStatus, notifResult.notification);
           } catch (tgErr) {
             console.warn('Telegram notification dispatch error for report:', tgErr);
           }
@@ -261,9 +276,20 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // If admin replied, send user reply notification
+    if (existingReport && adminReply && adminReply.trim()) {
+      try {
+        const replyNotif = await createAdminReplyNotification('report', existingReport, adminReply.trim());
+        if (!notificationInfo) notificationInfo = replyNotif;
+        await dispatchTelegramAdminReply(existingReport, 'report', adminReply.trim());
+      } catch (replyErr) {
+        console.warn('Failed to dispatch admin reply notification for report:', replyErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Report status updated to ${status}.`,
+      message: `Report status updated to ${targetStatus}.`,
       notification: notificationInfo,
     });
 

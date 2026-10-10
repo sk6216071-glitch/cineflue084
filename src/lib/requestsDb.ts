@@ -259,28 +259,34 @@ export async function updateRequestStatus(
     fulfilledLinkId?: string;
     fulfilledLinkUrl?: string;
     adminNote?: string;
+    adminReply?: string;
   }
 ): Promise<boolean> {
   const cleanId = String(id || '').trim();
   if (!cleanId || cleanId.startsWith('$')) return false;
 
   let persisted = false;
-  const updates: Partial<UserRequest> = {
+  const replyObj = meta?.adminReply?.trim()
+    ? { sender: 'admin', message: meta.adminReply.trim(), createdAt: new Date().toISOString() }
+    : null;
+
+  const updates: any = {
     status,
     ...(status === 'fulfilled' ? { fulfilledAt: new Date().toISOString() } : {}),
     ...(meta?.fulfilledLinkId ? { fulfilledLinkId: meta.fulfilledLinkId } : {}),
     ...(meta?.fulfilledLinkUrl ? { fulfilledLinkUrl: meta.fulfilledLinkUrl } : {}),
-    ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
+    ...(meta?.adminNote ? { adminNote: meta.adminNote } : (replyObj ? { adminNote: replyObj.message } : {})),
   };
 
   // 1. MongoDB Atlas
   try {
     const db = await getDatabase();
     if (db) {
-      await db.collection('requests').updateOne(
-        { id: cleanId },
-        { $set: { ...updates, updatedAt: new Date() } }
-      );
+      const mongoUpdate: any = { $set: { ...updates, updatedAt: new Date() } };
+      if (replyObj) {
+        mongoUpdate.$push = { adminReplies: replyObj };
+      }
+      await db.collection('requests').updateOne({ id: cleanId }, mongoUpdate);
       persisted = true;
     }
   } catch (err: any) {

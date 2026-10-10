@@ -233,27 +233,33 @@ export async function updateReportStatus(
   meta?: {
     replacementUrl?: string;
     adminNote?: string;
+    adminReply?: string;
   }
 ): Promise<boolean> {
   const cleanId = String(id || '').trim();
   if (!cleanId || cleanId.startsWith('$')) return false;
 
   let persisted = false;
-  const updates: Partial<DefectiveLinkReport> = {
+  const replyObj = meta?.adminReply?.trim()
+    ? { sender: 'admin', message: meta.adminReply.trim(), createdAt: new Date().toISOString() }
+    : null;
+
+  const updates: any = {
     status,
     ...(status === 'fixed' || status === 'dismissed' ? { resolvedAt: new Date().toISOString() } : {}),
     ...(meta?.replacementUrl ? { replacementUrl: meta.replacementUrl } : {}),
-    ...(meta?.adminNote ? { adminNote: meta.adminNote } : {}),
+    ...(meta?.adminNote ? { adminNote: meta.adminNote } : (replyObj ? { adminNote: replyObj.message } : {})),
   };
 
   // 1. MongoDB Atlas
   try {
     const db = await getDatabase();
     if (db) {
-      await db.collection('defective_reports').updateOne(
-        { id: cleanId },
-        { $set: { ...updates, updatedAt: new Date() } }
-      );
+      const mongoUpdate: any = { $set: { ...updates, updatedAt: new Date() } };
+      if (replyObj) {
+        mongoUpdate.$push = { adminReplies: replyObj };
+      }
+      await db.collection('defective_reports').updateOne({ id: cleanId }, mongoUpdate);
       persisted = true;
     }
   } catch (err: any) {

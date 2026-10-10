@@ -43,38 +43,114 @@ impl CatalogService {
             AppError::DatabaseError("Authoritative MongoDB not connected".to_string())
         })?;
 
-        let collection = mongo.collection::<serde_json::Value>("titles");
+        let collection = mongo.collection::<serde_json::Value>("links");
 
-        let mut filter = doc! {};
+        let mut pipeline = Vec::new();
+
+        let mut match_doc = doc! {};
         if let Some(media_type) = &params.media_type {
             if media_type != "all" {
-                filter.insert("mediaType", media_type.clone());
+                match_doc.insert("mediaType", media_type.clone());
+            }
+        }
+        if let Some(query) = &params.query {
+            if !query.trim().is_empty() {
+                match_doc.insert("movieTitle", doc! { "$regex": query.trim(), "$options": "i" });
             }
         }
 
-        let skip = ((page - 1) * limit) as u64;
-        let find_options = mongodb::options::FindOptions::builder()
-            .skip(skip)
-            .limit(limit as i64)
-            .sort(doc! { "uploadedAt": -1 })
-            .build();
+        if !match_doc.is_empty() {
+            pipeline.push(doc! { "$match": match_doc });
+        }
+
+        pipeline.push(doc! {
+            "$sort": { "createdAt": -1, "_id": -1 }
+        });
+
+        pipeline.push(doc! {
+            "$group": {
+                "_id": "$movieId",
+                "movieTitle": { "$first": "$movieTitle" },
+                "title": { "$first": "$title" },
+                "mediaType": { "$first": "$mediaType" },
+                "posterPath": { "$first": "$posterPath" },
+                "backdropPath": { "$first": "$backdropPath" },
+                "quality": { "$first": "$quality" },
+                "audio": { "$first": "$audioLanguage" },
+                "createdAt": { "$first": "$createdAt" },
+                "linksCount": { "$sum": 1 }
+            }
+        });
+
+        pipeline.push(doc! {
+            "$sort": { "createdAt": -1, "_id": 1 }
+        });
+
+        let skip = ((page - 1) * limit) as i64;
+        pipeline.push(doc! { "$skip": skip });
+        pipeline.push(doc! { "$limit": limit as i64 });
 
         let mut cursor = collection
-            .find(filter)
-            .with_options(find_options)
+            .aggregate(pipeline)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Find failed: {}", e)))?;
+            .map_err(|e| AppError::DatabaseError(format!("Aggregate failed: {}", e)))?;
 
         let mut items: Vec<CatalogItem> = Vec::new();
         while cursor.advance().await.map_err(|e| AppError::DatabaseError(e.to_string()))? {
             let doc_val = cursor.deserialize_current().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-            if let Ok(item) = serde_json::from_value::<CatalogItem>(doc_val) {
-                items.push(item);
-            }
+
+            let id_val: serde_json::Value = doc_val
+                .get("_id")
+                .map(|b| b.clone().into())
+                .unwrap_or(serde_json::Value::Null);
+
+            let title_val = doc_val
+                .get_str("movieTitle")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or_else(|| doc_val.get_str("title").ok())
+                .unwrap_or("Unknown Title")
+                .to_string();
+
+            let media_type_val = doc_val
+                .get_str("mediaType")
+                .ok()
+                .unwrap_or("movie")
+                .to_string();
+
+            let poster_path = doc_val.get_str("posterPath").ok().map(|s| s.to_string());
+            let backdrop_path = doc_val.get_str("backdropPath").ok().map(|s| s.to_string());
+            let quality = doc_val.get_str("quality").ok().map(|s| s.to_string());
+            let audio = doc_val.get_str("audio").ok().map(|s| s.to_string());
+            let uploaded_at = doc_val.get_str("createdAt").ok().map(|s| s.to_string());
+
+            let custom_links_count = doc_val
+                .get("linksCount")
+                .and_then(|v| {
+                    v.as_i32()
+                        .map(|n| n as usize)
+                        .or_else(|| v.as_i64().map(|n| n as usize))
+                });
+
+            items.push(CatalogItem {
+                id: id_val,
+                media_type: media_type_val,
+                title: title_val,
+                overview: None,
+                poster_path,
+                backdrop_path,
+                vote_average: None,
+                release_date: None,
+                quality,
+                audio,
+                uploaded_at,
+                has_custom_links: Some(true),
+                custom_links_count,
+            });
         }
 
-        let total = items.len(); // Or count_documents
         let has_more = items.len() == limit;
+        let total = if has_more { page * limit + 1 } else { (page - 1) * limit + items.len() };
 
         let response = CatalogResponse {
             success: true,

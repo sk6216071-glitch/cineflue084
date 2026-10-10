@@ -538,3 +538,138 @@ ${report.adminNote ? `\n💬 <i>Admin Note: ${escapeHtml(report.adminNote)}</i>\
     return { dispatched: false };
   }
 }
+
+const ADMIN_TELEGRAM_IDS = [930928310];
+
+/**
+ * Notifies telegram admin(s) instantly when a user submits a new request on the website
+ */
+export async function notifyAdminOnTelegramNewRequest(request: UserRequest): Promise<void> {
+  try {
+    const title = escapeHtml(request.title.trim());
+    const releaseYear = request.releaseYear ? ` (${escapeHtml(request.releaseYear)})` : '';
+    const quality = request.quality ? escapeHtml(request.quality) : 'Any';
+    const audio = request.audioLanguage ? escapeHtml(request.audioLanguage) : 'Any';
+    const user = escapeHtml(request.userEmail || request.userName || 'Anonymous User');
+    const notes = request.notes ? escapeHtml(request.notes) : '';
+
+    const text =
+`🎬 <b>NEW USER REQUEST!</b>
+─────────────────────────────
+📌 <b>Title:</b> <b>${title}${releaseYear}</b>
+💎 <b>Quality:</b> <code>${quality}</code>
+🔊 <b>Audio:</b> <code>${audio}</code>
+👤 <b>User:</b> ${user}
+🆔 <code>${request.id}</code>
+${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
+⚡ <i>Review, reply, or fulfill directly below:</i>`;
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '💬 Reply', callback_data: `reply_req:${request.id}` },
+          { text: '✅ Fulfill', callback_data: `fulfill_req:${request.id}` },
+          { text: '❌ Reject', callback_data: `reject_req:${request.id}` },
+        ],
+      ],
+    };
+
+    for (const adminId of ADMIN_TELEGRAM_IDS) {
+      await sendTelegramMessage(adminId, text, replyMarkup).catch(() => {});
+    }
+  } catch (err: any) {
+    console.warn('Failed to notify admin on Telegram for request:', err.message);
+  }
+}
+
+/**
+ * Notifies telegram admin(s) instantly when a user reports a broken link on the website
+ */
+export async function notifyAdminOnTelegramNewReport(report: DefectiveLinkReport): Promise<void> {
+  try {
+    const mediaTitle = escapeHtml(report.mediaTitle || 'Unknown Title');
+    const issueLabel = escapeHtml(report.issueLabel || report.issueType);
+    const reportedUrl = escapeHtml(report.reportedUrl);
+    const user = escapeHtml(report.userEmail || report.userName || 'Anonymous User');
+    const notes = report.additionalNotes ? escapeHtml(report.additionalNotes) : '';
+
+    const text =
+`🚨 <b>BROKEN LINK REPORTED!</b>
+─────────────────────────────
+🎬 <b>Title:</b> <b>${mediaTitle}</b>
+⚠️ <b>Issue:</b> <code>${issueLabel}</code>
+🔗 <b>URL:</b> <code>${reportedUrl}</code>
+👤 <b>Reporter:</b> ${user}
+🆔 <code>${report.id}</code>
+${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
+⚡ <i>Review, reply, or fix directly below:</i>`;
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '💬 Reply', callback_data: `reply_rep:${report.id}` },
+          { text: '🔧 Fix / Replace', callback_data: `fix_rep:${report.id}` },
+          { text: '⚠️ Dismiss', callback_data: `dismiss_rep:${report.id}` },
+        ],
+      ],
+    };
+
+    for (const adminId of ADMIN_TELEGRAM_IDS) {
+      await sendTelegramMessage(adminId, text, replyMarkup).catch(() => {});
+    }
+  } catch (err: any) {
+    console.warn('Failed to notify admin on Telegram for report:', err.message);
+  }
+}
+
+/**
+ * Dispatches a Telegram message to a user when an admin replies to their submission
+ */
+export async function dispatchTelegramAdminReply(
+  item: UserRequest | DefectiveLinkReport,
+  type: 'request' | 'report',
+  replyText: string,
+  dbName?: string
+): Promise<boolean> {
+  const uid = (item.userId || '').trim();
+  if (!uid || uid === 'guest-user-default') return false;
+
+  try {
+    const tgLink = await getTelegramLinkForUser(uid, dbName);
+    if (!tgLink || tgLink.status !== 'active') return false;
+
+    if (type === 'request' && tgLink.requestNotifications === false) return false;
+    if (type === 'report' && tgLink.reportNotifications === false) return false;
+
+    const siteUrl = getSiteUrl();
+    const mediaTitle = escapeHtml(type === 'request' ? (item as UserRequest).title : (item as DefectiveLinkReport).mediaTitle);
+    const msg = escapeHtml(replyText);
+
+    const messageHtml =
+`💬 <b>Admin Reply from CineFuel</b>
+─────────────────────────────
+Regarding your ${type === 'request' ? 'request' : 'report'} for:
+<b>${mediaTitle}</b>
+
+<i>"${msg}"</i>
+
+🌐 <i>Check your profile notifications on CineFuel for details.</i>`;
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          {
+            text: '🌐 View on CineFuel',
+            url: `${siteUrl}/profile`,
+          },
+        ],
+      ],
+    };
+
+    const res = await sendTelegramMessage(tgLink.telegramChatId, messageHtml, replyMarkup);
+    return res.ok;
+  } catch (err: any) {
+    console.warn('Failed to dispatch telegram admin reply:', err.message);
+    return false;
+  }
+}

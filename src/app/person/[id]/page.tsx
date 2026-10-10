@@ -12,7 +12,7 @@ interface PersonPageProps {
   }>;
 }
 
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 export default async function PersonPage({ params }: PersonPageProps) {
   const { id } = await params;

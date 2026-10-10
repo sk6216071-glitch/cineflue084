@@ -31,13 +31,16 @@ export async function POST(request: NextRequest) {
 
     const cfg = getR2Config();
     const publicUrl = getR2PublicUrl(key);
+    const host = cfg.endpoint
+      ? cfg.endpoint.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+      : `${cfg.accountId}.r2.cloudflarestorage.com`;
 
     return NextResponse.json({
       success: true,
       key,
       action,
       bucket: cfg.bucket,
-      url: publicUrl || `https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucket}/${key.replace(/^\/+/, '')}`,
+      url: publicUrl || `https://${host}/${cfg.bucket}/${key.replace(/^\/+/, '')}`,
       isPublicCdn: Boolean(publicUrl),
     });
   } catch (err: any) {

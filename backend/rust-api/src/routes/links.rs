@@ -14,17 +14,24 @@ use crate::AppState;
 #[derive(Deserialize)]
 pub struct GetLinksQuery {
     #[serde(rename = "movieId")]
-    pub movie_id: Value,
+    pub movie_id: Option<Value>,
+    pub id: Option<Value>,
 }
 
 pub async fn get_curated_links(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetLinksQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let links = state.links_service.get_links_for_movie(&params.movie_id).await?;
+    let target_id = params
+        .movie_id
+        .or(params.id)
+        .ok_or_else(|| AppError::BadRequest("Missing movieId or id query parameter".to_string()))?;
+
+    let links = state.links_service.get_links_for_movie(&target_id).await?;
     Ok(Json(json!({
         "success": true,
-        "links": links
+        "links": links,
+        "source": "mongodb_atlas"
     })))
 }
 

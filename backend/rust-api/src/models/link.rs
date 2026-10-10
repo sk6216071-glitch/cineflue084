@@ -2,9 +2,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CuratedLink {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub url: String,
+    #[serde(default)]
     pub quality: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<String>,
@@ -14,6 +18,8 @@ pub struct CuratedLink {
     pub added_at: Option<String>,
     #[serde(rename = "r2Key", skip_serializing_if = "Option::is_none")]
     pub r2_key: Option<String>,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

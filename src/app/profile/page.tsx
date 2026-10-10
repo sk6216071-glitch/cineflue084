@@ -34,6 +34,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useWatchlist } from '@/context/WatchlistContext';
 import AuthModal from '@/components/AuthModal';
+import RequestLinkModal from '@/components/RequestLinkModal';
 import { UserRequest, DefectiveLinkReport, TelegramLink } from '@/types';
 
 export default function ProfilePage() {
@@ -44,6 +45,7 @@ export default function ProfilePage() {
   const [displayName, setDisplayName] = useState(userProfile.displayName || '');
   const [bio, setBio] = useState(userProfile.bio || '');
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
 
   // My Requests state
   const [myRequests, setMyRequests] = useState<UserRequest[]>([]);
@@ -75,6 +77,47 @@ export default function ProfilePage() {
   const [myReports, setMyReports] = useState<DefectiveLinkReport[]>([]);
   const [isLoadingReports, setIsLoadingReports] = useState(false);
   const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'fixed' | 'dismissed'>('all');
+
+  // In-App Website Notification Settings state
+  const [inAppRequests, setInAppRequests] = useState(true);
+  const [inAppReports, setInAppReports] = useState(true);
+  const [isUpdatingInAppPrefs, setIsUpdatingInAppPrefs] = useState(false);
+
+  useEffect(() => {
+    if (userProfile && (userProfile as any).notificationPreferences) {
+      const prefs = (userProfile as any).notificationPreferences;
+      if (typeof prefs.inAppRequests === 'boolean') setInAppRequests(prefs.inAppRequests);
+      if (typeof prefs.inAppReports === 'boolean') setInAppReports(prefs.inAppReports);
+    }
+  }, [userProfile]);
+
+  const handleToggleInAppPreference = async (category: 'requests' | 'reports', val: boolean) => {
+    if (category === 'requests') setInAppRequests(val);
+    else setInAppReports(val);
+
+    try {
+      setIsUpdatingInAppPrefs(true);
+      const token = await getIdToken();
+      if (!token) return;
+      await fetch('/api/users/me', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          notificationPreferences: {
+            inAppRequests: category === 'requests' ? val : inAppRequests,
+            inAppReports: category === 'reports' ? val : inAppReports,
+          },
+        }),
+      });
+    } catch (e) {
+      console.warn('Failed to update in-app notification preferences:', e);
+    } finally {
+      setIsUpdatingInAppPrefs(false);
+    }
+  };
 
   const fetchTelegramStatus = async () => {
     if (!isLoggedIn) return;
@@ -372,7 +415,54 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* 4. Telegram Notifications Section */}
+      {/* 4a. Website In-App Notifications Preferences */}
+      <section id="website-notifications" className="bg-[#0f121a] border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl scroll-mt-24">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <Bell className="w-4 h-4" />
+              </div>
+              <h2 className="text-lg font-bold text-white">Website Notifications Settings</h2>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Control notifications shown in your notification bell when our team fulfills your requests or fixes broken links.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <label className="flex items-center justify-between p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 hover:border-zinc-700 cursor-pointer transition-all">
+            <div className="space-y-0.5 pr-3">
+              <span className="text-xs font-bold text-zinc-200 block">Movie & TV Requests</span>
+              <span className="text-[11px] text-zinc-400 block">Get bell alerts when requested titles are added or replied to</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={inAppRequests}
+              onChange={(e) => handleToggleInAppPreference('requests', e.target.checked)}
+              disabled={isUpdatingInAppPrefs || !isLoggedIn}
+              className="w-4 h-4 rounded text-amber-500 bg-zinc-900 border-zinc-700 focus:ring-amber-500 shrink-0 cursor-pointer"
+            />
+          </label>
+
+          <label className="flex items-center justify-between p-4 rounded-2xl bg-zinc-950/60 border border-zinc-800/80 hover:border-zinc-700 cursor-pointer transition-all">
+            <div className="space-y-0.5 pr-3">
+              <span className="text-xs font-bold text-zinc-200 block">Broken Link Reports</span>
+              <span className="text-[11px] text-zinc-400 block">Get bell alerts when defective links are fixed or replied to</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={inAppReports}
+              onChange={(e) => handleToggleInAppPreference('reports', e.target.checked)}
+              disabled={isUpdatingInAppPrefs || !isLoggedIn}
+              className="w-4 h-4 rounded text-amber-500 bg-zinc-900 border-zinc-700 focus:ring-amber-500 shrink-0 cursor-pointer"
+            />
+          </label>
+        </div>
+      </section>
+
+      {/* 4b. Telegram Notifications Section */}
       <section id="telegram-notifications" className="bg-[#0f121a] border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl scroll-mt-24">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
           <div className="space-y-1">
@@ -606,15 +696,25 @@ export default function ProfilePage() {
 
           <div className="flex items-center gap-2">
             {isLoggedIn && (
-              <button
-                type="button"
-                onClick={fetchMyRequests}
-                disabled={isLoadingRequests}
-                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700 text-xs transition-colors disabled:opacity-50"
-                title="Refresh Requests"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRequests ? 'animate-spin text-amber-400' : ''}`} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsRequestModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+                >
+                  <Film className="w-3.5 h-3.5" />
+                  <span>+ New Request</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={fetchMyRequests}
+                  disabled={isLoadingRequests}
+                  className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700 text-xs transition-colors disabled:opacity-50"
+                  title="Refresh Requests"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRequests ? 'animate-spin text-amber-400' : ''}`} />
+                </button>
+              </>
             )}
 
             {/* Status Filter Tabs */}
@@ -741,6 +841,17 @@ export default function ProfilePage() {
                           <p className="text-[11px] text-zinc-400 italic pt-0.5">
                             Admin Note: &ldquo;{req.adminNote}&rdquo;
                           </p>
+                        )}
+
+                        {req.adminReplies && req.adminReplies.length > 0 && (
+                          <div className="pt-1.5 space-y-1 max-w-lg">
+                            {req.adminReplies.map((r, ri) => (
+                              <div key={ri} className="text-[11px] bg-zinc-900/90 border border-amber-500/20 rounded-xl p-2.5 text-zinc-200">
+                                <span className="text-amber-400 font-bold block text-[10px] uppercase tracking-wider mb-0.5">Staff Reply:</span>
+                                {r.message}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -928,6 +1039,17 @@ export default function ProfilePage() {
                             Curator Response: &ldquo;{rep.adminNote}&rdquo;
                           </p>
                         )}
+
+                        {rep.adminReplies && rep.adminReplies.length > 0 && (
+                          <div className="pt-1.5 space-y-1 max-w-lg">
+                            {rep.adminReplies.map((r, ri) => (
+                              <div key={ri} className="text-[11px] bg-zinc-900/90 border border-rose-500/20 rounded-xl p-2.5 text-zinc-200">
+                                <span className="text-rose-400 font-bold block text-[10px] uppercase tracking-wider mb-0.5">Staff Reply:</span>
+                                {r.message}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -985,6 +1107,15 @@ export default function ProfilePage() {
 
       {/* Auth Modal */}
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+
+      {/* Submit New Request Modal */}
+      {isRequestModalOpen && (
+        <RequestLinkModal
+          isOpen={isRequestModalOpen}
+          onClose={() => setIsRequestModalOpen(false)}
+          onSuccess={() => fetchMyRequests()}
+        />
+      )}
     </div>
   );
 }

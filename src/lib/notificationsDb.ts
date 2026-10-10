@@ -56,6 +56,31 @@ export async function ensureNotificationIndexes(dbName?: string): Promise<void> 
 }
 
 /**
+ * Checks whether user has in-app notifications enabled for requests or reports
+ */
+export async function isUserNotificationEnabled(
+  firebaseUid: string,
+  category: 'request' | 'report',
+  db: any
+): Promise<boolean> {
+  try {
+    const cleanUid = (firebaseUid || '').trim();
+    if (!cleanUid) return true;
+    const userDoc = await db.collection('users').findOne({
+      $or: [{ firebaseUid: cleanUid }, { uid: cleanUid }],
+    });
+    if (!userDoc || !userDoc.notificationPreferences) return true;
+    if (category === 'request') {
+      return userDoc.notificationPreferences.inAppRequests !== false;
+    } else {
+      return userDoc.notificationPreferences.inAppReports !== false;
+    }
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Creates a single, idempotent fulfillment notification for a user request.
  * If a notification for this (requestId, type) already exists, it safely ignores duplicate insertion.
  */
@@ -82,6 +107,12 @@ export async function createRequestFulfilledNotification(
 
     await ensureNotificationIndexes(dbName);
     const collection = db.collection('notifications');
+
+    // Check user notification preference
+    const enabled = await isUserNotificationEnabled(uid, 'request', db);
+    if (!enabled) {
+      return { success: true, created: false };
+    }
 
     // Idempotency pre-check
     const existing = await collection.findOne({
@@ -166,6 +197,12 @@ export async function createReportNotification(
     await ensureNotificationIndexes(dbName);
     const collection = db.collection('notifications');
 
+    // Check user notification preference
+    const enabled = await isUserNotificationEnabled(uid, 'report', db);
+    if (!enabled) {
+      return { success: true, created: false };
+    }
+
     const notifType = status === 'fixed' ? 'DEFECTIVE_LINK_RESOLVED' : 'DEFECTIVE_LINK_DISMISSED';
 
     // Idempotency pre-check
@@ -225,6 +262,76 @@ export async function createReportNotification(
     }
   } catch (err: any) {
     console.error('Failed to create defective report notification:', err.message);
+    return { success: false, created: false };
+  }
+}
+
+/**
+ * Creates an in-app notification when an admin replies to a user request or broken link report
+ */
+export async function createAdminReplyNotification(
+  targetType: 'request' | 'report',
+  item: UserRequest | DefectiveLinkReport,
+  replyText: string,
+  dbName?: string
+): Promise<{ success: boolean; created: boolean; notification?: UserNotification }> {
+  const uid = (item.userId || '').trim();
+  if (!uid || uid === 'guest-user-default' || !replyText.trim()) {
+    return { success: false, created: false };
+  }
+
+  try {
+    const db = await getDatabase(dbName);
+    if (!db) {
+      throw new Error('Database connection unavailable for reply notification creation');
+    }
+
+    // Check user notification preference
+    const enabled = await isUserNotificationEnabled(uid, targetType, db);
+    if (!enabled) {
+      return { success: true, created: false };
+    }
+
+    await ensureNotificationIndexes(dbName);
+    const collection = db.collection('notifications');
+
+    const cleanMediaTitle = targetType === 'request'
+      ? (item as UserRequest).title.trim()
+      : ((item as DefectiveLinkReport).mediaTitle || 'Reported Title').trim();
+
+    const mediaType = ((item as any).mediaType === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
+    const movieId = targetType === 'request'
+      ? (item as UserRequest).tmdbId
+      : (item as DefectiveLinkReport).movieId;
+
+    const linkUrl = movieId ? `/${mediaType}/${movieId}` : '/profile';
+    const notifId = `notif-reply-${item.id}-${Date.now()}`;
+
+    const notif: UserNotification = {
+      id: notifId,
+      userId: uid,
+      firebaseUid: uid,
+      ...(targetType === 'request' ? { requestId: item.id } : { reportId: item.id }),
+      type: 'ADMIN_REPLY',
+      title: targetType === 'request'
+        ? `Admin Replied to Your Request: ${cleanMediaTitle}`
+        : `Admin Replied to Your Broken Link Report: ${cleanMediaTitle}`,
+      message: `Admin reply: "${replyText.trim()}"`,
+      mediaTitle: cleanMediaTitle,
+      movieId,
+      mediaType,
+      linkUrl,
+      posterPath: item.posterPath || null,
+      read: false,
+      createdAt: new Date().toISOString(),
+      readAt: null,
+      adminReply: replyText.trim(),
+    };
+
+    await collection.insertOne({ ...notif });
+    return { success: true, created: true, notification: notif };
+  } catch (err: any) {
+    console.error('Failed to create admin reply notification:', err.message);
     return { success: false, created: false };
   }
 }

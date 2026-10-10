@@ -15,6 +15,7 @@ pub struct R2Client {
     access_key_id: String,
     secret_access_key: String,
     bucket: String,
+    endpoint: Option<String>,
     public_url: Option<String>,
     client: reqwest::Client,
 }
@@ -25,6 +26,7 @@ impl R2Client {
         let access_key_id = config.r2_access_key_id.clone()?;
         let secret_access_key = config.r2_secret_access_key.clone()?;
         let bucket = config.r2_bucket.clone().unwrap_or_else(|| "cinephile-media".to_string());
+        let endpoint = config.r2_endpoint.clone();
         let public_url = config.r2_public_url.clone();
 
         Some(Self {
@@ -32,13 +34,21 @@ impl R2Client {
             access_key_id,
             secret_access_key,
             bucket,
+            endpoint,
             public_url,
             client: reqwest::Client::new(),
         })
     }
 
     fn endpoint_host(&self) -> String {
-        format!("{}.r2.cloudflarestorage.com", self.account_id)
+        if let Some(ref ep) = self.endpoint {
+            ep.trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_end_matches('/')
+                .to_string()
+        } else {
+            format!("{}.r2.cloudflarestorage.com", self.account_id)
+        }
     }
 
     fn endpoint_url(&self, key: &str) -> String {
@@ -264,4 +274,74 @@ fn urlencoding(input: &str) -> String {
         }
     }
     encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AppConfig;
+
+    fn mock_config(endpoint: Option<String>) -> AppConfig {
+        AppConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            admin_secret_key: "test_secret".to_string(),
+            admin_password: None,
+            admin_emails: vec!["admin@test.com".to_string()],
+            mongodb_uri: None,
+            mongodb_database: "testdb".to_string(),
+            redis_url: None,
+            r2_account_id: Some("mock_acc_123".to_string()),
+            r2_access_key_id: Some("mock_key_id".to_string()),
+            r2_secret_access_key: Some("mock_secret_key".to_string()),
+            r2_bucket: Some("cinephile-staging".to_string()),
+            r2_endpoint: endpoint,
+            r2_public_url: Some("https://media-staging.cinephile.test".to_string()),
+            tmdb_api_key: None,
+        }
+    }
+
+    #[test]
+    fn test_endpoint_host_default() {
+        let config = mock_config(None);
+        let client = R2Client::new(&config).expect("client should initialize");
+        assert_eq!(client.endpoint_host(), "mock_acc_123.r2.cloudflarestorage.com");
+    }
+
+    #[test]
+    fn test_endpoint_host_custom() {
+        let config = mock_config(Some("https://custom-r2.endpoint.net/".to_string()));
+        let client = R2Client::new(&config).expect("client should initialize");
+        assert_eq!(client.endpoint_host(), "custom-r2.endpoint.net");
+    }
+
+    #[test]
+    fn test_generate_presigned_url_get() {
+        let config = mock_config(None);
+        let client = R2Client::new(&config).expect("client should initialize");
+        let res = client.generate_presigned_url("movies/550/1080p.mp4", "GET", 3600)
+            .expect("presigned URL should be generated");
+
+        assert!(res.success);
+        assert_eq!(res.key, "movies/550/1080p.mp4");
+        assert_eq!(res.method, "GET");
+        assert!(res.url.starts_with("https://mock_acc_123.r2.cloudflarestorage.com/cinephile-staging/movies/550/1080p.mp4"));
+        assert!(res.url.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256"));
+        assert!(res.url.contains("X-Amz-Signature="));
+        assert!(res.url.contains("X-Amz-Expires=3600"));
+    }
+
+    #[test]
+    fn test_generate_presigned_url_put() {
+        let config = mock_config(None);
+        let client = R2Client::new(&config).expect("client should initialize");
+        let res = client.generate_presigned_url("uploads/test.mp4", "PUT", 900)
+            .expect("presigned URL should be generated");
+
+        assert!(res.success);
+        assert_eq!(res.key, "uploads/test.mp4");
+        assert_eq!(res.method, "PUT");
+        assert!(res.url.contains("X-Amz-Expires=900"));
+        assert!(res.url.contains("X-Amz-Signature="));
+    }
 }

@@ -263,6 +263,14 @@ export interface RegisteredUser {
   passwordSalt?: string;
   bio?: string;
   favoriteGenres?: string[];
+  notificationPreferences?: UserNotificationPreferences;
+}
+
+export interface UserNotificationPreferences {
+  inAppRequests?: boolean;
+  inAppReports?: boolean;
+  telegramRequests?: boolean;
+  telegramReports?: boolean;
 }
 
 export interface RecommendationItem {
@@ -284,7 +292,7 @@ export interface AppSettings {
   omdbApiKey: string;
   mdblistApiKey: string;
   defaultRegion: string; // 'IN' default
-  theme: 'dark' | 'midnight' | 'oled';
+  theme: 'dark' | 'midnight' | 'oled' | 'light';
   autoSyncMdblist: boolean;
 }
 
@@ -310,6 +318,11 @@ export interface UserRequest {
   fulfilledLinkId?: string;
   fulfilledLinkUrl?: string;
   adminNote?: string;
+  adminReplies?: Array<{
+    sender: string;
+    message: string;
+    createdAt: string;
+  }>;
 }
 
 export type DefectiveLinkIssueType =
@@ -343,12 +356,18 @@ export interface DefectiveLinkReport {
   resolvedAt?: string;
   replacementUrl?: string;
   adminNote?: string;
+  adminReplies?: Array<{
+    sender: string;
+    message: string;
+    createdAt: string;
+  }>;
 }
 
 export type NotificationType =
   | 'REQUEST_FULFILLED'
   | 'DEFECTIVE_LINK_RESOLVED'
-  | 'DEFECTIVE_LINK_DISMISSED';
+  | 'DEFECTIVE_LINK_DISMISSED'
+  | 'ADMIN_REPLY';
 
 export interface UserNotification {
   id: string;
@@ -367,6 +386,7 @@ export interface UserNotification {
   read: boolean;
   createdAt: string;
   readAt?: string | null;
+  adminReply?: string;
 }
 
 export interface TelegramLink {

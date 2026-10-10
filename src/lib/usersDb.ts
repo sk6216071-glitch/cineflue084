@@ -574,3 +574,48 @@ export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
 
   return true;
 }
+
+/**
+ * Updates user notification preferences in MongoDB Atlas and Redis
+ */
+export async function updateUserPreferences(
+  firebaseUid: string,
+  preferences: {
+    inAppRequests?: boolean;
+    inAppReports?: boolean;
+    telegramRequests?: boolean;
+    telegramReports?: boolean;
+  }
+): Promise<{ success: boolean; preferences: any }> {
+  const cleanUid = (firebaseUid || '').trim();
+  if (!cleanUid) return { success: false, preferences: null };
+
+  try {
+    const db = await getDatabase();
+    if (db) {
+      const updateFields: any = { updatedAt: new Date().toISOString() };
+      if (typeof preferences.inAppRequests === 'boolean') {
+        updateFields['notificationPreferences.inAppRequests'] = preferences.inAppRequests;
+      }
+      if (typeof preferences.inAppReports === 'boolean') {
+        updateFields['notificationPreferences.inAppReports'] = preferences.inAppReports;
+      }
+      if (typeof preferences.telegramRequests === 'boolean') {
+        updateFields['notificationPreferences.telegramRequests'] = preferences.telegramRequests;
+      }
+      if (typeof preferences.telegramReports === 'boolean') {
+        updateFields['notificationPreferences.telegramReports'] = preferences.telegramReports;
+      }
+
+      await db.collection('users').updateOne(
+        { $or: [{ firebaseUid: cleanUid }, { uid: cleanUid }] },
+        { $set: updateFields }
+      );
+    }
+    return { success: true, preferences };
+  } catch (err: any) {
+    console.warn('Failed to update user preferences:', err.message);
+    return { success: false, preferences: null };
+  }
+}
+

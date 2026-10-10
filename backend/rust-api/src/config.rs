@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub r2_access_key_id: Option<String>,
     pub r2_secret_access_key: Option<String>,
     pub r2_bucket: Option<String>,
+    pub r2_endpoint: Option<String>,
     pub r2_public_url: Option<String>,
     pub tmdb_api_key: Option<String>,
 }
@@ -49,6 +50,7 @@ impl AppConfig {
         let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").ok().filter(|s| !s.is_empty());
         let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").ok().filter(|s| !s.is_empty());
         let r2_bucket = env::var("R2_BUCKET").ok().filter(|s| !s.is_empty());
+        let r2_endpoint = env::var("R2_ENDPOINT").ok().filter(|s| !s.is_empty());
         let r2_public_url = env::var("R2_PUBLIC_URL").ok().filter(|s| !s.is_empty());
 
         let tmdb_api_key = env::var("TMDB_API_KEY")
@@ -69,8 +71,22 @@ impl AppConfig {
             r2_access_key_id,
             r2_secret_access_key,
             r2_bucket,
+            r2_endpoint,
             r2_public_url,
             tmdb_api_key,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_resolution() {
+        let config = AppConfig::from_env();
+        assert!(!config.host.is_empty());
+        assert!(config.port > 0);
+        assert_eq!(config.mongodb_database, "cinefuel");
     }
 }

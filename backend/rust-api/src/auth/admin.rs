@@ -39,3 +39,52 @@ pub fn validate_admin_credentials(
         "Administrative privileges required. Invalid or missing authentication credentials.".to_string(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mock_auth_config() -> AppConfig {
+        AppConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            admin_secret_key: "secure_admin_key_test_12345".to_string(),
+            admin_password: Some("admin_pass_987".to_string()),
+            admin_emails: vec!["admin@cinephile.test".to_string()],
+            mongodb_uri: None,
+            mongodb_database: "test".to_string(),
+            redis_url: None,
+            r2_account_id: None,
+            r2_access_key_id: None,
+            r2_secret_access_key: None,
+            r2_bucket: None,
+            r2_endpoint: None,
+            r2_public_url: None,
+            tmdb_api_key: None,
+        }
+    }
+
+    #[test]
+    fn test_valid_admin_secret_key() {
+        let config = mock_auth_config();
+        assert!(validate_admin_credentials(Some("secure_admin_key_test_12345"), None, &config).is_ok());
+    }
+
+    #[test]
+    fn test_valid_admin_password() {
+        let config = mock_auth_config();
+        assert!(validate_admin_credentials(Some("admin_pass_987"), None, &config).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_key_rejected() {
+        let config = mock_auth_config();
+        assert!(validate_admin_credentials(Some("wrong_key"), None, &config).is_err());
+    }
+
+    #[test]
+    fn test_missing_credentials_rejected() {
+        let config = mock_auth_config();
+        assert!(validate_admin_credentials(None, None, &config).is_err());
+    }
+}

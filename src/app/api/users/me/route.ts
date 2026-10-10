@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByFirebaseUid, saveFirebaseUserToDatabase } from '@/lib/usersDb';
+import { getUserByFirebaseUid, saveFirebaseUserToDatabase, updateUserPreferences } from '@/lib/usersDb';
 import { extractBearerToken, verifyFirebaseIdToken } from '@/lib/firebaseTokenVerifier';
 
 export const dynamic = 'force-dynamic';
@@ -52,6 +52,53 @@ export async function GET(req: NextRequest) {
     console.error('API /api/users/me GET error:', error);
     return NextResponse.json(
       { error: 'Failed to retrieve profile', details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/users/me
+ * Update user notification preferences
+ */
+export async function PATCH(req: NextRequest) {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Authentication token is required' },
+        { status: 401 }
+      );
+    }
+
+    let verifiedClaims;
+    try {
+      verifiedClaims = await verifyFirebaseIdToken(token);
+    } catch (err: any) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Invalid token', details: err.message },
+        { status: 401 }
+      );
+    }
+
+    const body = await req.json();
+    const { notificationPreferences } = body;
+
+    if (notificationPreferences && typeof notificationPreferences === 'object') {
+      await updateUserPreferences(verifiedClaims.firebaseUid, notificationPreferences);
+    }
+
+    const updatedUser = await getUserByFirebaseUid(verifiedClaims.firebaseUid);
+
+    return NextResponse.json({
+      success: true,
+      message: 'Preferences updated successfully',
+      user: updatedUser,
+    });
+  } catch (error: any) {
+    console.error('API /api/users/me PATCH error:', error);
+    return NextResponse.json(
+      { error: 'Failed to update user profile', details: error.message },
       { status: 500 }
     );
   }

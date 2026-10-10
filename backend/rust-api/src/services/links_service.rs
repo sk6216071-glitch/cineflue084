@@ -19,7 +19,7 @@ impl LinksService {
             AppError::DatabaseError("Authoritative MongoDB not connected".to_string())
         })?;
 
-        let collection = mongo.collection::<serde_json::Value>("curated_links");
+        let collection = mongo.collection::<serde_json::Value>("links");
         let id_str = match movie_id {
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::String(s) => s.clone(),
@@ -27,8 +27,13 @@ impl LinksService {
         };
 
         let filter = doc! { "movieId": id_str };
+        let find_options = mongodb::options::FindOptions::builder()
+            .sort(doc! { "createdAt": -1 })
+            .build();
+
         let mut cursor = collection
             .find(filter)
+            .with_options(find_options)
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
@@ -62,9 +67,10 @@ impl LinksService {
             link_type: payload.link.link_type,
             added_at: Some(Utc::now().to_rfc3339()),
             r2_key: payload.link.r2_key,
+            extra: std::collections::HashMap::new(),
         };
 
-        let collection = mongo.collection::<serde_json::Value>("curated_links");
+        let collection = mongo.collection::<serde_json::Value>("links");
         let doc_to_insert = serde_json::to_value(&new_link)
             .map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -81,7 +87,7 @@ impl LinksService {
             AppError::DatabaseError("Authoritative MongoDB not connected".to_string())
         })?;
 
-        let collection = mongo.collection::<serde_json::Value>("curated_links");
+        let collection = mongo.collection::<serde_json::Value>("links");
         let filter = doc! { "id": &payload.link_id };
 
         let result = collection

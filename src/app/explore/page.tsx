@@ -5,7 +5,7 @@ import { getPaginatedUploadedTitles } from '@/lib/redisDb';
 import MovieCard from '@/components/MovieCard';
 import Pagination from '@/components/Pagination';
 
-export const revalidate = 60; // Fresh 60s updates
+export const dynamic = 'force-dynamic';
 
 interface ExplorePageProps {
   searchParams: Promise<{
@@ -32,7 +32,7 @@ export default async function ExplorePage({ searchParams }: ExplorePageProps) {
   const result = await getPaginatedUploadedTitles({
     type: activeType,
     page,
-    limit: 24,
+    limit: 16,
     quality: quality || undefined,
     category: category || undefined,
     audio: audio || undefined,
@@ -191,7 +191,7 @@ export default async function ExplorePage({ searchParams }: ExplorePageProps) {
               <MovieCard
                 key={`explore-${item.media_type}-${item.id}-${idx}`}
                 item={item}
-                priority={idx < 6}
+                priority={idx < 2}
                 aspect="portrait"
               />
             ))}
@@ -201,7 +201,14 @@ export default async function ExplorePage({ searchParams }: ExplorePageProps) {
           <Pagination
             currentPage={result.page}
             totalPages={result.totalPages}
-            createPageUrl={(p) => buildUrl(p)}
+            basePath="/explore"
+            extraParams={{
+              type: activeType !== 'all' ? activeType : undefined,
+              quality: quality || undefined,
+              category: category || undefined,
+              audio: audio || undefined,
+              q: q || undefined,
+            }}
           />
         </section>
       ) : (

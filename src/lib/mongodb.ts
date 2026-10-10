@@ -23,6 +23,11 @@ export async function getDatabase(dbName?: string): Promise<Db | null> {
   if (!currentUri) {
     return null;
   }
+  // Cloudflare Workers runtime guard:
+  // Node.js official MongoClient hangs indefinitely inside workerd due to missing TCP DNS SRV resolution
+  if (typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME')) {
+    return null;
+  }
   try {
     if (!cachedClientPromise || cachedUri !== currentUri) {
       cachedUri = currentUri;
@@ -34,7 +39,7 @@ export async function getDatabase(dbName?: string): Promise<Db | null> {
     }
     const connectedClient = await cachedClientPromise;
     const isStaging = getEnv('APP_ENV') === 'staging' || getEnv('CINEFUEL_ENV') === 'staging';
-    const targetDb = dbName || getEnv('MONGODB_DB_NAME') || (isStaging ? 'cinefuel_staging' : 'cinefuel');
+    const targetDb = dbName || getEnv('MONGODB_DATABASE') || getEnv('MONGODB_DB_NAME') || (isStaging ? 'cinefuel_staging' : 'cinefuel');
     return connectedClient.db(targetDb);
   } catch (err) {
     console.error('Failed to connect to MongoDB Atlas:', err);
