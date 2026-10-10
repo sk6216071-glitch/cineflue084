@@ -24,6 +24,7 @@ export default function AdminPage() {
     if (typeof window === 'undefined') return false;
     const sessionToken =
       sessionStorage.getItem('cinefuel_admin_token') ||
+      localStorage.getItem('cinefuel_admin_token') ||
       localStorage.getItem('cinefuel_id_token');
     return sessionToken ? null : false;
   });
@@ -42,6 +43,7 @@ export default function AdminPage() {
 
     const sessionToken =
       sessionStorage.getItem('cinefuel_admin_token') ||
+      localStorage.getItem('cinefuel_admin_token') ||
       localStorage.getItem('cinefuel_id_token');
 
     if (!sessionToken) {
@@ -58,6 +60,7 @@ export default function AdminPage() {
           setIsAuthenticated(true);
         } else {
           sessionStorage.removeItem('cinefuel_admin_token');
+          localStorage.removeItem('cinefuel_admin_token');
           setIsAuthenticated(false);
         }
       })

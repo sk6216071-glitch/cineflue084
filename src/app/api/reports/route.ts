@@ -5,7 +5,11 @@ import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
-import { createReportNotification, createAdminReplyNotification } from '@/lib/notificationsDb';
+import {
+  createReportNotification,
+  createReportInProgressNotification,
+  createAdminReplyNotification,
+} from '@/lib/notificationsDb';
 import {
   dispatchTelegramNotificationForReport,
   notifyAdminOnTelegramNewReport,
@@ -273,6 +277,15 @@ export async function PATCH(req: NextRequest) {
         }
       } catch (notifErr: any) {
         console.error('Failed to trigger report resolution notification:', notifErr);
+      }
+    } else if (existingReport && targetStatus === 'in_progress') {
+      try {
+        const progResult = await createReportInProgressNotification(existingReport, {
+          adminNote: adminNote || adminReply,
+        });
+        notificationInfo = progResult;
+      } catch (progErr) {
+        console.warn('Failed to trigger report in-progress notification:', progErr);
       }
     }
 

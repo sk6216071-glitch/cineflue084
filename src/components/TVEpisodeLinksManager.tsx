@@ -421,7 +421,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const token = sessionStorage.getItem('cinefuel_admin_token');
+      const token =
+        sessionStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_id_token') ||
+        '';
       setSessionAdmin(Boolean(token));
     }
   }, []);

@@ -90,6 +90,7 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
       const data = await res.json();
       if (res.ok && data.success && data.token) {
         sessionStorage.setItem('cinefuel_admin_token', data.token);
+        localStorage.setItem('cinefuel_admin_token', data.token);
         setAuthError(false);
         setPasswordInput('');
         if (onLoginSuccess) {

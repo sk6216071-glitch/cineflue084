@@ -1255,19 +1255,124 @@ async function answerCallbackQuery(callbackQueryId, text = '') {
   } catch {}
 }
 
-async function handleListRequests(chatId) {
-  if (!mongoDb) {
-    return sendTelegram(chatId, `⚠️ MongoDB Atlas is not connected yet.`);
+const REDIS_REQUESTS_KEY = 'cinefuel:user_requests';
+const REDIS_REPORTS_KEY = 'cinefuel:defective_reports';
+const REDIS_NOTIFICATIONS_KEY = 'cinefuel:user_notifications';
+const REDIS_USERS_KEY = 'cinefuel:registered_users';
+
+function parseRedisList(data) {
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
   }
+  return [];
+}
+
+async function getMergedRequests(filterStatus = 'pending') {
+  const map = new Map();
+
+  // 1. Upstash Redis
+  if (redisClient) {
+    try {
+      const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+      const list = parseRedisList(raw);
+      list.forEach((r) => {
+        if (!filterStatus || filterStatus === 'all' || r.status === filterStatus) {
+          map.set(r.id, r);
+        }
+      });
+    } catch (e) {
+      console.warn('Redis requests read warning in bot:', e.message);
+    }
+  }
+
+  // 2. MongoDB Atlas
+  if (mongoDb) {
+    try {
+      const query = filterStatus && filterStatus !== 'all' ? { status: filterStatus } : {};
+      const docs = await mongoDb.collection('requests').find(query).toArray();
+      docs.forEach((d) => {
+        const { _id, ...rest } = d;
+        map.set(rest.id, { ...(map.get(rest.id) || {}), ...rest });
+      });
+    } catch (e) {
+      console.warn('MongoDB requests read warning in bot:', e.message);
+    }
+  }
+
+  const result = Array.from(map.values());
+  result.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  return result;
+}
+
+async function getMergedReports(filterStatus = 'pending') {
+  const map = new Map();
+
+  // 1. Upstash Redis
+  if (redisClient) {
+    try {
+      const raw = await redisClient.get(REDIS_REPORTS_KEY);
+      const list = parseRedisList(raw);
+      list.forEach((r) => {
+        if (!filterStatus || filterStatus === 'all' || r.status === filterStatus) {
+          map.set(r.id, r);
+        }
+      });
+    } catch (e) {
+      console.warn('Redis reports read warning in bot:', e.message);
+    }
+  }
+
+  // 2. MongoDB Atlas
+  if (mongoDb) {
+    try {
+      const query = filterStatus && filterStatus !== 'all' ? { status: filterStatus } : {};
+      const docs = await mongoDb.collection('defective_reports').find(query).toArray();
+      docs.forEach((d) => {
+        const { _id, ...rest } = d;
+        map.set(rest.id, { ...(map.get(rest.id) || {}), ...rest });
+      });
+    } catch (e) {
+      console.warn('MongoDB reports read warning in bot:', e.message);
+    }
+  }
+
+  const result = Array.from(map.values());
+  result.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  return result;
+}
+
+async function saveNotificationToBotStorage(notif) {
+  // 1. MongoDB
+  if (mongoDb) {
+    try {
+      await mongoDb.collection('notifications').insertOne({ ...notif }).catch(() => {});
+    } catch {}
+  }
+  // 2. Upstash Redis
+  if (redisClient) {
+    try {
+      const raw = await redisClient.get(REDIS_NOTIFICATIONS_KEY);
+      const list = parseRedisList(raw);
+      const updated = [notif, ...list.filter((n) => n.id !== notif.id)].slice(0, 1000);
+      await redisClient.set(REDIS_NOTIFICATIONS_KEY, updated);
+    } catch {}
+  }
+}
+
+async function handleListRequests(chatId) {
   try {
-    const list = await mongoDb.collection('requests').find({ status: 'pending' }).sort({ createdAt: -1 }).limit(10).toArray();
+    const list = await getMergedRequests('pending');
     if (!list || list.length === 0) {
       return sendTelegram(chatId, `🎉 *No Pending Requests!* All user movie and TV requests have been fulfilled or resolved.`);
     }
 
-    sendTelegram(chatId, `📥 *Pending User Requests (${list.length}):*\nReview submissions below and use the buttons to reply or fulfill:`);
+    sendTelegram(chatId, `📥 *Pending User Requests (${list.length}):*\nReview submissions below and use the buttons to reply, update progress, or fulfill:`);
 
-    for (const req of list) {
+    for (const req of list.slice(0, 10)) {
       const yearStr = req.releaseYear ? ` (${req.releaseYear})` : '';
       const notesStr = req.notes ? `\n📝 _Note: ${req.notes}_` : '';
       const text =
@@ -1278,7 +1383,8 @@ async function handleListRequests(chatId) {
 🆔 \`${req.id}\`${notesStr}
 
 ⚡ *Quick Commands:*
-• Reply: \`/reply ${req.id} <your message>\`
+• Reply: \`/reply ${req.id} <message>\`
+• In Progress: \`/inprogress ${req.id}\`
 • Fulfill: \`/resolve ${req.id} <working link>\`
 • Reject: \`/reject ${req.id} <reason>\``;
 
@@ -1286,6 +1392,9 @@ async function handleListRequests(chatId) {
         inline_keyboard: [
           [
             { text: '💬 Reply', callback_data: `reply_req:${req.id}` },
+            { text: '⏳ In Progress', callback_data: `prog_req:${req.id}` },
+          ],
+          [
             { text: '✅ Fulfill', callback_data: `fulfill_req:${req.id}` },
             { text: '❌ Reject', callback_data: `reject_req:${req.id}` },
           ],
@@ -1301,18 +1410,15 @@ async function handleListRequests(chatId) {
 }
 
 async function handleListReports(chatId) {
-  if (!mongoDb) {
-    return sendTelegram(chatId, `⚠️ MongoDB Atlas is not connected yet.`);
-  }
   try {
-    const list = await mongoDb.collection('defective_reports').find({ status: 'pending' }).sort({ createdAt: -1 }).limit(10).toArray();
+    const list = await getMergedReports('pending');
     if (!list || list.length === 0) {
       return sendTelegram(chatId, `🎉 *No Broken Links Reported!* All link reports have been reviewed and resolved.`);
     }
 
     sendTelegram(chatId, `🚨 *Pending Defective Link Reports (${list.length}):*\nReview broken links below and use buttons to fix or dismiss:`);
 
-    for (const rep of list) {
+    for (const rep of list.slice(0, 10)) {
       const notesStr = rep.additionalNotes ? `\n📝 _Note: ${rep.additionalNotes}_` : '';
       const text =
 `🎬 *${rep.mediaTitle || 'Reported Movie/Series'}*
@@ -1322,7 +1428,8 @@ async function handleListReports(chatId) {
 🆔 \`${rep.id}\`${notesStr}
 
 ⚡ *Quick Commands:*
-• Reply: \`/reply ${rep.id} <your message>\`
+• Reply: \`/reply ${rep.id} <message>\`
+• In Progress: \`/inprogress ${rep.id}\`
 • Fix: \`/resolve ${rep.id} <replacement link>\`
 • Dismiss: \`/dismiss ${rep.id} <reason>\``;
 
@@ -1330,6 +1437,9 @@ async function handleListReports(chatId) {
         inline_keyboard: [
           [
             { text: '💬 Reply', callback_data: `reply_rep:${rep.id}` },
+            { text: '⏳ In Progress', callback_data: `prog_rep:${rep.id}` },
+          ],
+          [
             { text: '🔧 Fix / Replace', callback_data: `fix_rep:${rep.id}` },
             { text: '⚠️ Dismiss', callback_data: `dismiss_rep:${rep.id}` },
           ],
@@ -1345,28 +1455,45 @@ async function handleListReports(chatId) {
 }
 
 async function isUserNotificationEnabled(userId, userEmail, category) {
-  if (!mongoDb) return true;
-  try {
-    const query = [];
-    if (userId) query.push({ uid: userId }, { firebaseUid: userId });
-    if (userEmail) query.push({ email: userEmail });
-    if (query.length === 0) return true;
-    const userDoc = await mongoDb.collection('users').findOne({ $or: query });
-    if (!userDoc || !userDoc.notificationPreferences) return true;
-    if (category === 'requests') {
-      return userDoc.notificationPreferences.inAppRequests !== false;
-    }
-    if (category === 'reports') {
-      return userDoc.notificationPreferences.inAppReports !== false;
-    }
-    return true;
-  } catch {
-    return true;
+  if (mongoDb) {
+    try {
+      const query = [];
+      if (userId) query.push({ uid: userId }, { firebaseUid: userId });
+      if (userEmail) query.push({ email: userEmail });
+      if (query.length > 0) {
+        const userDoc = await mongoDb.collection('users').findOne({ $or: query });
+        if (userDoc?.notificationPreferences) {
+          if (category === 'requests') {
+            return userDoc.notificationPreferences.inAppRequests !== false;
+          }
+          if (category === 'reports') {
+            return userDoc.notificationPreferences.inAppReports !== false;
+          }
+        }
+      }
+    } catch {}
   }
+
+  if (redisClient) {
+    try {
+      const raw = await redisClient.get(REDIS_USERS_KEY);
+      const users = parseRedisList(raw);
+      const u = users.find((user) => (userId && (user.uid === userId || user.firebaseUid === userId)) || (userEmail && user.email === userEmail));
+      if (u?.notificationPreferences) {
+        if (category === 'requests') {
+          return u.notificationPreferences.inAppRequests !== false;
+        }
+        if (category === 'reports') {
+          return u.notificationPreferences.inAppReports !== false;
+        }
+      }
+    } catch {}
+  }
+
+  return true;
 }
 
 async function handleAdminReplyAction(chatId, targetId, targetType, replyMessage) {
-  if (!mongoDb) return sendTelegram(chatId, `⚠️ MongoDB is not connected.`);
   const cleanId = String(targetId || '').trim();
   const cleanMsg = String(replyMessage || '').trim();
   if (!cleanId || !cleanMsg) {
@@ -1374,22 +1501,50 @@ async function handleAdminReplyAction(chatId, targetId, targetType, replyMessage
   }
 
   try {
-    // 1. Try finding in requests
-    const reqDoc = await mongoDb.collection('requests').findOne({ id: cleanId });
-    if (reqDoc) {
-      const replyObj = { sender: 'admin', message: cleanMsg, createdAt: new Date().toISOString() };
-      await mongoDb.collection('requests').updateOne(
-        { id: cleanId },
-        {
-          $set: { adminNote: cleanMsg, updatedAt: new Date() },
-          $push: { adminReplies: replyObj },
-        }
-      );
+    const replyObj = { sender: 'admin', message: cleanMsg, createdAt: new Date().toISOString() };
 
-      // Create in-app notification in MongoDB if user enabled it
+    // 1. Try finding in requests (Mongo or Redis)
+    let reqDoc = mongoDb ? await mongoDb.collection('requests').findOne({ id: cleanId }) : null;
+    if (!reqDoc && redisClient) {
+      const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+      const list = parseRedisList(raw);
+      reqDoc = list.find((r) => r.id === cleanId) || null;
+    }
+
+    if (reqDoc) {
+      // Update in MongoDB
+      if (mongoDb) {
+        await mongoDb.collection('requests').updateOne(
+          { id: cleanId },
+          {
+            $set: { adminNote: cleanMsg, updatedAt: new Date() },
+            $push: { adminReplies: replyObj },
+          }
+        ).catch(() => {});
+      }
+
+      // Update in Redis
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) =>
+            r.id === cleanId
+              ? {
+                  ...r,
+                  adminNote: cleanMsg,
+                  adminReplies: [...(r.adminReplies || []), replyObj],
+                }
+              : r
+          );
+          await redisClient.set(REDIS_REQUESTS_KEY, updated);
+        } catch {}
+      }
+
+      // Create in-app notification if user enabled it
       if (await isUserNotificationEnabled(reqDoc.userId, reqDoc.userEmail, 'requests')) {
         const notifId = `notif-reply-${reqDoc.id}-${Date.now()}`;
-        await mongoDb.collection('notifications').insertOne({
+        await saveNotificationToBotStorage({
           id: notifId,
           userId: reqDoc.userId,
           firebaseUid: reqDoc.userId,
@@ -1406,14 +1561,15 @@ async function handleAdminReplyAction(chatId, targetId, targetType, replyMessage
           createdAt: new Date().toISOString(),
           readAt: null,
           adminReply: cleanMsg,
-        }).catch(() => {});
+        });
       }
 
       // Notify user via Telegram if connected
-      const tgLink = await mongoDb.collection('telegram_links').findOne({
+      let tgLink = mongoDb ? await mongoDb.collection('telegram_links').findOne({
         firebaseUid: reqDoc.userId,
         status: 'active',
-      });
+      }) : null;
+
       if (tgLink && tgLink.requestNotifications !== false) {
         await sendTelegram(
           tgLink.telegramChatId,
@@ -1424,22 +1580,48 @@ async function handleAdminReplyAction(chatId, targetId, targetType, replyMessage
       return sendTelegram(chatId, `✅ *Reply Sent!* Successfully notified user for request *${reqDoc.title}*:\n"${cleanMsg}"`);
     }
 
-    // 2. Try finding in defective_reports
-    const repDoc = await mongoDb.collection('defective_reports').findOne({ id: cleanId });
-    if (repDoc) {
-      const replyObj = { sender: 'admin', message: cleanMsg, createdAt: new Date().toISOString() };
-      await mongoDb.collection('defective_reports').updateOne(
-        { id: cleanId },
-        {
-          $set: { adminNote: cleanMsg, updatedAt: new Date() },
-          $push: { adminReplies: replyObj },
-        }
-      );
+    // 2. Try finding in defective_reports (Mongo or Redis)
+    let repDoc = mongoDb ? await mongoDb.collection('defective_reports').findOne({ id: cleanId }) : null;
+    if (!repDoc && redisClient) {
+      const raw = await redisClient.get(REDIS_REPORTS_KEY);
+      const list = parseRedisList(raw);
+      repDoc = list.find((r) => r.id === cleanId) || null;
+    }
 
-      // Create in-app notification in MongoDB if user enabled it
+    if (repDoc) {
+      // Update in MongoDB
+      if (mongoDb) {
+        await mongoDb.collection('defective_reports').updateOne(
+          { id: cleanId },
+          {
+            $set: { adminNote: cleanMsg, updatedAt: new Date() },
+            $push: { adminReplies: replyObj },
+          }
+        ).catch(() => {});
+      }
+
+      // Update in Redis
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REPORTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) =>
+            r.id === cleanId
+              ? {
+                  ...r,
+                  adminNote: cleanMsg,
+                  adminReplies: [...(r.adminReplies || []), replyObj],
+                }
+              : r
+          );
+          await redisClient.set(REDIS_REPORTS_KEY, updated);
+        } catch {}
+      }
+
+      // Create in-app notification if user enabled it
       if (await isUserNotificationEnabled(repDoc.userId, repDoc.userEmail, 'reports')) {
         const notifId = `notif-reply-${repDoc.id}-${Date.now()}`;
-        await mongoDb.collection('notifications').insertOne({
+        await saveNotificationToBotStorage({
           id: notifId,
           userId: repDoc.userId,
           firebaseUid: repDoc.userId,
@@ -1456,14 +1638,15 @@ async function handleAdminReplyAction(chatId, targetId, targetType, replyMessage
           createdAt: new Date().toISOString(),
           readAt: null,
           adminReply: cleanMsg,
-        }).catch(() => {});
+        });
       }
 
       // Notify user via Telegram if connected
-      const tgLink = await mongoDb.collection('telegram_links').findOne({
+      let tgLink = mongoDb ? await mongoDb.collection('telegram_links').findOne({
         firebaseUid: repDoc.userId,
         status: 'active',
-      });
+      }) : null;
+
       if (tgLink && tgLink.reportNotifications !== false) {
         await sendTelegram(
           tgLink.telegramChatId,
@@ -1481,31 +1664,170 @@ async function handleAdminReplyAction(chatId, targetId, targetType, replyMessage
   }
 }
 
+async function handleAdminInProgressAction(chatId, targetId, targetType, note = '') {
+  const cleanId = String(targetId || '').trim();
+  const cleanNote = String(note || 'Admin is actively sourcing/fixing this item').trim();
+  if (!cleanId) {
+    return sendTelegram(chatId, `⚠️ Usage: \`/inprogress <id> [optional note]\``);
+  }
+
+  try {
+    // 1. Try finding in requests
+    let reqDoc = mongoDb ? await mongoDb.collection('requests').findOne({ id: cleanId }) : null;
+    if (!reqDoc && redisClient) {
+      const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+      const list = parseRedisList(raw);
+      reqDoc = list.find((r) => r.id === cleanId) || null;
+    }
+
+    if (reqDoc) {
+      if (mongoDb) {
+        await mongoDb.collection('requests').updateOne(
+          { id: cleanId },
+          { $set: { status: 'in_progress', adminNote: cleanNote, updatedAt: new Date() } }
+        ).catch(() => {});
+      }
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) => (r.id === cleanId ? { ...r, status: 'in_progress', adminNote: cleanNote } : r));
+          await redisClient.set(REDIS_REQUESTS_KEY, updated);
+        } catch {}
+      }
+
+      // Create in-app notification
+      if (await isUserNotificationEnabled(reqDoc.userId, reqDoc.userEmail, 'requests')) {
+        const notifId = `notif-prog-${reqDoc.id}`;
+        await saveNotificationToBotStorage({
+          id: notifId,
+          userId: reqDoc.userId,
+          firebaseUid: reqDoc.userId,
+          requestId: reqDoc.id,
+          type: 'REQUEST_IN_PROGRESS',
+          title: `Request in Progress: ${reqDoc.title}`,
+          message: `Our curators are working on sourcing "${reqDoc.title}". (${cleanNote})`,
+          mediaTitle: reqDoc.title,
+          movieId: reqDoc.tmdbId,
+          mediaType: reqDoc.mediaType || 'movie',
+          linkUrl: reqDoc.tmdbId ? `/${reqDoc.mediaType || 'movie'}/${reqDoc.tmdbId}` : '/profile',
+          posterPath: reqDoc.posterPath || null,
+          read: false,
+          createdAt: new Date().toISOString(),
+          readAt: null,
+          adminReply: cleanNote,
+        });
+      }
+
+      return sendTelegram(chatId, `⏳ *Marked In Progress:* Request \`${cleanId}\` for *${reqDoc.title}* is now set to in-progress.`);
+    }
+
+    // 2. Try finding in defective_reports
+    let repDoc = mongoDb ? await mongoDb.collection('defective_reports').findOne({ id: cleanId }) : null;
+    if (!repDoc && redisClient) {
+      const raw = await redisClient.get(REDIS_REPORTS_KEY);
+      const list = parseRedisList(raw);
+      repDoc = list.find((r) => r.id === cleanId) || null;
+    }
+
+    if (repDoc) {
+      if (mongoDb) {
+        await mongoDb.collection('defective_reports').updateOne(
+          { id: cleanId },
+          { $set: { status: 'in_progress', adminNote: cleanNote, updatedAt: new Date() } }
+        ).catch(() => {});
+      }
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REPORTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) => (r.id === cleanId ? { ...r, status: 'in_progress', adminNote: cleanNote } : r));
+          await redisClient.set(REDIS_REPORTS_KEY, updated);
+        } catch {}
+      }
+
+      // Create in-app notification
+      if (await isUserNotificationEnabled(repDoc.userId, repDoc.userEmail, 'reports')) {
+        const notifId = `notif-rep-prog-${repDoc.id}`;
+        await saveNotificationToBotStorage({
+          id: notifId,
+          userId: repDoc.userId,
+          firebaseUid: repDoc.userId,
+          reportId: repDoc.id,
+          type: 'DEFECTIVE_LINK_IN_PROGRESS',
+          title: `Broken Link Report In Progress: ${repDoc.mediaTitle}`,
+          message: `Our technical team is currently investigating and repairing the reported link for "${repDoc.mediaTitle}". (${cleanNote})`,
+          mediaTitle: repDoc.mediaTitle,
+          movieId: repDoc.movieId,
+          mediaType: repDoc.mediaType || 'movie',
+          linkUrl: repDoc.movieId ? `/${repDoc.mediaType || 'movie'}/${repDoc.movieId}` : '/profile',
+          posterPath: repDoc.posterPath || null,
+          read: false,
+          createdAt: new Date().toISOString(),
+          readAt: null,
+          adminReply: cleanNote,
+        });
+      }
+
+      return sendTelegram(chatId, `⏳ *Marked In Progress:* Defective report \`${cleanId}\` for *${repDoc.mediaTitle}* is now set to in-progress.`);
+    }
+
+    return sendTelegram(chatId, `⚠️ No request or report found matching ID \`${cleanId}\`.`);
+  } catch (err) {
+    return sendTelegram(chatId, `⚠️ Error: ${err.message}`);
+  }
+}
+
 async function handleAdminResolveAction(chatId, targetId, targetType, linkUrl = '') {
-  if (!mongoDb) return sendTelegram(chatId, `⚠️ MongoDB is not connected.`);
   const cleanId = String(targetId || '').trim();
   const cleanUrl = String(linkUrl || '').trim();
 
   try {
-    // 1. Try finding in requests
-    const reqDoc = await mongoDb.collection('requests').findOne({ id: cleanId });
-    if (reqDoc) {
-      await mongoDb.collection('requests').updateOne(
-        { id: cleanId },
-        {
-          $set: {
-            status: 'fulfilled',
-            fulfilledAt: new Date().toISOString(),
-            ...(cleanUrl ? { fulfilledLinkUrl: cleanUrl } : {}),
-            updatedAt: new Date(),
-          },
-        }
-      );
+    // 1. Try finding in requests (Mongo or Redis)
+    let reqDoc = mongoDb ? await mongoDb.collection('requests').findOne({ id: cleanId }) : null;
+    if (!reqDoc && redisClient) {
+      const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+      const list = parseRedisList(raw);
+      reqDoc = list.find((r) => r.id === cleanId) || null;
+    }
 
-      // Create in-app notification in MongoDB if enabled
+    if (reqDoc) {
+      if (mongoDb) {
+        await mongoDb.collection('requests').updateOne(
+          { id: cleanId },
+          {
+            $set: {
+              status: 'fulfilled',
+              fulfilledAt: new Date().toISOString(),
+              ...(cleanUrl ? { fulfilledLinkUrl: cleanUrl } : {}),
+              updatedAt: new Date(),
+            },
+          }
+        ).catch(() => {});
+      }
+
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) =>
+            r.id === cleanId
+              ? {
+                  ...r,
+                  status: 'fulfilled',
+                  fulfilledAt: new Date().toISOString(),
+                  ...(cleanUrl ? { fulfilledLinkUrl: cleanUrl } : {}),
+                }
+              : r
+          );
+          await redisClient.set(REDIS_REQUESTS_KEY, updated);
+        } catch {}
+      }
+
+      // Create in-app notification in MongoDB & Redis if enabled
       if (await isUserNotificationEnabled(reqDoc.userId, reqDoc.userEmail, 'requests')) {
         const notifId = `notif-${reqDoc.id}`;
-        await mongoDb.collection('notifications').insertOne({
+        await saveNotificationToBotStorage({
           id: notifId,
           userId: reqDoc.userId,
           firebaseUid: reqDoc.userId,
@@ -1521,14 +1843,15 @@ async function handleAdminResolveAction(chatId, targetId, targetType, linkUrl = 
           read: false,
           createdAt: new Date().toISOString(),
           readAt: null,
-        }).catch(() => {});
+        });
       }
 
       // Notify user via Telegram if connected
-      const tgLink = await mongoDb.collection('telegram_links').findOne({
+      let tgLink = mongoDb ? await mongoDb.collection('telegram_links').findOne({
         firebaseUid: reqDoc.userId,
         status: 'active',
-      });
+      }) : null;
+
       if (tgLink && tgLink.requestNotifications !== false) {
         await sendTelegram(
           tgLink.telegramChatId,
@@ -1539,25 +1862,51 @@ async function handleAdminResolveAction(chatId, targetId, targetType, linkUrl = 
       return sendTelegram(chatId, `🎉 *Request Fulfilled!* Marked request \`${cleanId}\` for *${reqDoc.title}* as fulfilled.`);
     }
 
-    // 2. Try finding in defective_reports
-    const repDoc = await mongoDb.collection('defective_reports').findOne({ id: cleanId });
+    // 2. Try finding in defective_reports (Mongo or Redis)
+    let repDoc = mongoDb ? await mongoDb.collection('defective_reports').findOne({ id: cleanId }) : null;
+    if (!repDoc && redisClient) {
+      const raw = await redisClient.get(REDIS_REPORTS_KEY);
+      const list = parseRedisList(raw);
+      repDoc = list.find((r) => r.id === cleanId) || null;
+    }
+
     if (repDoc) {
-      await mongoDb.collection('defective_reports').updateOne(
-        { id: cleanId },
-        {
-          $set: {
-            status: 'fixed',
-            resolvedAt: new Date().toISOString(),
-            ...(cleanUrl ? { replacementUrl: cleanUrl } : {}),
-            updatedAt: new Date(),
-          },
-        }
-      );
+      if (mongoDb) {
+        await mongoDb.collection('defective_reports').updateOne(
+          { id: cleanId },
+          {
+            $set: {
+              status: 'fixed',
+              resolvedAt: new Date().toISOString(),
+              ...(cleanUrl ? { replacementUrl: cleanUrl } : {}),
+              updatedAt: new Date(),
+            },
+          }
+        ).catch(() => {});
+      }
+
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REPORTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) =>
+            r.id === cleanId
+              ? {
+                  ...r,
+                  status: 'fixed',
+                  resolvedAt: new Date().toISOString(),
+                  ...(cleanUrl ? { replacementUrl: cleanUrl } : {}),
+                }
+              : r
+          );
+          await redisClient.set(REDIS_REPORTS_KEY, updated);
+        } catch {}
+      }
 
       // Create in-app notification if enabled
       if (await isUserNotificationEnabled(repDoc.userId, repDoc.userEmail, 'reports')) {
         const notifId = `notif-rep-${repDoc.id}-fixed`;
-        await mongoDb.collection('notifications').insertOne({
+        await saveNotificationToBotStorage({
           id: notifId,
           userId: repDoc.userId,
           firebaseUid: repDoc.userId,
@@ -1573,14 +1922,15 @@ async function handleAdminResolveAction(chatId, targetId, targetType, linkUrl = 
           read: false,
           createdAt: new Date().toISOString(),
           readAt: null,
-        }).catch(() => {});
+        });
       }
 
       // Notify user via Telegram if connected
-      const tgLink = await mongoDb.collection('telegram_links').findOne({
+      let tgLink = mongoDb ? await mongoDb.collection('telegram_links').findOne({
         firebaseUid: repDoc.userId,
         status: 'active',
-      });
+      }) : null;
+
       if (tgLink && tgLink.reportNotifications !== false) {
         await sendTelegram(
           tgLink.telegramChatId,
@@ -1599,26 +1949,82 @@ async function handleAdminResolveAction(chatId, targetId, targetType, linkUrl = 
 }
 
 async function handleAdminRejectOrDismissAction(chatId, targetId, action, reason = '') {
-  if (!mongoDb) return sendTelegram(chatId, `⚠️ MongoDB is not connected.`);
   const cleanId = String(targetId || '').trim();
   const cleanReason = String(reason || 'Reviewed by admin').trim();
 
   try {
     if (action === 'reject') {
-      const reqDoc = await mongoDb.collection('requests').findOne({ id: cleanId });
+      let reqDoc = mongoDb ? await mongoDb.collection('requests').findOne({ id: cleanId }) : null;
+      if (!reqDoc && redisClient) {
+        const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+        const list = parseRedisList(raw);
+        reqDoc = list.find((r) => r.id === cleanId) || null;
+      }
       if (!reqDoc) return sendTelegram(chatId, `⚠️ Request ID \`${cleanId}\` not found.`);
-      await mongoDb.collection('requests').updateOne(
-        { id: cleanId },
-        { $set: { status: 'rejected', adminNote: cleanReason, updatedAt: new Date() } }
-      );
+
+      if (mongoDb) {
+        await mongoDb.collection('requests').updateOne(
+          { id: cleanId },
+          { $set: { status: 'rejected', adminNote: cleanReason, updatedAt: new Date() } }
+        ).catch(() => {});
+      }
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REQUESTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) => (r.id === cleanId ? { ...r, status: 'rejected', adminNote: cleanReason } : r));
+          await redisClient.set(REDIS_REQUESTS_KEY, updated);
+        } catch {}
+      }
+
       return sendTelegram(chatId, `❌ *Request Rejected:* \`${cleanId}\` (${reqDoc.title}).`);
     } else {
-      const repDoc = await mongoDb.collection('defective_reports').findOne({ id: cleanId });
+      let repDoc = mongoDb ? await mongoDb.collection('defective_reports').findOne({ id: cleanId }) : null;
+      if (!repDoc && redisClient) {
+        const raw = await redisClient.get(REDIS_REPORTS_KEY);
+        const list = parseRedisList(raw);
+        repDoc = list.find((r) => r.id === cleanId) || null;
+      }
       if (!repDoc) return sendTelegram(chatId, `⚠️ Report ID \`${cleanId}\` not found.`);
-      await mongoDb.collection('defective_reports').updateOne(
-        { id: cleanId },
-        { $set: { status: 'dismissed', adminNote: cleanReason, updatedAt: new Date() } }
-      );
+
+      if (mongoDb) {
+        await mongoDb.collection('defective_reports').updateOne(
+          { id: cleanId },
+          { $set: { status: 'dismissed', adminNote: cleanReason, updatedAt: new Date() } }
+        ).catch(() => {});
+      }
+      if (redisClient) {
+        try {
+          const raw = await redisClient.get(REDIS_REPORTS_KEY);
+          const list = parseRedisList(raw);
+          const updated = list.map((r) => (r.id === cleanId ? { ...r, status: 'dismissed', adminNote: cleanReason } : r));
+          await redisClient.set(REDIS_REPORTS_KEY, updated);
+        } catch {}
+      }
+
+      // Create in-app dismissal notification
+      if (await isUserNotificationEnabled(repDoc.userId, repDoc.userEmail, 'reports')) {
+        const notifId = `notif-rep-${repDoc.id}-dismissed`;
+        await saveNotificationToBotStorage({
+          id: notifId,
+          userId: repDoc.userId,
+          firebaseUid: repDoc.userId,
+          reportId: repDoc.id,
+          type: 'DEFECTIVE_LINK_DISMISSED',
+          title: 'Broken Link Report Dismissed',
+          message: `The link report for "${repDoc.mediaTitle}" was checked and dismissed. (${cleanReason})`,
+          mediaTitle: repDoc.mediaTitle,
+          movieId: repDoc.movieId,
+          mediaType: repDoc.mediaType || 'movie',
+          linkUrl: repDoc.movieId ? `/${repDoc.mediaType || 'movie'}/${repDoc.movieId}` : '/profile',
+          posterPath: repDoc.posterPath || null,
+          read: false,
+          createdAt: new Date().toISOString(),
+          readAt: null,
+          adminReply: cleanReason,
+        });
+      }
+
       return sendTelegram(chatId, `⚠️ *Report Dismissed:* \`${cleanId}\` (${repDoc.mediaTitle}).`);
     }
   } catch (err) {
@@ -1640,6 +2046,10 @@ async function handleCallbackQuery(cq) {
     pendingChatState.set(fromId, { action: 'await_reply', id, type: 'request' });
     return sendTelegram(fromId, `💬 *Reply to Request*\nPlease send your message to the user for request \`${id}\`:`);
   }
+  if (data.startsWith('prog_req:')) {
+    const id = data.split(':')[1];
+    return await handleAdminInProgressAction(fromId, id, 'request');
+  }
   if (data.startsWith('fulfill_req:')) {
     const id = data.split(':')[1];
     pendingChatState.set(fromId, { action: 'await_fulfill_link', id });
@@ -1655,6 +2065,10 @@ async function handleCallbackQuery(cq) {
     pendingChatState.set(fromId, { action: 'await_reply', id, type: 'report' });
     return sendTelegram(fromId, `💬 *Reply to Broken Link Report*\nPlease send your message for report \`${id}\`:`);
   }
+  if (data.startsWith('prog_rep:')) {
+    const id = data.split(':')[1];
+    return await handleAdminInProgressAction(fromId, id, 'report');
+  }
   if (data.startsWith('fix_rep:')) {
     const id = data.split(':')[1];
     pendingChatState.set(fromId, { action: 'await_fix_link', id });
@@ -1662,7 +2076,7 @@ async function handleCallbackQuery(cq) {
   }
   if (data.startsWith('dismiss_rep:')) {
     const id = data.split(':')[1];
-    return await handleAdminRejectOrDismissAction(fromId, id, 'dismiss', 'Dismissed / false alarm');
+    return await handleAdminRejectOrDismissAction(fromId, id, 'dismiss', 'Dismissed / verified working fine');
   }
 }
 
@@ -1758,6 +2172,16 @@ You can also use the inline buttons under notification cards to reply, fulfill, 
 
   if (command === 'reports' || command === 'rep') {
     return await handleListReports(chatId);
+  }
+
+  if (command === 'inprogress' || command === 'progress') {
+    const parts = (commandArgs || '').trim().split(/\s+/);
+    const targetId = parts[0];
+    const note = parts.slice(1).join(' ').trim();
+    if (!targetId) {
+      return sendTelegram(chatId, `⚠️ *Usage:* \`/inprogress <id> [optional note]\`\nExample: \`/inprogress req-123 Currently encoding in 1080p\``);
+    }
+    return await handleAdminInProgressAction(chatId, targetId, null, note);
   }
 
   if (command === 'reply') {

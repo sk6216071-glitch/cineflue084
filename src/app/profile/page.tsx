@@ -50,7 +50,7 @@ export default function ProfilePage() {
   // My Requests state
   const [myRequests, setMyRequests] = useState<UserRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
-  const [requestFilter, setRequestFilter] = useState<'all' | 'pending' | 'fulfilled' | 'rejected'>('all');
+  const [requestFilter, setRequestFilter] = useState<'all' | 'pending' | 'in_progress' | 'fulfilled' | 'rejected'>('all');
 
   // Telegram Notifications state
   const [telegramStatus, setTelegramStatus] = useState<{
@@ -76,7 +76,7 @@ export default function ProfilePage() {
   // My Reports state
   const [myReports, setMyReports] = useState<DefectiveLinkReport[]>([]);
   const [isLoadingReports, setIsLoadingReports] = useState(false);
-  const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'fixed' | 'dismissed'>('all');
+  const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'in_progress' | 'fixed' | 'dismissed'>('all');
 
   // In-App Website Notification Settings state
   const [inAppRequests, setInAppRequests] = useState(true);
@@ -719,7 +719,7 @@ export default function ProfilePage() {
 
             {/* Status Filter Tabs */}
             <div className="flex items-center p-1 bg-zinc-950 rounded-xl border border-zinc-800 text-xs">
-              {(['all', 'pending', 'fulfilled', 'rejected'] as const).map((filter) => {
+              {(['all', 'pending', 'in_progress', 'fulfilled', 'rejected'] as const).map((filter) => {
                 const count =
                   filter === 'all'
                     ? myRequests.length
@@ -735,7 +735,7 @@ export default function ProfilePage() {
                         : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    {filter} {count > 0 ? `(${count})` : ''}
+                    {filter === 'in_progress' ? 'In Progress' : filter} {count > 0 ? `(${count})` : ''}
                   </button>
                 );
               })}
@@ -783,6 +783,7 @@ export default function ProfilePage() {
               .filter((req) => (requestFilter === 'all' ? true : req.status === requestFilter))
               .map((req) => {
                 const isFulfilled = req.status === 'fulfilled';
+                const isInProgress = req.status === 'in_progress';
                 const isPending = req.status === 'pending';
                 const isRejected = req.status === 'rejected';
 
@@ -876,6 +877,13 @@ export default function ProfilePage() {
                         </div>
                       )}
 
+                      {isInProgress && (
+                        <span className="px-2.5 py-1 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30 text-xs font-bold flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                          In Progress
+                        </span>
+                      )}
+
                       {isPending && (
                         <span className="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
@@ -928,8 +936,8 @@ export default function ProfilePage() {
             )}
 
             {/* Status Filter Tabs */}
-            <div className="flex items-center p-1 bg-zinc-950 rounded-xl border border-zinc-800 text-xs">
-              {(['all', 'pending', 'fixed', 'dismissed'] as const).map((filter) => {
+            <div className="flex items-center p-1 bg-zinc-950 rounded-xl border border-zinc-800 text-xs overflow-x-auto max-w-full">
+              {(['all', 'pending', 'in_progress', 'fixed', 'dismissed'] as const).map((filter) => {
                 const count =
                   filter === 'all'
                     ? myReports.length
@@ -939,13 +947,13 @@ export default function ProfilePage() {
                     key={filter}
                     type="button"
                     onClick={() => setReportFilter(filter)}
-                    className={`px-2.5 py-1 rounded-lg font-semibold capitalize transition-all ${
+                    className={`px-2.5 py-1 rounded-lg font-semibold capitalize whitespace-nowrap transition-all ${
                       reportFilter === filter
                         ? 'bg-emerald-500 text-black shadow-sm'
                         : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    {filter === 'fixed' ? 'Resolved' : filter} {count > 0 ? `(${count})` : ''}
+                    {filter === 'fixed' ? 'Resolved' : filter === 'in_progress' ? 'In Progress' : filter} {count > 0 ? `(${count})` : ''}
                   </button>
                 );
               })}
@@ -987,6 +995,7 @@ export default function ProfilePage() {
               .filter((rep) => (reportFilter === 'all' ? true : rep.status === reportFilter))
               .map((rep) => {
                 const isFixed = rep.status === 'fixed';
+                const isInProgress = rep.status === 'in_progress';
                 const isPending = rep.status === 'pending';
                 const isDismissed = rep.status === 'dismissed';
 
@@ -1056,10 +1065,22 @@ export default function ProfilePage() {
                     {/* Status & Action */}
                     <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
                       {isFixed && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Resolved / Fixed
                           </span>
+
+                          {rep.replacementUrl && (
+                            <a
+                              href={rep.replacementUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold text-xs border border-emerald-500/30 transition-all"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              Fixed Link
+                            </a>
+                          )}
 
                           {targetWatchUrl && (
                             <Link
@@ -1071,6 +1092,13 @@ export default function ProfilePage() {
                             </Link>
                           )}
                         </div>
+                      )}
+
+                      {isInProgress && (
+                        <span className="px-2.5 py-1 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30 text-xs font-bold flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                          Repair In Progress
+                        </span>
                       )}
 
                       {isPending && (

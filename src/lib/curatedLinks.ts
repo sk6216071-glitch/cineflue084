@@ -10,6 +10,7 @@ function getAdminHeaders(): Record<string, string> {
   if (typeof window !== 'undefined') {
     const token =
       sessionStorage.getItem('cinefuel_admin_token') ||
+      localStorage.getItem('cinefuel_admin_token') ||
       localStorage.getItem('cinefuel_id_token') ||
       '';
     if (token) {

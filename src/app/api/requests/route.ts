@@ -5,7 +5,11 @@ import { saveLinkToDatabase } from '@/lib/redisDb';
 import { UserRequest, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
-import { createRequestFulfilledNotification, createAdminReplyNotification } from '@/lib/notificationsDb';
+import {
+  createRequestFulfilledNotification,
+  createRequestInProgressNotification,
+  createAdminReplyNotification,
+} from '@/lib/notificationsDb';
 import {
   dispatchTelegramNotificationForRequest,
   notifyAdminOnTelegramNewRequest,
@@ -247,6 +251,15 @@ export async function PATCH(req: NextRequest) {
         }
       } catch (notifErr: any) {
         console.error('Failed to trigger user fulfillment notification:', notifErr);
+      }
+    } else if (targetStatus === 'in_progress') {
+      try {
+        const progResult = await createRequestInProgressNotification(existingReq, {
+          adminNote: adminNote || adminReply,
+        });
+        notificationInfo = progResult;
+      } catch (progErr) {
+        console.warn('Failed to dispatch request in_progress notification:', progErr);
       }
     }
 

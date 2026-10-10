@@ -492,7 +492,10 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         sessionStorage.removeItem('cinefuel_admin_user');
       } catch {}
 
-      const sessionToken = sessionStorage.getItem('cinefuel_admin_token') || localStorage.getItem('cinefuel_id_token');
+      const sessionToken =
+        sessionStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_id_token');
       if (sessionToken) {
         fetch('/api/admin/auth', {
           headers: { Authorization: `Bearer ${sessionToken}` },
@@ -503,6 +506,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
               setIsAuthenticated(true);
             } else {
               sessionStorage.removeItem('cinefuel_admin_token');
+              localStorage.removeItem('cinefuel_admin_token');
               setIsAuthenticated(false);
             }
           })
@@ -996,6 +1000,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     if (typeof window !== 'undefined') {
       token =
         sessionStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_admin_token') ||
         localStorage.getItem('cinefuel_id_token') ||
         '';
     }
@@ -1157,6 +1162,11 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       });
 
       if (res.ok) {
+        if (replaceLinksMode === 'replace') {
+          await replaceAllGlobalCustomLinks(Number(managingTitle.id), linksToSave);
+        } else {
+          await saveMultipleGlobalCustomLinks(Number(managingTitle.id), linksToSave);
+        }
         setReplaceSuccessMsg(
           replaceLinksMode === 'replace'
             ? `✅ Successfully replaced entire link set for "${managingTitle.title}" with ${linksToSave.length} new link(s)!`
@@ -1198,6 +1208,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         }),
       });
       if (res.ok) {
+        await deleteAllGlobalCustomLinks(Number(title.id));
         addLog(`Admin deleted all links for "${title.title}" (ID: ${title.id})`, 'info');
         setTitleManagerModalOpen(false);
         fetchLinkedCatalogTitles(linkedTitlesPage, linkedTitlesFilter, linkedTitlesSearch);
@@ -1274,6 +1285,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       });
 
       if (res.ok) {
+        await saveGlobalCustomLink(Number(managingTitle.id), newObj);
         addLog(`Admin added link "${newObj.title}" to "${managingTitle.title}"`, 'success');
         setTitleAddLinkUrl('');
         if (managingTitle.media_type === 'tv' && titleAddLinkType === 'single_episode') {
@@ -1283,9 +1295,13 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         fetchTitleLinks(managingTitle.id);
         fetchLinkedCatalogTitles(linkedTitlesPage, linkedTitlesFilter, linkedTitlesSearch);
         refreshAdminLinks();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to add link: ${err.error || res.statusText || 'Server error'}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to add single title link:', err);
+      alert(`Error adding link: ${err?.message || 'Network error'}`);
     } finally {
       setIsAddingSingleTitleLink(false);
     }
@@ -1320,6 +1336,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
       // 3. Update global states and refresh lists
       removeCustomLink(Number(managingTitle.id), linkId);
+      await deleteGlobalCustomLink(Number(managingTitle.id), linkId);
       addLog(`Admin deleted link "${linkTitle}" from "${managingTitle.title}"`, 'warn');
       
       // 4. Update the parent linked catalog titles counts and refresh
@@ -1368,6 +1385,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       const data = await res.json();
       if (res.ok && data.success && data.token) {
         sessionStorage.setItem('cinefuel_admin_token', data.token);
+        localStorage.setItem('cinefuel_admin_token', data.token);
         setIsAuthenticated(true);
         setAuthError(false);
         setPasswordInput('');
@@ -1385,6 +1403,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   const handleLogout = () => {
     setIsAuthenticated(false);
     sessionStorage.removeItem('cinefuel_admin_token');
+    localStorage.removeItem('cinefuel_admin_token');
     sessionStorage.removeItem('cinefuel_admin_auth');
     sessionStorage.removeItem('cinefuel_admin_user');
     sessionStorage.removeItem('cinefuel_admin_pass');
@@ -1457,7 +1476,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
   const handleUpdateStatus = async (
     id: string,
-    status: 'pending' | 'fulfilled' | 'rejected',
+    status: 'pending' | 'in_progress' | 'fulfilled' | 'rejected',
     meta?: any
   ) => {
     // 1. Optimistic UI update for immediate instant feedback
@@ -1486,6 +1505,9 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         const refreshRes = await fetch(`/api/requests?_t=${Date.now()}`);
         if (refreshRes.ok) {
           const d = await refreshRes.json();
+          if (Array.isArray(d.requests)) {
+            setRequestsList(d.requests);
+          }
           setPendingRequestsCount(d.pendingCount || 0);
         }
       } else {
@@ -1518,6 +1540,9 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         const refreshRes = await fetch(`/api/requests?_t=${Date.now()}`);
         if (refreshRes.ok) {
           const d = await refreshRes.json();
+          if (Array.isArray(d.requests)) {
+            setRequestsList(d.requests);
+          }
           setPendingRequestsCount(d.pendingCount || 0);
         }
       } else {
@@ -1715,6 +1740,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       if (res.ok) {
         setFulfillSuccessMsg(`🎉 Successfully published link and fulfilled request for "${fulfillingRequest.title}"!`);
         addLog(`Fulfilled request for "${fulfillingRequest.title}" with link: ${finalUrl}`, 'success');
+        fetchAdminRequests();
         
         setRequestsList((prev) =>
           prev.map((r) =>
@@ -1734,6 +1760,10 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
           setFulfillingRequest(null);
           setFulfillSuccessMsg('');
         }, 2200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to fulfill request: ${err.error || res.statusText || 'Unauthorized'}`);
+        addLog(`Failed to fulfill request: ${err.error || res.statusText}`, 'warn');
       }
     } catch (err: any) {
       console.error('Error fulfilling request:', err);
@@ -1863,6 +1893,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       if (res.ok) {
         setFulfillSuccessMsg(`🎉 Successfully imported ${createdObjs.length} link${createdObjs.length > 1 ? 's' : ''} & fulfilled request for "${fulfillingRequest.title}"!`);
         addLog(`Fulfilled request for "${fulfillingRequest.title}" with ${createdObjs.length} bulk links`, 'success');
+        fetchAdminRequests();
 
         setRequestsList((prev) =>
           prev.map((r) =>
@@ -1884,6 +1915,10 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
           setFulfillBulkRawText('');
           setFulfillBulkParsedItems([]);
         }, 2200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to fulfill bulk request: ${err.error || res.statusText || 'Unauthorized'}`);
+        addLog(`Failed to fulfill request with bulk links: ${err.error || res.statusText}`, 'warn');
       }
     } catch (err: any) {
       console.error('Error fulfilling bulk request:', err);
@@ -2020,6 +2055,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       if (res.ok) {
         setFulfillSuccessMsg(`🎉 Successfully saved ${createdObjs.length} episode containers & fulfilled request for "${fulfillingRequest.title}"!`);
         addLog(`Fulfilled request for "${fulfillingRequest.title}" with ${createdObjs.length} episode grid links`, 'success');
+        fetchAdminRequests();
 
         setRequestsList((prev) =>
           prev.map((r) =>
@@ -2039,6 +2075,10 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
           setFulfillingRequest(null);
           setFulfillSuccessMsg('');
         }, 2200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to fulfill grid request: ${err.error || res.statusText || 'Unauthorized'}`);
+        addLog(`Failed to fulfill request with episode grid: ${err.error || res.statusText}`, 'warn');
       }
     } catch (err: any) {
       console.error('Error fulfilling grid request:', err);
@@ -2071,7 +2111,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
   const handleUpdateReportStatus = async (
     id: string,
-    status: 'pending' | 'fixed' | 'dismissed',
+    status: 'pending' | 'in_progress' | 'fixed' | 'dismissed',
     meta?: any
   ) => {
     // 1. Optimistic UI update
@@ -2101,6 +2141,9 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         const refreshRes = await fetch(`/api/reports?_t=${Date.now()}`);
         if (refreshRes.ok) {
           const d = await refreshRes.json();
+          if (Array.isArray(d.reports)) {
+            setReportsList(d.reports);
+          }
           setPendingReportsCount(d.pendingCount || 0);
         }
       } else {
@@ -2298,6 +2341,12 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       });
       if (res.ok) {
         addLog(`Report ${id} deleted permanently.`, 'info');
+        const refreshRes = await fetch(`/api/reports?_t=${Date.now()}`);
+        if (refreshRes.ok) {
+          const d = await refreshRes.json();
+          if (Array.isArray(d.reports)) setReportsList(d.reports);
+          setPendingReportsCount(d.pendingCount || 0);
+        }
       } else {
         setReportsList(previousReports);
         const errData = await res.json().catch(() => ({}));
@@ -6135,12 +6184,14 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                 req.status === 'pending'
                                   ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                                  : req.status === 'in_progress'
+                                  ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40'
                                   : req.status === 'fulfilled'
                                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                                   : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
                               }`}
                             >
-                              {req.status}
+                              {req.status === 'in_progress' ? 'In Progress' : req.status}
                             </span>
                           </div>
 
@@ -6296,7 +6347,18 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                         </button>
 
                         {/* Status Toggle Quick Buttons */}
-                        {req.status === 'pending' ? (
+                        {req.status !== 'in_progress' && req.status !== 'fulfilled' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateStatus(req.id, 'in_progress')}
+                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-sky-500/50 text-sky-400 hover:text-sky-300 text-xs font-bold transition-colors cursor-pointer hover:scale-105 active:scale-95"
+                            title="Mark request as in progress"
+                          >
+                            In Progress
+                          </button>
+                        )}
+
+                        {req.status !== 'rejected' && (
                           <button
                             type="button"
                             onClick={() => handleUpdateStatus(req.id, 'rejected')}
@@ -6305,7 +6367,9 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                           >
                             Reject
                           </button>
-                        ) : (
+                        )}
+
+                        {req.status !== 'pending' && (
                           <button
                             type="button"
                             onClick={() => handleUpdateStatus(req.id, 'pending')}
@@ -6617,12 +6681,14 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                               className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                                 report.status === 'fixed'
                                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                  : report.status === 'in_progress'
+                                  ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
                                   : report.status === 'dismissed'
                                   ? 'bg-zinc-800 text-zinc-400 border border-zinc-700'
                                   : 'bg-rose-500/15 text-rose-400 border border-rose-500/30 animate-pulse'
                               }`}
                             >
-                              {report.status === 'fixed' ? '✓ Fixed' : report.status === 'dismissed' ? 'Dismissed' : 'Pending Fix'}
+                              {report.status === 'fixed' ? '✓ Fixed' : report.status === 'in_progress' ? '⏳ In Progress' : report.status === 'dismissed' ? 'Dismissed' : 'Pending Fix'}
                             </span>
                           </div>
 
@@ -6761,18 +6827,35 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                           <span>Delete Broken Link</span>
                         </button>
 
-                        {/* 3. Dismiss / Reopen Actions */}
+                        {/* 3. In Progress, Dismiss & Reopen Actions */}
                         <div className="flex items-center gap-1.5">
-                          {report.status === 'pending' ? (
+                          {report.status !== 'in_progress' && report.status !== 'fixed' && (
                             <button
                               type="button"
-                              onClick={() => handleUpdateReportStatus(report.id, 'dismissed')}
+                              onClick={() => handleUpdateReportStatus(report.id, 'in_progress')}
+                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-sky-500 text-sky-400 hover:text-sky-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                              title="Mark report as being investigated / in progress"
+                            >
+                              In Progress
+                            </button>
+                          )}
+
+                          {report.status !== 'dismissed' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const reason = prompt('Enter dismissal explanation for user:', 'Curators verified and confirmed link is active.');
+                                if (reason === null) return;
+                                handleUpdateReportStatus(report.id, 'dismissed', { adminNote: reason });
+                              }}
                               className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                              title="Mark as false alarm or link is functioning fine"
+                              title="Mark as false alarm or link is functioning fine with explanation"
                             >
                               Dismiss (Valid)
                             </button>
-                          ) : (
+                          )}
+
+                          {report.status !== 'pending' && (
                             <button
                               type="button"
                               onClick={() => handleUpdateReportStatus(report.id, 'pending')}

@@ -312,7 +312,7 @@ export interface UserRequest {
   audioLanguage: string; // e.g. 'Hindi + English' | 'Hindi Dubbed' | 'English' | 'Any'
   notes?: string;
   userContact?: string;
-  status: 'pending' | 'fulfilled' | 'rejected';
+  status: 'pending' | 'in_progress' | 'fulfilled' | 'rejected';
   createdAt: string;
   fulfilledAt?: string;
   fulfilledLinkId?: string;
@@ -351,7 +351,7 @@ export interface DefectiveLinkReport {
   server?: string;
   additionalNotes?: string;
   userEmail?: string;
-  status: 'pending' | 'fixed' | 'dismissed';
+  status: 'pending' | 'in_progress' | 'fixed' | 'dismissed';
   createdAt: string;
   resolvedAt?: string;
   replacementUrl?: string;
@@ -365,7 +365,9 @@ export interface DefectiveLinkReport {
 
 export type NotificationType =
   | 'REQUEST_FULFILLED'
+  | 'REQUEST_IN_PROGRESS'
   | 'DEFECTIVE_LINK_RESOLVED'
+  | 'DEFECTIVE_LINK_IN_PROGRESS'
   | 'DEFECTIVE_LINK_DISMISSED'
   | 'ADMIN_REPLY';
 
@@ -387,6 +389,7 @@ export interface UserNotification {
   createdAt: string;
   readAt?: string | null;
   adminReply?: string;
+  replacementUrl?: string;
 }
 
 export interface TelegramLink {

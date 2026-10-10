@@ -494,7 +494,11 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
-      const token = sessionStorage.getItem('cinefuel_admin_token');
+      const token =
+        sessionStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_admin_token') ||
+        localStorage.getItem('cinefuel_id_token') ||
+        '';
       setIsAdmin(Boolean(token));
     }
   }, [isMounted]);

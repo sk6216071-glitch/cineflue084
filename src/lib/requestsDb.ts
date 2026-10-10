@@ -7,6 +7,17 @@ import { UserRequest } from '@/types';
 const REDIS_REQUESTS_KEY = 'cinefuel:user_requests';
 const LOCAL_REQUESTS_FILE = path.join(process.cwd(), 'src', 'data', 'userRequests.json');
 
+export function parseRedisList<T>(data: any): T[] {
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [];
+}
+
 function isFileSystemWritable(): boolean {
   if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
     return false;
@@ -219,8 +230,8 @@ export async function saveNewRequest(request: UserRequest): Promise<boolean> {
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
+      const existing = await redisClient.get<any>(REDIS_REQUESTS_KEY);
+      const currentList = parseRedisList<UserRequest>(existing);
       const updated = [request, ...currentList.filter((r) => r.id !== request.id)];
       await redisClient.set(REDIS_REQUESTS_KEY, updated);
       persisted = true;
@@ -254,7 +265,7 @@ export async function saveNewRequest(request: UserRequest): Promise<boolean> {
  */
 export async function updateRequestStatus(
   id: string,
-  status: 'pending' | 'fulfilled' | 'rejected',
+  status: 'pending' | 'in_progress' | 'fulfilled' | 'rejected',
   meta?: {
     fulfilledLinkId?: string;
     fulfilledLinkUrl?: string;
@@ -297,9 +308,18 @@ export async function updateRequestStatus(
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
-      const updated = currentList.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
+      const existing = await redisClient.get<any>(REDIS_REQUESTS_KEY);
+      const currentList = parseRedisList<UserRequest>(existing);
+      const updated = currentList.map((r) => {
+        if (r.id === cleanId) {
+          return {
+            ...r,
+            ...updates,
+            ...(replyObj ? { adminReplies: [...(r.adminReplies || []), replyObj] } : {}),
+          };
+        }
+        return r;
+      });
       await redisClient.set(REDIS_REQUESTS_KEY, updated);
       persisted = true;
     } catch (err: any) {
@@ -311,7 +331,16 @@ export async function updateRequestStatus(
   if (isFileSystemWritable()) {
     try {
       const local = getLocalFallbackRequests();
-      const updated = local.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
+      const updated = local.map((r) => {
+        if (r.id === cleanId) {
+          return {
+            ...r,
+            ...updates,
+            ...(replyObj ? { adminReplies: [...(r.adminReplies || []), replyObj] } : {}),
+          };
+        }
+        return r;
+      });
       if (saveLocalFallbackRequests(updated)) {
         persisted = true;
       }
@@ -349,8 +378,8 @@ export async function deleteRequest(id: string): Promise<boolean> {
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
+      const existing = await redisClient.get<any>(REDIS_REQUESTS_KEY);
+      const currentList = parseRedisList<UserRequest>(existing);
       await redisClient.set(REDIS_REQUESTS_KEY, currentList.filter((r) => r.id !== id));
       persisted = true;
     } catch {}
@@ -398,8 +427,8 @@ export async function getRequestById(id: string, dbName?: string): Promise<UserR
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const redisList = await redisClient.get<UserRequest[]>(REDIS_REQUESTS_KEY);
-      const list = Array.isArray(redisList) ? redisList : [];
+      const redisList = await redisClient.get<any>(REDIS_REQUESTS_KEY);
+      const list = parseRedisList<UserRequest>(redisList);
       const found = list.find((r) => r.id === reqId);
       if (found) return found;
     } catch {}

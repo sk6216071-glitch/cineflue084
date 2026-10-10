@@ -258,7 +258,10 @@ export const NotificationBell: React.FC = () => {
               notifications.map((notif) => {
                 const isReportResolved = notif.type === 'DEFECTIVE_LINK_RESOLVED';
                 const isReportDismissed = notif.type === 'DEFECTIVE_LINK_DISMISSED';
-                const isRequestFulfilled = notif.type === 'REQUEST_FULFILLED' || (!isReportResolved && !isReportDismissed);
+                const isReportInProgress = notif.type === 'DEFECTIVE_LINK_IN_PROGRESS';
+                const isRequestInProgress = notif.type === 'REQUEST_IN_PROGRESS';
+                const isAdminReply = notif.type === 'ADMIN_REPLY';
+                const isRequestFulfilled = notif.type === 'REQUEST_FULFILLED' || (!isReportResolved && !isReportDismissed && !isReportInProgress && !isRequestInProgress && !isAdminReply);
 
                 return (
                   <div
@@ -269,8 +272,12 @@ export const NotificationBell: React.FC = () => {
                         ? 'bg-transparent hover:bg-zinc-800/40 text-zinc-400'
                         : isReportResolved
                         ? 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08] text-zinc-200'
+                        : (isRequestInProgress || isReportInProgress)
+                        ? 'bg-sky-500/[0.04] hover:bg-sky-500/[0.08] text-zinc-200'
+                        : isAdminReply
+                        ? 'bg-purple-500/[0.04] hover:bg-purple-500/[0.08] text-zinc-200'
                         : isReportDismissed
-                        ? 'bg-blue-500/[0.04] hover:bg-blue-500/[0.08] text-zinc-200'
+                        ? 'bg-zinc-800/40 hover:bg-zinc-800/60 text-zinc-300'
                         : 'bg-amber-500/[0.04] hover:bg-amber-500/[0.08] text-zinc-200'
                     }`}
                   >
@@ -285,6 +292,8 @@ export const NotificationBell: React.FC = () => {
                         />
                       ) : isReportResolved ? (
                         <Wrench className="w-5 h-5 text-emerald-400" />
+                      ) : (isReportInProgress || isRequestInProgress) ? (
+                        <Clock className="w-5 h-5 text-sky-400" />
                       ) : isReportDismissed ? (
                         <Info className="w-5 h-5 text-blue-400" />
                       ) : notif.mediaType === 'tv' ? (
@@ -302,10 +311,25 @@ export const NotificationBell: React.FC = () => {
                             {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />}
                             Report Resolved
                           </span>
+                        ) : isReportInProgress ? (
+                          <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1">
+                            {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
+                            Repair In Progress
+                          </span>
+                        ) : isRequestInProgress ? (
+                          <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1">
+                            {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
+                            Request In Progress
+                          </span>
+                        ) : isAdminReply ? (
+                          <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1">
+                            {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />}
+                            Staff Reply
+                          </span>
                         ) : isReportDismissed ? (
-                          <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1">
+                          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
                             {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />}
-                            Report Update
+                            Report Reviewed
                           </span>
                         ) : (
                           <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
@@ -327,9 +351,17 @@ export const NotificationBell: React.FC = () => {
                         {notif.message}
                       </p>
 
+                      {/* Admin Reply or Resolution Callout */}
+                      {notif.adminReply && (
+                        <div className="p-2 rounded-lg bg-zinc-900/90 border border-purple-500/20 text-[11px] text-zinc-300">
+                          <span className="text-purple-400 font-bold block text-[10px] uppercase">Staff Note:</span>
+                          {notif.adminReply}
+                        </div>
+                      )}
+
                       {/* Actions Row */}
                       <div className="pt-1.5 flex items-center justify-between gap-2">
-                        {isReportResolved ? (
+                        {isReportResolved || isReportDismissed ? (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -341,7 +373,7 @@ export const NotificationBell: React.FC = () => {
                             <Play className="w-3 h-3 fill-black" />
                             Open Title
                           </button>
-                        ) : isReportDismissed ? (
+                        ) : (isRequestInProgress || isReportInProgress || isAdminReply) ? (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -351,7 +383,7 @@ export const NotificationBell: React.FC = () => {
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-[10px] border border-zinc-700 transition-all"
                           >
                             <ExternalLink className="w-3 h-3" />
-                            Open Title
+                            View Status
                           </button>
                         ) : (
                           <button

@@ -10,6 +10,17 @@ import { RegisteredUser } from '@/types';
 const REDIS_USERS_KEY = 'cinefuel:registered_users';
 const LOCAL_USERS_FILE = path.join(process.cwd(), 'src', 'data', 'registeredUsers.json');
 
+export function parseRedisList<T>(data: any): T[] {
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [];
+}
+
 /**
  * Reads local JSON fallback users file
  */
@@ -119,13 +130,10 @@ export async function getAllUsers(options?: { page?: number; limit?: number }): 
   const redisClient = getRedisClient();
   if (userList.length === 0 && redisClient) {
     try {
-      const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
-      if (Array.isArray(redisData) && redisData.length > 0) {
-        userList = redisData.map((u: any) => sanitizeUserDocument(u));
-        source = 'upstash_redis';
-      } else if (typeof redisData === 'string') {
-        const parsed = JSON.parse(redisData);
-        userList = (Array.isArray(parsed) ? parsed : []).map((u: any) => sanitizeUserDocument(u));
+      const redisData = await redisClient.get<any>(REDIS_USERS_KEY);
+      const parsedList = parseRedisList<RegisteredUser>(redisData);
+      if (parsedList.length > 0) {
+        userList = parsedList.map((u: any) => sanitizeUserDocument(u));
         source = 'upstash_redis';
       }
     } catch (redisErr: any) {
@@ -272,8 +280,8 @@ export async function getUserByFirebaseUid(firebaseUid: string): Promise<Registe
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
-      const list = Array.isArray(redisData) ? redisData : (typeof redisData === 'string' ? JSON.parse(redisData) : []);
+      const redisData = await redisClient.get<any>(REDIS_USERS_KEY);
+      const list = parseRedisList<RegisteredUser>(redisData);
       const found = list.find((u: RegisteredUser) => (u.firebaseUid === cleanUid || u.uid === cleanUid));
       if (found) return sanitizeUserDocument(found);
     } catch (e) {}
@@ -313,8 +321,8 @@ export async function getUserByEmail(email: string): Promise<RegisteredUser | nu
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const redisData = await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY);
-      const list = Array.isArray(redisData) ? redisData : (typeof redisData === 'string' ? JSON.parse(redisData) : []);
+      const redisData = await redisClient.get<any>(REDIS_USERS_KEY);
+      const list = parseRedisList<RegisteredUser>(redisData);
       const found = list.find((u: RegisteredUser) => u.email.toLowerCase() === cleanEmail);
       if (found) return sanitizeUserDocument(found);
     } catch (e) {}
@@ -408,8 +416,8 @@ export async function saveFirebaseUserToDatabase(profile: {
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existingRedis = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
-      const currentList = Array.isArray(existingRedis) ? existingRedis : [];
+      const existingRedis = await redisClient.get<any>(REDIS_USERS_KEY);
+      const currentList = parseRedisList<RegisteredUser>(existingRedis);
       const updated = [
         finalUser,
         ...currentList.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid && (!cleanEmail || u.email !== cleanEmail)),
@@ -494,8 +502,8 @@ export async function saveUserToDatabase(user: Partial<RegisteredUser> & { uid?:
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existingRedis = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
-      const currentList = Array.isArray(existingRedis) ? existingRedis : [];
+      const existingRedis = await redisClient.get<any>(REDIS_USERS_KEY);
+      const currentList = parseRedisList<RegisteredUser>(existingRedis);
       const updated = [finalUser, ...currentList.filter((u) => u.uid !== finalUser.uid && u.email !== finalUser.email)];
       await redisClient.set(REDIS_USERS_KEY, updated);
       persisted = true;
@@ -547,14 +555,13 @@ export async function deleteUserFromDatabase(uid: string): Promise<boolean> {
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<RegisteredUser[]>(REDIS_USERS_KEY)) || [];
-      if (Array.isArray(existing)) {
-        await redisClient.set(
-          REDIS_USERS_KEY,
-          existing.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid)
-        );
-        persisted = true;
-      }
+      const existing = await redisClient.get<any>(REDIS_USERS_KEY);
+      const currentList = parseRedisList<RegisteredUser>(existing);
+      await redisClient.set(
+        REDIS_USERS_KEY,
+        currentList.filter((u) => u.firebaseUid !== cleanUid && u.uid !== cleanUid)
+      );
+      persisted = true;
     } catch (e) {}
   }
 

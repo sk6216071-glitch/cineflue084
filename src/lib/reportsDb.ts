@@ -7,6 +7,17 @@ import { DefectiveLinkReport } from '@/types';
 const REDIS_REPORTS_KEY = 'cinefuel:defective_reports';
 const LOCAL_REPORTS_FILE = path.join(process.cwd(), 'src', 'data', 'defectiveReports.json');
 
+export function parseRedisList<T>(data: any): T[] {
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [];
+}
+
 function isFileSystemWritable(): boolean {
   if (process.env.NEXT_RUNTIME === 'edge' || process.env.CLOUDFLARE_WORKER || typeof (process as any).getBuiltinModule !== 'undefined') {
     return false;
@@ -122,15 +133,8 @@ export async function getAllReports(
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const redisList = await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY);
-      let list: DefectiveLinkReport[] = [];
-      if (Array.isArray(redisList)) {
-        list = redisList;
-      } else if (typeof redisList === 'string') {
-        try {
-          list = JSON.parse(redisList);
-        } catch {}
-      }
+      const redisList = await redisClient.get<any>(REDIS_REPORTS_KEY);
+      const list: DefectiveLinkReport[] = parseRedisList<DefectiveLinkReport>(redisList);
 
       if (list.length > 0) {
         const pendingCount = list.filter((r) => r.status === 'pending').length;
@@ -194,8 +198,8 @@ export async function saveNewReport(report: DefectiveLinkReport): Promise<boolea
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
+      const existing = await redisClient.get<any>(REDIS_REPORTS_KEY);
+      const currentList = parseRedisList<DefectiveLinkReport>(existing);
       const updated = [report, ...currentList.filter((r) => r.id !== report.id)];
       await redisClient.set(REDIS_REPORTS_KEY, updated);
       persisted = true;
@@ -229,7 +233,7 @@ export async function saveNewReport(report: DefectiveLinkReport): Promise<boolea
  */
 export async function updateReportStatus(
   id: string,
-  status: 'pending' | 'fixed' | 'dismissed',
+  status: 'pending' | 'in_progress' | 'fixed' | 'dismissed',
   meta?: {
     replacementUrl?: string;
     adminNote?: string;
@@ -270,9 +274,17 @@ export async function updateReportStatus(
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
-      const updated = currentList.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
+      const existing = await redisClient.get<any>(REDIS_REPORTS_KEY);
+      const currentList = parseRedisList<DefectiveLinkReport>(existing);
+      const updated = currentList.map((r) =>
+        r.id === cleanId
+          ? {
+              ...r,
+              ...updates,
+              ...(replyObj ? { adminReplies: [...(r.adminReplies || []), replyObj] } : {}),
+            }
+          : r
+      );
       await redisClient.set(REDIS_REPORTS_KEY, updated);
       persisted = true;
     } catch (err: any) {
@@ -284,7 +296,15 @@ export async function updateReportStatus(
   if (isFileSystemWritable()) {
     try {
       const local = getLocalFallbackReports();
-      const updated = local.map((r) => (r.id === cleanId ? { ...r, ...updates } : r));
+      const updated = local.map((r) =>
+        r.id === cleanId
+          ? {
+              ...r,
+              ...updates,
+              ...(replyObj ? { adminReplies: [...(r.adminReplies || []), replyObj] } : {}),
+            }
+          : r
+      );
       if (saveLocalFallbackReports(updated)) {
         persisted = true;
       }
@@ -322,9 +342,9 @@ export async function deleteReport(id: string): Promise<boolean> {
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const existing = (await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY)) || [];
-      const currentList = Array.isArray(existing) ? existing : [];
-      await redisClient.set(REDIS_REPORTS_KEY, currentList.filter((r) => r.id !== id));
+      const existing = await redisClient.get<any>(REDIS_REPORTS_KEY);
+      const currentList = parseRedisList<DefectiveLinkReport>(existing);
+      await redisClient.set(REDIS_REPORTS_KEY, currentList.filter((r) => r.id !== cleanId));
       persisted = true;
     } catch {}
   }
@@ -333,7 +353,7 @@ export async function deleteReport(id: string): Promise<boolean> {
   if (isFileSystemWritable()) {
     try {
       const local = getLocalFallbackReports();
-      if (saveLocalFallbackReports(local.filter((r) => r.id !== id))) {
+      if (saveLocalFallbackReports(local.filter((r) => r.id !== cleanId))) {
         persisted = true;
       }
     } catch {}
@@ -369,11 +389,10 @@ export async function getReportById(id: string, dbName?: string): Promise<Defect
   const redisClient = getRedisClient();
   if (redisClient) {
     try {
-      const list = await redisClient.get<DefectiveLinkReport[]>(REDIS_REPORTS_KEY);
-      if (Array.isArray(list)) {
-        const found = list.find((r) => r.id === cleanId);
-        if (found) return found;
-      }
+      const redisData = await redisClient.get<any>(REDIS_REPORTS_KEY);
+      const list = parseRedisList<DefectiveLinkReport>(redisData);
+      const found = list.find((r) => r.id === cleanId);
+      if (found) return found;
     } catch {}
   }
 
