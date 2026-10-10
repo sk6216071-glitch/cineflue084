@@ -541,20 +541,35 @@ ${report.adminNote ? `\n💬 <i>Admin Note: ${escapeHtml(report.adminNote)}</i>\
 
 const ADMIN_TELEGRAM_IDS = [930928310];
 
+// Deduplication cache to prevent sending duplicate alerts when the same event is retried
+const sentAdminAlerts = new Set<string>();
+
 /**
- * Notifies telegram admin(s) instantly when a user submits a new request on the website
+ * Notifies telegram admin(s) instantly when a user submits a new request on the website.
+ * Telegram is ONLY for alerting admins; all review, replies, fixes, and fulfillment happen in the web admin panel.
  */
 export async function notifyAdminOnTelegramNewRequest(request: UserRequest): Promise<void> {
+  const alertKey = `req:${request.id}`;
+  if (sentAdminAlerts.has(alertKey)) {
+    return;
+  }
+  sentAdminAlerts.add(alertKey);
+  if (sentAdminAlerts.size > 1000) {
+    const first = sentAdminAlerts.values().next().value;
+    if (first) sentAdminAlerts.delete(first);
+  }
+
   try {
     const title = escapeHtml(request.title.trim());
     const releaseYear = request.releaseYear ? ` (${escapeHtml(request.releaseYear)})` : '';
     const quality = request.quality ? escapeHtml(request.quality) : 'Any';
     const audio = request.audioLanguage ? escapeHtml(request.audioLanguage) : 'Any';
-    const user = escapeHtml(request.userEmail || request.userName || 'Anonymous User');
+    const user = escapeHtml(request.userEmail || request.userName || 'Signed-in User');
     const notes = request.notes ? escapeHtml(request.notes) : '';
+    const adminUrl = `${getSiteUrl()}/admin?tab=requests&id=${encodeURIComponent(request.id)}`;
 
     const text =
-`🎬 <b>NEW USER REQUEST!</b>
+`🎬 <b>NEW USER REQUEST SUBMISSION</b>
 ─────────────────────────────
 📌 <b>Title:</b> <b>${title}${releaseYear}</b>
 💎 <b>Quality:</b> <code>${quality}</code>
@@ -562,20 +577,20 @@ export async function notifyAdminOnTelegramNewRequest(request: UserRequest): Pro
 👤 <b>User:</b> ${user}
 🆔 <code>${request.id}</code>
 ${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
-⚡ <i>Review, reply, or fulfill directly below:</i>`;
+⚡ <i>Open in Website Admin Panel to review, reply, or fulfill:</i>`;
 
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: '💬 Reply', callback_data: `reply_req:${request.id}` },
-          { text: '✅ Fulfill', callback_data: `fulfill_req:${request.id}` },
-          { text: '❌ Reject', callback_data: `reject_req:${request.id}` },
+          { text: '🔗 Open in Admin Panel', url: adminUrl },
         ],
       ],
     };
 
     for (const adminId of ADMIN_TELEGRAM_IDS) {
-      await sendTelegramMessage(adminId, text, replyMarkup).catch(() => {});
+      await sendTelegramMessage(adminId, text, replyMarkup).catch((err) => {
+        console.warn(`Admin telegram alert delivery note for request ${request.id}:`, err?.message);
+      });
     }
   } catch (err: any) {
     console.warn('Failed to notify admin on Telegram for request:', err.message);
@@ -583,39 +598,51 @@ ${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
 }
 
 /**
- * Notifies telegram admin(s) instantly when a user reports a broken link on the website
+ * Notifies telegram admin(s) instantly when a user reports a broken link on the website.
+ * Telegram is ONLY for alerting admins; all review, replies, fixes, and dismissal happen in the web admin panel.
  */
 export async function notifyAdminOnTelegramNewReport(report: DefectiveLinkReport): Promise<void> {
+  const alertKey = `rep:${report.id}`;
+  if (sentAdminAlerts.has(alertKey)) {
+    return;
+  }
+  sentAdminAlerts.add(alertKey);
+  if (sentAdminAlerts.size > 1000) {
+    const first = sentAdminAlerts.values().next().value;
+    if (first) sentAdminAlerts.delete(first);
+  }
+
   try {
     const mediaTitle = escapeHtml(report.mediaTitle || 'Unknown Title');
     const issueLabel = escapeHtml(report.issueLabel || report.issueType);
     const reportedUrl = escapeHtml(report.reportedUrl);
-    const user = escapeHtml(report.userEmail || report.userName || 'Anonymous User');
+    const user = escapeHtml(report.userEmail || report.userName || 'Signed-in User');
     const notes = report.additionalNotes ? escapeHtml(report.additionalNotes) : '';
+    const adminUrl = `${getSiteUrl()}/admin?tab=reports&id=${encodeURIComponent(report.id)}`;
 
     const text =
-`🚨 <b>BROKEN LINK REPORTED!</b>
+`🚨 <b>NEW DEFECTIVE LINK REPORT</b>
 ─────────────────────────────
 🎬 <b>Title:</b> <b>${mediaTitle}</b>
 ⚠️ <b>Issue:</b> <code>${issueLabel}</code>
-🔗 <b>URL:</b> <code>${reportedUrl}</code>
+🔗 <b>Reported URL:</b> <code>${reportedUrl}</code>
 👤 <b>Reporter:</b> ${user}
 🆔 <code>${report.id}</code>
 ${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
-⚡ <i>Review, reply, or fix directly below:</i>`;
+⚡ <i>Open in Website Admin Panel to test, reply, or replace link:</i>`;
 
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: '💬 Reply', callback_data: `reply_rep:${report.id}` },
-          { text: '🔧 Fix / Replace', callback_data: `fix_rep:${report.id}` },
-          { text: '⚠️ Dismiss', callback_data: `dismiss_rep:${report.id}` },
+          { text: '🔗 Open in Admin Panel', url: adminUrl },
         ],
       ],
     };
 
     for (const adminId of ADMIN_TELEGRAM_IDS) {
-      await sendTelegramMessage(adminId, text, replyMarkup).catch(() => {});
+      await sendTelegramMessage(adminId, text, replyMarkup).catch((err) => {
+        console.warn(`Admin telegram alert delivery note for report ${report.id}:`, err?.message);
+      });
     }
   } catch (err: any) {
     console.warn('Failed to notify admin on Telegram for report:', err.message);

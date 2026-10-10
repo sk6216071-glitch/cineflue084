@@ -365,6 +365,58 @@ export async function createRequestInProgressNotification(
 }
 
 /**
+ * Creates a notification when a user request is rejected by an admin.
+ */
+export async function createRequestRejectedNotification(
+  request: UserRequest,
+  meta?: {
+    adminNote?: string;
+  },
+  dbName?: string
+): Promise<{ success: boolean; created: boolean; notification?: UserNotification }> {
+  const uid = (request.userId || '').trim();
+  if (!uid || uid === 'guest-user-default') {
+    return { success: false, created: false };
+  }
+
+  try {
+    const enabled = await isUserNotificationEnabled(uid, 'request');
+    if (!enabled) {
+      return { success: true, created: false };
+    }
+
+    const mediaType = request.mediaType === 'tv' ? 'tv' : 'movie';
+    const tmdbId = request.tmdbId;
+    const linkUrl = '/profile#my-requests';
+    const cleanMediaTitle = request.title.trim();
+
+    const notif: UserNotification = {
+      id: `notif-rej-${request.id}`,
+      userId: uid,
+      firebaseUid: uid,
+      requestId: request.id,
+      type: 'REQUEST_REJECTED',
+      title: `Request Rejected: ${cleanMediaTitle}`,
+      message: `Your request for "${cleanMediaTitle}" could not be fulfilled.${meta?.adminNote ? ` Reason: "${meta.adminNote}"` : ''}`,
+      mediaTitle: cleanMediaTitle,
+      movieId: tmdbId,
+      mediaType,
+      linkUrl,
+      posterPath: request.posterPath || null,
+      read: false,
+      createdAt: new Date().toISOString(),
+      readAt: null,
+      adminReply: meta?.adminNote || undefined,
+    };
+
+    return await saveNotificationRecord(notif, dbName);
+  } catch (err: any) {
+    console.error('Failed to create request rejection notification:', err.message);
+    return { success: false, created: false };
+  }
+}
+
+/**
  * Creates a single, idempotent notification for a defective link report resolution or update.
  */
 export async function createReportNotification(

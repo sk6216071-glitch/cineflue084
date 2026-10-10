@@ -2034,50 +2034,15 @@ async function handleAdminRejectOrDismissAction(chatId, targetId, action, reason
 
 async function handleCallbackQuery(cq) {
   const fromId = cq.from ? cq.from.id : null;
-  const data = cq.data || '';
   if (!AUTHORIZED_TELEGRAM_IDS.includes(fromId)) {
     return answerCallbackQuery(cq.id, 'Unauthorized admin.');
   }
 
-  await answerCallbackQuery(cq.id);
-
-  if (data.startsWith('reply_req:')) {
-    const id = data.split(':')[1];
-    pendingChatState.set(fromId, { action: 'await_reply', id, type: 'request' });
-    return sendTelegram(fromId, `💬 *Reply to Request*\nPlease send your message to the user for request \`${id}\`:`);
-  }
-  if (data.startsWith('prog_req:')) {
-    const id = data.split(':')[1];
-    return await handleAdminInProgressAction(fromId, id, 'request');
-  }
-  if (data.startsWith('fulfill_req:')) {
-    const id = data.split(':')[1];
-    pendingChatState.set(fromId, { action: 'await_fulfill_link', id });
-    return sendTelegram(fromId, `🎬 *Fulfill Request*\nPlease send the download/streaming link for request \`${id}\` (or reply *done* to fulfill without new link):`);
-  }
-  if (data.startsWith('reject_req:')) {
-    const id = data.split(':')[1];
-    return await handleAdminRejectOrDismissAction(fromId, id, 'reject', 'Rejected by admin');
-  }
-
-  if (data.startsWith('reply_rep:')) {
-    const id = data.split(':')[1];
-    pendingChatState.set(fromId, { action: 'await_reply', id, type: 'report' });
-    return sendTelegram(fromId, `💬 *Reply to Broken Link Report*\nPlease send your message for report \`${id}\`:`);
-  }
-  if (data.startsWith('prog_rep:')) {
-    const id = data.split(':')[1];
-    return await handleAdminInProgressAction(fromId, id, 'report');
-  }
-  if (data.startsWith('fix_rep:')) {
-    const id = data.split(':')[1];
-    pendingChatState.set(fromId, { action: 'await_fix_link', id });
-    return sendTelegram(fromId, `🔧 *Fix Broken Link*\nPlease send the replacement link URL for report \`${id}\` (or reply *done* to mark fixed):`);
-  }
-  if (data.startsWith('dismiss_rep:')) {
-    const id = data.split(':')[1];
-    return await handleAdminRejectOrDismissAction(fromId, id, 'dismiss', 'Dismissed / verified working fine');
-  }
+  await answerCallbackQuery(cq.id, 'Please open the Website Admin Panel to review and moderate.');
+  return sendTelegram(
+    fromId,
+    `ℹ️ *Website Moderation Reminder*\n\nReviewing, replying, fulfilling, and resolving user requests & broken links is handled directly in the Website Admin Panel:\n🔗 https://cinephile.sk6216071.workers.dev/admin`
+  );
 }
 
 // Anti-spam rapid repeat protection cache (15 seconds cooldown for identical message)
@@ -2174,54 +2139,11 @@ You can also use the inline buttons under notification cards to reply, fulfill, 
     return await handleListReports(chatId);
   }
 
-  if (command === 'inprogress' || command === 'progress') {
-    const parts = (commandArgs || '').trim().split(/\s+/);
-    const targetId = parts[0];
-    const note = parts.slice(1).join(' ').trim();
-    if (!targetId) {
-      return sendTelegram(chatId, `⚠️ *Usage:* \`/inprogress <id> [optional note]\`\nExample: \`/inprogress req-123 Currently encoding in 1080p\``);
-    }
-    return await handleAdminInProgressAction(chatId, targetId, null, note);
-  }
-
-  if (command === 'reply') {
-    const parts = (commandArgs || '').trim().split(/\s+/);
-    const targetId = parts[0];
-    const replyMsg = parts.slice(1).join(' ').trim();
-    if (!targetId || !replyMsg) {
-      return sendTelegram(chatId, `⚠️ *Usage:* \`/reply <id> <your reply message>\`\nExample: \`/reply req-123 Added now in 1080p!\``);
-    }
-    return await handleAdminReplyAction(chatId, targetId, null, replyMsg);
-  }
-
-  if (command === 'resolve' || command === 'fulfill') {
-    const parts = (commandArgs || '').trim().split(/\s+/);
-    const targetId = parts[0];
-    const linkUrl = parts.slice(1).join(' ').trim();
-    if (!targetId) {
-      return sendTelegram(chatId, `⚠️ *Usage:* \`/resolve <id> [optional linkUrl]\`\nExample: \`/resolve req-123 https://hubcloud.cx/...\``);
-    }
-    return await handleAdminResolveAction(chatId, targetId, null, linkUrl);
-  }
-
-  if (command === 'reject') {
-    const parts = (commandArgs || '').trim().split(/\s+/);
-    const targetId = parts[0];
-    const reason = parts.slice(1).join(' ').trim();
-    if (!targetId) {
-      return sendTelegram(chatId, `⚠️ *Usage:* \`/reject <id> [optional reason]\``);
-    }
-    return await handleAdminRejectOrDismissAction(chatId, targetId, 'reject', reason || 'Not available currently');
-  }
-
-  if (command === 'dismiss') {
-    const parts = (commandArgs || '').trim().split(/\s+/);
-    const targetId = parts[0];
-    const reason = parts.slice(1).join(' ').trim();
-    if (!targetId) {
-      return sendTelegram(chatId, `⚠️ *Usage:* \`/dismiss <id> [optional reason]\``);
-    }
-    return await handleAdminRejectOrDismissAction(chatId, targetId, 'dismiss', reason || 'Link is working fine');
+  if (['inprogress', 'progress', 'reply', 'resolve', 'fulfill', 'reject', 'dismiss', 'fix'].includes(command)) {
+    return sendTelegram(
+      chatId,
+      `ℹ️ *Website Moderation Required*\n\nReviewing, replying, fulfilling, and resolving user requests & broken links is handled directly in the Website Admin Panel:\n🔗 https://cinephile.sk6216071.workers.dev/admin`
+    );
   }
 
   if (command === 'status') {

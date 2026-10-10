@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllReports, getReportById, saveNewReport, updateReportStatus, deleteReport } from '@/lib/reportsDb';
 import { saveUserToDatabase } from '@/lib/usersDb';
-import { saveLinkToDatabase, deleteLinkFromDatabase } from '@/lib/redisDb';
+import { saveLinkToDatabase, deleteLinkFromDatabase, getLinksFromDatabase } from '@/lib/redisDb';
 import { DefectiveLinkReport, CustomLink } from '@/types';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
@@ -246,8 +246,32 @@ export async function PATCH(req: NextRequest) {
     }
 
     // 2. If admin opted to permanently remove the dead link from the database
-    if (deleteInDatabase && movieId && linkId) {
-      await deleteLinkFromDatabase(movieId, linkId);
+    if (deleteInDatabase && (movieId || existingReport?.movieId)) {
+      const targetMovieId = movieId || existingReport?.movieId;
+      const targetLinkId = linkId || existingReport?.linkId;
+      if (targetLinkId) {
+        try {
+          await deleteLinkFromDatabase(targetMovieId, targetLinkId);
+        } catch (delErr) {
+          console.warn('Could not delete link by linkId:', delErr);
+        }
+      }
+      // Also match by reportedUrl if available
+      const targetUrl = (existingReport?.reportedUrl || '').trim().toLowerCase();
+      if (targetUrl) {
+        try {
+          const linksData = await getLinksFromDatabase(targetMovieId);
+          if (Array.isArray(linksData?.links)) {
+            for (const l of linksData.links) {
+              if (l.url && l.url.trim().toLowerCase() === targetUrl && l.id !== targetLinkId) {
+                await deleteLinkFromDatabase(targetMovieId, l.id);
+              }
+            }
+          }
+        } catch (findErr) {
+          console.warn('Could not match and delete link by URL:', findErr);
+        }
+      }
     }
 
     const targetStatus = status || existingReport?.status || 'pending';

@@ -1194,7 +1194,8 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
   // Delete all links for a specific title
   const handleDeleteAllTitleLinks = async (title: LinkedCatalogTitle) => {
-    if (!confirm(`Are you sure you want to completely delete all links for "${title.title}"? This cannot be undone.`)) {
+    const count = managingTitleLinks.length;
+    if (!confirm(`Are you sure you want to completely delete all ${count} link(s) for "${title.title}"? (Only links for this title will be removed). This cannot be undone.`)) {
       return;
     }
     try {
@@ -1223,6 +1224,22 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     } finally {
       setIsDeletingAllLinks(false);
     }
+  };
+
+  // Safely close the Title Manager Modal with unsaved changes confirmation
+  const handleCloseTitleManager = () => {
+    const hasUnsavedChanges =
+      (titleAddLinkUrl && titleAddLinkUrl.trim().length > 0) ||
+      (replaceRawLinksText && replaceRawLinksText.trim().length > 0) ||
+      (titleOldDomain && titleOldDomain.trim().length > 0) ||
+      (titleNewDomain && titleNewDomain.trim().length > 0);
+
+    if (hasUnsavedChanges) {
+      if (!confirm('You have unsaved links or text in this manager window. Discard changes and close?')) {
+        return;
+      }
+    }
+    setTitleManagerModalOpen(false);
   };
 
   // Replace domain for this title
@@ -1525,7 +1542,9 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   };
 
   const handleDeleteRequest = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this user request?')) return;
+    const reqToDelete = requestsList.find((r) => r.id === id);
+    const targetTitle = reqToDelete ? reqToDelete.title : id;
+    if (!confirm(`Are you sure you want to delete the user request for "${targetTitle}"?\n\n(Only this user request entry will be deleted; media titles, links, and user accounts remain intact).`)) return;
     const previousRequests = [...requestsList];
     // Optimistic deletion
     setRequestsList((prev) => prev.filter((r) => r.id !== id));
@@ -1709,7 +1728,24 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         linkType: effLinkType,
       };
 
-      // 1. Save link to title database
+      // 1. Save link to title database with verified admin auth
+      const linkRes = await fetch('/api/curated-links', {
+        method: 'POST',
+        headers: getAdminAuthHeaders(),
+        body: JSON.stringify({
+          movieId: String(targetTmdbId),
+          link: newCustomLink,
+          movieTitle: fulfillingRequest.title,
+          posterPath: fulfillingRequest.posterPath,
+          mediaType: fulfillingRequest.mediaType,
+        }),
+      });
+
+      if (!linkRes.ok) {
+        const linkErr = await linkRes.json().catch(() => ({}));
+        throw new Error(linkErr.error || 'Failed to save link to title database');
+      }
+
       await saveGlobalCustomLink(targetTmdbId, newCustomLink);
 
       // 2. Update local customLinksMap with URL deduplication
@@ -1860,7 +1896,24 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     });
 
     try {
-      // 1. Save all links to database
+      // 1. Save all links to database with verified admin auth
+      const linkRes = await fetch('/api/curated-links', {
+        method: 'POST',
+        headers: getAdminAuthHeaders(),
+        body: JSON.stringify({
+          movieId: String(targetTmdbId),
+          links: createdObjs,
+          movieTitle: fulfillingRequest.title,
+          posterPath: fulfillingRequest.posterPath,
+          mediaType: fulfillingRequest.mediaType,
+        }),
+      });
+
+      if (!linkRes.ok) {
+        const linkErr = await linkRes.json().catch(() => ({}));
+        throw new Error(linkErr.error || 'Failed to save bulk links to database');
+      }
+
       await saveMultipleGlobalCustomLinks(targetTmdbId, createdObjs);
 
       // 2. Update local customLinksMap with URL deduplication
@@ -2022,7 +2075,24 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     });
 
     try {
-      // 1. Save links to title database
+      // 1. Save links via backend API
+      const linkRes = await fetch('/api/curated-links', {
+        method: 'POST',
+        headers: getAdminAuthHeaders(),
+        body: JSON.stringify({
+          movieId: String(targetTmdbId),
+          links: createdObjs,
+          movieTitle: fulfillingRequest.title,
+          posterPath: fulfillingRequest.posterPath,
+          mediaType: fulfillingRequest.mediaType,
+        }),
+      });
+
+      if (!linkRes.ok) {
+        const linkErr = await linkRes.json().catch(() => ({}));
+        throw new Error(linkErr.error || 'Failed to save grid links to database');
+      }
+
       await saveMultipleGlobalCustomLinks(targetTmdbId, createdObjs);
 
       // 2. Update local customLinksMap with URL deduplication
@@ -2170,9 +2240,22 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
     try {
       // 1. Remove from client state & local storage
-      if (report.linkId && report.movieId) {
-        removeCustomLink(report.movieId, report.linkId);
-        await deleteGlobalCustomLink(report.movieId, report.linkId);
+      if (report.movieId) {
+        const key = String(report.movieId);
+        const currentLinks = customLinksMap[key] || [];
+        const targetUrl = (report.reportedUrl || '').trim().toLowerCase();
+        const matchingLink = currentLinks.find(
+          (l) => (report.linkId && l.id === report.linkId) || (targetUrl && l.url.trim().toLowerCase() === targetUrl)
+        );
+        const linkIdToDelete = matchingLink?.id || report.linkId;
+        if (linkIdToDelete) {
+          removeCustomLink(report.movieId, linkIdToDelete);
+          await deleteGlobalCustomLink(report.movieId, linkIdToDelete);
+          setCustomLinksMap((prev) => ({
+            ...prev,
+            [key]: (prev[key] || []).filter((l) => l.id !== linkIdToDelete && (!targetUrl || l.url.trim().toLowerCase() !== targetUrl)),
+          }));
+        }
       }
 
       // 2. Mark report as fixed with deletion metadata
@@ -2268,6 +2351,17 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
           url: replacementLinkObj.url,
           category: isTV ? 'SingleEpisode' : 'Download',
         });
+        setCustomLinksMap((prev) => {
+          const key = String(targetMovieId);
+          const existing = prev[key] || [];
+          const filtered = existing.filter(
+            (l) => l.id !== replacementLinkObj.id && l.url.trim().toLowerCase() !== finalUrl.toLowerCase()
+          );
+          return {
+            ...prev,
+            [key]: [replacementLinkObj, ...filtered],
+          };
+        });
       }
 
       // 3. Mark report as fixed in server database
@@ -2330,7 +2424,12 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   };
 
   const handleDeleteReport = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this defective link report record?')) return;
+    if (
+      !confirm(
+        'Are you sure you want to delete this defective link report record? (Note: This will only remove this report entry; movie titles, links, and user accounts will not be affected.)'
+      )
+    )
+      return;
     const previousReports = [...reportsList];
     setReportsList((prev) => prev.filter((r) => r.id !== id));
 
@@ -6313,57 +6412,47 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                           <span>Reply</span>
                         </button>
 
-                        {/* Direct Jump to Manage Links Tab */}
+                        {/* Direct Jump to Manage Links Modal */}
                         <button
                           type="button"
                           onClick={() => {
-                            const targetObj = {
-                              id: req.tmdbId || Math.floor(Math.random() * 800000) + 100000,
+                            const targetTitle: LinkedCatalogTitle = {
+                              id: String(req.tmdbId || req.id),
                               title: req.title,
                               media_type: (req.mediaType === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv',
                               poster_path: req.posterPath || null,
+                              backdrop_path: null,
                               year: req.releaseYear || '',
+                              linksCount: 0,
                             };
-                            setSelectedTargetTitle(targetObj);
-                            cacheTitle(targetObj.id, targetObj);
-                            setActiveTab('links');
-                            if (req.mediaType === 'tv') {
-                              setAddLinkMode('bulk');
-                              setAdminBulkMediaType('tv');
-                            } else {
-                              setAddLinkMode('single');
-                              setAdminBulkMediaType('movie');
-                            }
-                            if (typeof window !== 'undefined') {
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }
-                            addLog(`Jumped to Manage Links for "${req.title}"`, 'info');
+                            openTitleManager(targetTitle);
+                            addLog(`Opened Link Manager for "${req.title}"`, 'info');
                           }}
                           className="flex items-center gap-1 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-amber-500/60 text-zinc-300 hover:text-amber-400 text-xs font-bold transition-all cursor-pointer hover:scale-105 active:scale-95"
-                          title="Open in Full Manage Links Tab (Bulk & Grid Available)"
+                          title="Open Link Manager for this title"
                         >
                           <Link2 className="w-3.5 h-3.5 text-amber-400" />
                           <span className="hidden lg:inline">Manage Links</span>
                         </button>
 
                         {/* Status Toggle Quick Buttons */}
-                        {req.status !== 'in_progress' && req.status !== 'fulfilled' && (
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateStatus(req.id, 'in_progress')}
-                            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-sky-500/50 text-sky-400 hover:text-sky-300 text-xs font-bold transition-colors cursor-pointer hover:scale-105 active:scale-95"
-                            title="Mark request as in progress"
-                          >
-                            In Progress
-                          </button>
-                        )}
-
                         {req.status !== 'rejected' && (
                           <button
                             type="button"
-                            onClick={() => handleUpdateStatus(req.id, 'rejected')}
+                            onClick={() => {
+                              const reason = prompt(
+                                `Enter rejection reason for "${req.title}" (will be displayed to user):`,
+                                'Content currently unavailable or already listed on platform'
+                              );
+                              if (reason === null) return;
+                              if (!reason.trim()) {
+                                alert('A rejection reason is required to reject a request.');
+                                return;
+                              }
+                              handleUpdateStatus(req.id, 'rejected', { adminNote: reason.trim() });
+                            }}
                             className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 hover:border-rose-500/50 text-rose-400 hover:text-rose-300 text-xs font-bold transition-colors cursor-pointer hover:scale-105 active:scale-95"
-                            title="Reject this request"
+                            title="Reject this request with reason"
                           >
                             Reject
                           </button>
@@ -6380,17 +6469,16 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                           </button>
                         )}
 
-                        {/* View Title on Live Site */}
-                        {req.tmdbId && (
-                          <Link
-                            href={`/${req.mediaType}/${req.tmdbId}`}
-                            target="_blank"
-                            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-                            title="View Title on Site"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </Link>
-                        )}
+                        {/* View Title on Live Site / Search */}
+                        <a
+                          href={req.tmdbId ? `/${req.mediaType || 'movie'}/${req.tmdbId}` : `/search?q=${encodeURIComponent(req.title)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                          title={req.tmdbId ? `Open ${req.title} on Cinefuel` : `Search ${req.title} on Cinefuel`}
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
 
                         {/* Delete Request */}
                         <button
@@ -8699,7 +8787,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       {titleManagerModalOpen && managingTitle && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in"
-          onClick={() => setTitleManagerModalOpen(false)}
+          onClick={handleCloseTitleManager}
         >
           <div
             className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-[#0b0e17] border border-amber-500/30 rounded-3xl shadow-2xl overflow-hidden"
@@ -8757,7 +8845,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
               <button
                 type="button"
-                onClick={() => setTitleManagerModalOpen(false)}
+                onClick={handleCloseTitleManager}
                 className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
                 title="Close"
               >

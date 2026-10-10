@@ -366,6 +366,7 @@ export interface DefectiveLinkReport {
 export type NotificationType =
   | 'REQUEST_FULFILLED'
   | 'REQUEST_IN_PROGRESS'
+  | 'REQUEST_REJECTED'
   | 'DEFECTIVE_LINK_RESOLVED'
   | 'DEFECTIVE_LINK_IN_PROGRESS'
   | 'DEFECTIVE_LINK_DISMISSED'

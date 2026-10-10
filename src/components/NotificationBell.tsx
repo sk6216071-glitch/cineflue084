@@ -173,14 +173,20 @@ export const NotificationBell: React.FC = () => {
     }
   };
 
-  // Navigate to fulfilled link & mark as read
+  // Navigate to profile item or link & mark as read
   const handleActionClick = async (notif: UserNotification) => {
     if (!notif.read) {
       handleMarkAsRead(notif.id);
     }
     setIsOpen(false);
-    if (notif.linkUrl) {
+    if (notif.requestId) {
+      router.push('/profile#my-requests');
+    } else if (notif.reportId) {
+      router.push('/profile#my-reports');
+    } else if (notif.linkUrl) {
       router.push(notif.linkUrl);
+    } else {
+      router.push('/profile');
     }
   };
 
@@ -251,7 +257,7 @@ export const NotificationBell: React.FC = () => {
                 </div>
                 <p className="text-xs font-semibold text-zinc-300">No notifications yet</p>
                 <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
-                  When a movie or TV show you requested is added, you will see it right here.
+                  When a movie or TV show you requested is added or updated, you will see it right here.
                 </p>
               </div>
             ) : (
@@ -260,8 +266,9 @@ export const NotificationBell: React.FC = () => {
                 const isReportDismissed = notif.type === 'DEFECTIVE_LINK_DISMISSED';
                 const isReportInProgress = notif.type === 'DEFECTIVE_LINK_IN_PROGRESS';
                 const isRequestInProgress = notif.type === 'REQUEST_IN_PROGRESS';
+                const isRequestRejected = notif.type === 'REQUEST_REJECTED';
                 const isAdminReply = notif.type === 'ADMIN_REPLY';
-                const isRequestFulfilled = notif.type === 'REQUEST_FULFILLED' || (!isReportResolved && !isReportDismissed && !isReportInProgress && !isRequestInProgress && !isAdminReply);
+                const isRequestFulfilled = notif.type === 'REQUEST_FULFILLED' || (!isReportResolved && !isReportDismissed && !isReportInProgress && !isRequestInProgress && !isRequestRejected && !isAdminReply);
 
                 return (
                   <div
@@ -274,6 +281,8 @@ export const NotificationBell: React.FC = () => {
                         ? 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08] text-zinc-200'
                         : (isRequestInProgress || isReportInProgress)
                         ? 'bg-sky-500/[0.04] hover:bg-sky-500/[0.08] text-zinc-200'
+                        : isRequestRejected
+                        ? 'bg-rose-500/[0.04] hover:bg-rose-500/[0.08] text-zinc-200'
                         : isAdminReply
                         ? 'bg-purple-500/[0.04] hover:bg-purple-500/[0.08] text-zinc-200'
                         : isReportDismissed
@@ -294,6 +303,8 @@ export const NotificationBell: React.FC = () => {
                         <Wrench className="w-5 h-5 text-emerald-400" />
                       ) : (isReportInProgress || isRequestInProgress) ? (
                         <Clock className="w-5 h-5 text-sky-400" />
+                      ) : isRequestRejected ? (
+                        <Info className="w-5 h-5 text-rose-400" />
                       ) : isReportDismissed ? (
                         <Info className="w-5 h-5 text-blue-400" />
                       ) : notif.mediaType === 'tv' ? (
@@ -320,6 +331,11 @@ export const NotificationBell: React.FC = () => {
                           <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1">
                             {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
                             Request In Progress
+                          </span>
+                        ) : isRequestRejected ? (
+                          <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1">
+                            {!notif.read && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />}
+                            Request Rejected
                           </span>
                         ) : isAdminReply ? (
                           <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1">
@@ -360,20 +376,24 @@ export const NotificationBell: React.FC = () => {
                       )}
 
                       {/* Actions Row */}
-                      <div className="pt-1.5 flex items-center justify-between gap-2">
-                        {isReportResolved || isReportDismissed ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleActionClick(notif);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold text-[10px] shadow-sm transition-all"
-                          >
-                            <Play className="w-3 h-3 fill-black" />
-                            Open Title
-                          </button>
-                        ) : (isRequestInProgress || isReportInProgress || isAdminReply) ? (
+                      <div className="pt-1.5 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {notif.replacementUrl && (
+                            <a
+                              href={notif.replacementUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!notif.read) handleMarkAsRead(notif.id);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold text-[10px] border border-emerald-500/30 transition-all"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Fixed Link
+                            </a>
+                          )}
+
                           <button
                             type="button"
                             onClick={(e) => {
@@ -383,21 +403,9 @@ export const NotificationBell: React.FC = () => {
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-[10px] border border-zinc-700 transition-all"
                           >
                             <ExternalLink className="w-3 h-3" />
-                            View Status
+                            View in Profile
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleActionClick(notif);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-[10px] shadow-sm transition-all"
-                          >
-                            <Play className="w-3 h-3 fill-black" />
-                            Watch Now
-                          </button>
-                        )}
+                        </div>
 
                         {!notif.read && (
                           <button

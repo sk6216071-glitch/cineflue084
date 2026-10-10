@@ -8,6 +8,7 @@ import { isValidHttpUrl, sanitizeInputString } from '@/lib/security';
 import {
   createRequestFulfilledNotification,
   createRequestInProgressNotification,
+  createRequestRejectedNotification,
   createAdminReplyNotification,
 } from '@/lib/notificationsDb';
 import {
@@ -260,6 +261,15 @@ export async function PATCH(req: NextRequest) {
         notificationInfo = progResult;
       } catch (progErr) {
         console.warn('Failed to dispatch request in_progress notification:', progErr);
+      }
+    } else if (targetStatus === 'rejected') {
+      try {
+        const rejResult = await createRequestRejectedNotification(existingReq, {
+          adminNote: adminNote || adminReply,
+        });
+        notificationInfo = rejResult;
+      } catch (rejErr) {
+        console.warn('Failed to dispatch request rejection notification:', rejErr);
       }
     }
 
