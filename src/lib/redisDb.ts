@@ -180,7 +180,8 @@ export async function getLinksFromDatabase(
     const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
     if (isCloudflare && movieId) {
       try {
-        const upstreamUrl = `https://cinephile-app.vercel.app/api/curated-links?movieId=${encodeURIComponent(String(movieId))}`;
+        const upstreamBase = getEnv('UPSTREAM_API_URL') || 'https://cinephile-app.vercel.app';
+        const upstreamUrl = `${upstreamBase}/api/curated-links?movieId=${encodeURIComponent(String(movieId))}`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
         const res = await fetch(upstreamUrl, {
@@ -191,7 +192,17 @@ export async function getLinksFromDatabase(
         if (res.ok) {
           const remoteJson: any = await res.json();
           if (remoteJson?.success && Array.isArray(remoteJson.links)) {
-            return { links: remoteJson.links, source: 'mongodb_atlas' as any };
+            let links = remoteJson.links;
+            const redis = getRedisClient();
+            if (redis && links.length > 0) {
+              try {
+                const checks = await Promise.all(
+                  links.map((l: any) => redis.sismember(REDIS_DELETED_KEY, l.id))
+                );
+                links = links.filter((_: any, idx: number) => !checks[idx]);
+              } catch {}
+            }
+            return { links, source: 'mongodb_atlas' as any };
           }
         }
       } catch {}
@@ -316,11 +327,63 @@ export async function getLinksFromDatabase(
 }
 
 /**
+ * Forwards mutations (write, delete, batch replace) to upstream Vercel backend
+ * when running inside Cloudflare Workers edge environment.
+ * Vercel connects to MongoDB Atlas directly in Node.js runtime.
+ */
+async function proxyMutationToUpstream(method: 'POST' | 'DELETE', path: string, body?: any): Promise<boolean> {
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (!isCloudflare) return false;
+
+  const upstreamBase = getEnv('UPSTREAM_API_URL') || 'https://cinephile-app.vercel.app';
+  const adminSecret = getEnv('ADMIN_SECRET_KEY') || 'Shyam081';
+  const url = `${upstreamBase}${path}`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const headers: Record<string, string> = {
+      'x-admin-key': adminSecret,
+      'authorization': `Bearer ${adminSecret}`,
+      'x-admin-user': 'shyam',
+      'User-Agent': 'Cloudflare-Worker-CineFuel',
+    };
+    if (body) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return res.ok;
+  } catch (err: any) {
+    console.warn(`Upstream mutation proxy warning (${method} ${path}):`, err.message);
+    return false;
+  }
+}
+
+/**
  * Saves a link to Upstash Redis and local JSON backup
  */
 export async function saveLinkToDatabase(movieId: number | string, link: any): Promise<boolean> {
   const key = String(movieId);
   let persisted = false;
+
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      const ok = await proxyMutationToUpstream('POST', '/api/curated-links', {
+        movieId: key,
+        link,
+      });
+      if (ok) persisted = true;
+    } catch {}
+  }
 
   // 1. MongoDB Atlas Cloud save
   try {
@@ -426,6 +489,18 @@ export async function saveMultipleLinksToDatabase(movieId: number | string, link
   if (!links || links.length === 0) return true;
   const key = String(movieId);
   let persisted = false;
+
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      const ok = await proxyMutationToUpstream('POST', '/api/curated-links', {
+        movieId: key,
+        links,
+      });
+      if (ok) persisted = true;
+    } catch {}
+  }
 
   // 1. MongoDB Atlas Cloud batch save
   try {
@@ -533,6 +608,18 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
   const key = String(movieId);
   let persisted = false;
 
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      const ok = await proxyMutationToUpstream(
+        'DELETE',
+        `/api/curated-links?movieId=${encodeURIComponent(key)}&linkId=${encodeURIComponent(linkId)}`
+      );
+      if (ok) persisted = true;
+    } catch {}
+  }
+
   // 1. MongoDB Atlas Cloud deletion
   try {
     const db = await getDatabase();
@@ -602,6 +689,14 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
  */
 export async function deleteMultipleLinksFromDatabase(items: Array<{ movieId: number | string; linkId: string }>): Promise<boolean> {
   if (!items || items.length === 0) return true;
+
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      await proxyMutationToUpstream('DELETE', '/api/curated-links', { items });
+    } catch {}
+  }
 
   // 1. Local backup deletion
   try {
@@ -697,6 +792,18 @@ export async function migrateDomainInDatabase(
   }
 
   let totalUpdated = 0;
+
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      await proxyMutationToUpstream('POST', '/api/curated-links', {
+        action: 'migrate_domain',
+        oldDomain: cleanOld,
+        newDomain: cleanNew,
+      });
+    } catch {}
+  }
 
   // 1. Local fallback update
   try {
@@ -807,6 +914,19 @@ export async function replaceDomainForTitleInDatabase(
   }
   let totalUpdated = 0;
 
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      await proxyMutationToUpstream('POST', '/api/curated-links', {
+        movieId: key,
+        action: 'replace_domain_for_title',
+        oldDomain: cleanOld,
+        newDomain: cleanNew,
+      });
+    } catch {}
+  }
+
   // 1. Local fallback
   try {
     const local = getLocalFallbackLinks();
@@ -907,6 +1027,19 @@ export async function replaceAllLinksForTitle(
     ...(metadata?.mediaType && !l.mediaType ? { mediaType: metadata.mediaType } : {}),
   }));
 
+  // 0. Upstream Vercel / MongoDB proxy for Cloudflare Workers
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== 'undefined' || getEnv('WORKER_NAME');
+  if (isCloudflare) {
+    try {
+      await proxyMutationToUpstream('POST', '/api/curated-links', {
+        movieId: key,
+        action: sanitized.length === 0 ? 'delete_all_links' : 'replace_all_links',
+        links: sanitized,
+        ...metadata,
+      });
+    } catch {}
+  }
+
   // 1. Local fallback
   try {
     const local = getLocalFallbackLinks();
@@ -975,6 +1108,23 @@ export async function replaceAllLinksForTitle(
  * Deletes all links for a specific title from all database layers.
  */
 export async function deleteAllLinksForTitle(movieId: number | string): Promise<{ success: boolean }> {
+  const key = String(movieId);
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    try {
+      const fetched = await redisClient.hget<any>(REDIS_HASH_KEY, key);
+      let list: any[] = [];
+      if (Array.isArray(fetched)) list = fetched;
+      else if (typeof fetched === 'string') {
+        try { list = JSON.parse(fetched); } catch {}
+      }
+      const ids = list.map((l: any) => l.id).filter(Boolean);
+      if (ids.length > 0) {
+        await redisClient.sadd(REDIS_DELETED_KEY, ids[0], ...ids.slice(1)).catch(() => {});
+      }
+      await redisClient.hdel(REDIS_HASH_KEY, key).catch(() => {});
+    } catch {}
+  }
   return await replaceAllLinksForTitle(movieId, []);
 }
 

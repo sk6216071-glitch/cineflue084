@@ -1210,6 +1210,13 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       });
       if (res.ok) {
         await deleteAllGlobalCustomLinks(Number(title.id));
+        setCustomLinksMap((prev) => {
+          const key = String(title.id);
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setManagingTitleLinks([]);
         addLog(`Admin deleted all links for "${title.title}" (ID: ${title.id})`, 'info');
         setTitleManagerModalOpen(false);
         fetchLinkedCatalogTitles(linkedTitlesPage, linkedTitlesFilter, linkedTitlesSearch);
@@ -1354,6 +1361,13 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       // 3. Update global states and refresh lists
       removeCustomLink(Number(managingTitle.id), linkId);
       await deleteGlobalCustomLink(Number(managingTitle.id), linkId);
+      setCustomLinksMap((prev) => {
+        const key = String(managingTitle.id);
+        return {
+          ...prev,
+          [key]: (prev[key] || []).filter((l) => l.id !== linkId),
+        };
+      });
       addLog(`Admin deleted link "${linkTitle}" from "${managingTitle.title}"`, 'warn');
       
       // 4. Update the parent linked catalog titles counts and refresh
