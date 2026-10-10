@@ -30,6 +30,7 @@ import {
   getDeletedLinkIds,
 } from '@/lib/curatedLinks';
 import { parseFullMediaTitle, detectSize, stripWatermarks, getQualityWeight, extractFilenameFromUrl } from '@/lib/seasonParser';
+import { parseReleaseDetails } from '@/lib/releaseParser';
 import { detectServer } from '@/lib/serverDetector';
 import { safeGetLocalStorage, safeSetLocalStorage, pruneCustomLinksCache } from '@/lib/safeStorage';
 import { sanitizeSafeUrl } from '@/lib/security';
@@ -138,13 +139,17 @@ function formatAudioLanguages(audio?: string, title?: string): string {
  * Renames GDTOT with HubCloud, GDFlix, or detected link server.
  */
 export function formatMovieDownloadButtonTitle(link: CustomLink): string {
+  const parsed = parseReleaseDetails(
+    `${link.title || ''} ${link.quality || ''}`.trim(),
+    link.url,
+    link.manualOverrides
+  );
   const urlFn = extractFilenameFromUrl(link.url);
   const cleanTitle = stripWatermarks(link.title || urlFn || '');
   const cleanQuality = stripWatermarks(link.quality || '');
-  const combined = `${cleanTitle} ${cleanQuality} ${urlFn} ${link.url || ''}`.toLowerCase();
 
   // 1. Detect Size:
-  let size = link.size || detectSize(cleanTitle) || detectSize(urlFn) || detectSize(undefined, undefined, link.url) || detectSize(cleanQuality) || '';
+  let size = link.manualOverrides?.size || link.size || detectSize(cleanTitle) || detectSize(urlFn) || detectSize(undefined, undefined, link.url) || detectSize(cleanQuality) || '';
   if (size) {
     size = size.replace(/\s+/g, '').trim();
     if (/^\d+mb$/i.test(size)) {
@@ -154,72 +159,45 @@ export function formatMovieDownloadButtonTitle(link: CustomLink): string {
     }
   }
 
-  // 2. Detect Resolution:
-  let resolution = '1080p';
-  if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(combined)) {
-    resolution = '2160p';
-  } else if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
-    resolution = '1080p';
-  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
-    resolution = '720p';
-  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(combined)) {
-    resolution = '480p';
-  }
+  // 2. Resolution:
+  const resolution = parsed.resolution || '1080p';
 
-  // 3. Detect Dynamic Range / HDR / SDR / DV:
-  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
-  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(combined);
-  const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(combined);
-
-  // 4. Detect Codec (HEVC, 10bit):
-  const is10Bit = /10bit|10-bit/i.test(combined);
-  const isHEVC = /hevc|x265|h\.?265/i.test(combined);
-
-  // 5. Detect Source (WebDL, BluRay, REMUX, HDTV):
-  let source = '';
-  if (/remux/i.test(combined)) source = 'REMUX';
-  else if (/bluray|blu-ray|bdrip/i.test(combined)) source = 'BluRay';
-  else if (/web-dl|webdl|webrip|web/i.test(combined)) source = 'WebDL';
-  else if (/hdtv/i.test(combined)) source = 'HDTV';
-
-  // 6. Build parts:
+  // 3. Parts:
   const parts: string[] = [];
   if (size) parts.push(size);
   parts.push(resolution);
 
-  if (resolution === '2160p') {
-    const hevcTag = isHEVC ? ' H.265' : '';
-    if (hasDV && hasHDR) parts.push(`DV HDR${hevcTag}`);
-    else if (hasDV) parts.push(`DV${hevcTag}`);
-    else if (hasHDR) parts.push(`HDR${hevcTag}`);
-    else if (hasSDR) parts.push(`SDR${hevcTag}`);
-    else parts.push(`SDR${hevcTag}`);
+  // 4. Dynamic Range & Codec: NEVER default to SDR!
+  const dynTag = parsed.dynamicRange === 'DV HDR' ? 'DV HDR' :
+                 parsed.dynamicRange === 'HDR' ? 'HDR' :
+                 parsed.dynamicRange === 'SDR' ? 'SDR' :
+                 parsed.dynamicRange === 'conflict' ? 'Conflict' : '';
 
-    if (source && source !== 'WebDL') parts.push(source);
-  } else if (resolution === '1080p') {
-    const hevcTag = isHEVC ? ' H.265' : '';
-    if (hasDV && hasHDR) parts.push(`DV HDR${hevcTag}`);
-    else if (hasDV) parts.push(`DV${hevcTag}`);
-    else if (hasHDR) parts.push(`HDR${hevcTag}`);
-    else if (hasSDR) parts.push(`SDR${hevcTag}`);
-    else if (is10Bit && isHEVC) parts.push('10bit HEVC');
-    else if (isHEVC) parts.push('SDR H.265');
-    else if (is10Bit) parts.push('10bit');
-    else if (source && source !== 'WebDL') parts.push(source);
-    else parts.push(source || 'WebDL');
-  } else if (resolution === '720p') {
-    const hevcTag = isHEVC ? ' HEVC' : '';
-    if (hasDV && hasHDR) parts.push(`DV HDR${hevcTag}`);
-    else if (hasDV) parts.push(`DV${hevcTag}`);
-    else if (hasHDR) parts.push(`HDR${hevcTag}`);
-    else if (is10Bit && isHEVC) parts.push('10bit HEVC');
-    else if (isHEVC) parts.push('HEVC');
-    else if (source && source !== 'WebDL') parts.push(source);
+  const codecTag = parsed.codec === 'H.265' ? 'H.265' :
+                   parsed.codec === 'AV1' ? 'AV1' : '';
+
+  if (dynTag && codecTag) {
+    parts.push(`${dynTag} ${codecTag}`);
+  } else if (dynTag) {
+    parts.push(dynTag);
+  } else if (codecTag) {
+    if (parsed.bitDepth === '10bit' && resolution === '1080p') {
+      parts.push('10bit HEVC');
+    } else {
+      parts.push(codecTag);
+    }
+  } else if (parsed.bitDepth === '10bit') {
+    parts.push('10bit');
   }
 
-  // 7. Server detection (Rename GDTOT with HubCloud or GDFlix according to link):
+  // Source (if REMUX, BluRay, etc.)
+  if (parsed.source && parsed.source !== 'WEB-DL') {
+    parts.push(parsed.source);
+  }
+
+  // Server detection:
   const server = detectServer(link.url);
-  let serverName = server.name || 'HubCloud';
+  let serverName = parsed.provider || server.name || 'HubCloud';
   const urlLower = (link.url || '').toLowerCase();
 
   if (urlLower.includes('gdflix')) {
@@ -258,28 +236,20 @@ interface MovieCardDetails {
 }
 
 function formatMovieCardDetails(link: CustomLink, titleDetails: TitleDetails): MovieCardDetails {
+  const parsed = parseReleaseDetails(
+    `${link.title || ''} ${link.quality || ''}`.trim(),
+    link.url,
+    link.manualOverrides
+  );
   const urlFn = extractFilenameFromUrl(link.url);
   const combined = `${link.title || ''} ${link.quality || ''} ${urlFn}`.trim();
   const lower = combined.toLowerCase();
 
   // 1. Resolution
-  let resTag: '2160p' | '1080p' | '720p' | '480p' = '1080p';
-  if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|\buhd\b|\b4k\b)/i.test(lower)) resTag = '2160p';
-  else if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)/i.test(lower)) resTag = '1080p';
-  else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)/i.test(lower)) resTag = '720p';
-  else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)/i.test(lower)) resTag = '480p';
+  const resTag: '2160p' | '1080p' | '720p' | '480p' = (parsed.resolution as any) || '1080p';
 
-  // 2. Dynamic Range / Codec / Bit Depth
-  const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)/i.test(lower);
-  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)/i.test(lower);
-  const is10Bit = /10bit|10-bit/i.test(lower);
-  const isHEVC = /hevc|x265|h\.?265/i.test(lower);
-  const isX264 = /x264|h\.?264|avc/i.test(lower);
-  const has60fps = /60fps|60\s*fps/i.test(lower);
-  const hasHDR10Plus = /hdr10\+|hdr10plus/i.test(lower);
-
-  // 3. Source
-  let sourceTag = '';
+  // 2. Source
+  let sourceTag = parsed.source || '';
   const isIMAX = /imax/i.test(lower);
   const isOrg = /org\b|original/i.test(lower);
 
@@ -308,43 +278,61 @@ function formatMovieCardDetails(link: CustomLink, titleDetails: TitleDetails): M
     dv4k: 'bg-[#2b123d] border border-purple-400/40 text-purple-200',
     sdr4k: 'bg-[#151a29] border border-slate-600/40 text-slate-300',
     sd: 'bg-zinc-800 border border-zinc-700 text-zinc-300',
+    conflict: 'bg-amber-950 border border-amber-600/40 text-amber-200',
+    container: 'bg-zinc-900 border border-zinc-700 text-zinc-300',
   };
 
   const badges: MovieCardBadge[] = [];
   let title = '';
   let accentBorder = 'border-l-4 border-l-[#1e293b]';
+  const isHEVC = parsed.codec === 'H.265';
 
   if (resTag === '2160p') {
-    if (hasDV) {
-      title = '2160p Dolby Vision HDR';
+    if (parsed.dynamicRange === 'DV HDR') {
+      title = isHEVC ? '2160p Dolby Vision HDR H.265' : '2160p Dolby Vision HDR';
       badges.push({ label: '4K · DV HDR', className: `${baseBadgeClass} ${badgeStyles.dv4k}` });
       accentBorder = 'border-l-4 border-l-violet-400';
-    } else if (hasHDR) {
+    } else if (parsed.dynamicRange === 'HDR') {
       title = isHEVC ? '2160p HDR H.265' : '2160p HDR';
       badges.push({ label: '4K · HDR', className: `${baseBadgeClass} ${badgeStyles.hdr4k}` });
       accentBorder = 'border-l-4 border-l-purple-500';
-    } else {
+    } else if (parsed.dynamicRange === 'SDR') {
       title = isHEVC ? '2160p SDR H.265' : '2160p SDR';
       badges.push({ label: '4K · SDR', className: `${baseBadgeClass} ${badgeStyles.sdr4k}` });
+      accentBorder = 'border-l-4 border-l-blue-600';
+    } else if (parsed.dynamicRange === 'conflict') {
+      title = isHEVC ? '2160p [Conflict] H.265' : '2160p [Conflict]';
+      badges.push({ label: '4K · CONFLICT', className: `${baseBadgeClass} ${badgeStyles.conflict}` });
+      accentBorder = 'border-l-4 border-l-amber-500';
+    } else {
+      // Unknown / No HDR or SDR marker: NEVER DEFAULT TO SDR!
+      title = isHEVC ? '2160p H.265' : '2160p UHD';
+      badges.push({ label: '4K UHD', className: `${baseBadgeClass} ${badgeStyles.sdr4k}` });
       accentBorder = 'border-l-4 border-l-blue-600';
     }
   } else if (resTag === '1080p') {
     badges.push({ label: 'FULL HD', className: `${baseBadgeClass} ${badgeStyles.fhd}` });
-    if (is10Bit) {
+    if (parsed.bitDepth === '10bit') {
       badges.push({ label: '10-BIT', className: `${baseBadgeClass} ${badgeStyles.tenBit}` });
     }
 
-    if (hasDV) {
-      title = '1080p Dolby Vision HDR';
+    if (parsed.dynamicRange === 'DV HDR') {
+      title = isHEVC ? '1080p Dolby Vision HDR H.265' : '1080p Dolby Vision HDR';
       accentBorder = 'border-l-4 border-l-violet-400';
-    } else if (hasHDR) {
+    } else if (parsed.dynamicRange === 'HDR') {
       title = isHEVC ? '1080p HDR H.265' : '1080p HDR';
       accentBorder = 'border-l-4 border-l-purple-500';
-    } else if (is10Bit && isHEVC) {
+    } else if (parsed.dynamicRange === 'SDR') {
+      title = isHEVC ? '1080p SDR H.265' : '1080p SDR';
+      accentBorder = 'border-l-4 border-l-blue-400';
+    } else if (parsed.dynamicRange === 'conflict') {
+      title = '1080p [Conflict]';
+      accentBorder = 'border-l-4 border-l-amber-500';
+    } else if (parsed.bitDepth === '10bit' && isHEVC) {
       title = '1080p 10-bit HEVC';
       accentBorder = 'border-l-4 border-l-cyan-400';
     } else if (isHEVC) {
-      title = '1080p SDR H.265';
+      title = '1080p H.265';
       accentBorder = 'border-l-4 border-l-blue-400';
     } else if (sourceTag.includes('BluRay')) {
       title = '1080p BluRay';
@@ -355,19 +343,42 @@ function formatMovieCardDetails(link: CustomLink, titleDetails: TitleDetails): M
     }
   } else if (resTag === '720p') {
     badges.push({ label: 'HD', className: `${baseBadgeClass} ${badgeStyles.hd}` });
-    if (is10Bit) {
+    if (parsed.bitDepth === '10bit') {
       badges.push({ label: '10-BIT', className: `${baseBadgeClass} ${badgeStyles.tenBit}` });
     }
-    if (is10Bit && isHEVC) title = '720p 10-bit HEVC';
-    else if (isHEVC) title = '720p HEVC';
-    else if (sourceTag.includes('BluRay')) title = '720p BluRay';
-    else title = `720p ${sourceTag}`;
+    if (parsed.dynamicRange === 'DV HDR') {
+      title = '720p DV HDR';
+    } else if (parsed.dynamicRange === 'HDR') {
+      title = '720p HDR';
+    } else if (parsed.dynamicRange === 'SDR') {
+      title = '720p SDR';
+    } else if (parsed.bitDepth === '10bit' && isHEVC) {
+      title = '720p 10-bit HEVC';
+    } else if (isHEVC) {
+      title = '720p HEVC';
+    } else if (sourceTag.includes('BluRay')) {
+      title = '720p BluRay';
+    } else {
+      title = `720p ${sourceTag}`;
+    }
     accentBorder = 'border-l-4 border-l-cyan-400';
   } else {
     badges.push({ label: 'SD', className: `${baseBadgeClass} ${badgeStyles.sd}` });
     title = `480p ${sourceTag}`;
     accentBorder = 'border-l-4 border-l-zinc-500';
   }
+
+  // Add container badge if archive
+  if (parsed.containerLabel && parsed.container !== 'UNKNOWN' && parsed.container !== 'MKV') {
+    badges.push({ label: parsed.containerLabel, className: `${baseBadgeClass} ${badgeStyles.container}` });
+  }
+
+  const has60fps = /60fps|60\s*fps/i.test(lower);
+  const is10Bit = parsed.bitDepth === '10bit' || /10bit|10-bit/i.test(lower);
+  const hasDV = parsed.dynamicRange === 'DV HDR';
+  const hasHDR = parsed.dynamicRange === 'HDR' || hasDV;
+  const isX264 = parsed.codec === 'H.264' || /x264|h\.?264|avc/i.test(lower);
+  const hasHDR10Plus = /hdr10\+|hdr10plus/i.test(lower);
 
   const subtextParts: string[] = [];
   if (has60fps) {
@@ -489,6 +500,11 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const [editQuality, setEditQuality] = useState('');
   const [editAudio, setEditAudio] = useState('');
   const [editSize, setEditSize] = useState('');
+  const [editContainer, setEditContainer] = useState('');
+  const [editDynamicRange, setEditDynamicRange] = useState('');
+  const [editCodec, setEditCodec] = useState('');
+  const [editResolution, setEditResolution] = useState('');
+  const [editProvider, setEditProvider] = useState('');
 
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -646,13 +662,19 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
   const queryName = `${titleName} ${releaseYear}`.trim();
 
   const handleStartEdit = (link: CustomLink) => {
+    const parsed = parseReleaseDetails(link.title, link.url, link.manualOverrides);
     setEditingLink(link);
     setEditTitle(link.title);
     setEditUrl(link.url);
     setEditCategory(link.category || 'Streaming');
-    setEditQuality(link.quality || '');
-    setEditAudio(link.audioLanguage || '');
-    setEditSize(link.size || '');
+    setEditQuality(link.manualOverrides?.resolution || link.quality || parsed.resolution || '');
+    setEditAudio(link.manualOverrides?.audioLanguage || link.audioLanguage || parsed.audioLabel || '');
+    setEditSize(link.manualOverrides?.size || link.size || '');
+    setEditContainer(link.manualOverrides?.container || (parsed.container !== 'UNKNOWN' ? parsed.container : '') || '');
+    setEditDynamicRange(link.manualOverrides?.dynamicRange || (parsed.dynamicRange === 'conflict' ? 'Conflict' : (parsed.dynamicRangeLabel || '')) || '');
+    setEditCodec(link.manualOverrides?.codec || parsed.codec || '');
+    setEditResolution(link.manualOverrides?.resolution || parsed.resolution || '');
+    setEditProvider(link.manualOverrides?.provider || parsed.provider || '');
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -664,7 +686,18 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
       finalUrl = `https://${finalUrl}`;
     }
 
-    const parsed = parseFullMediaTitle(editTitle.trim());
+    const manualOverrides: CustomLink['manualOverrides'] = {
+      ...editingLink.manualOverrides,
+      container: editContainer || undefined,
+      resolution: editResolution || undefined,
+      dynamicRange: editDynamicRange === 'None' ? undefined : (editDynamicRange || undefined),
+      codec: editCodec || undefined,
+      provider: editProvider || undefined,
+      audioLanguage: editAudio.trim() || undefined,
+      size: editSize.trim() || undefined,
+    };
+
+    const parsed = parseReleaseDetails(editTitle.trim(), finalUrl, manualOverrides);
 
     const updatedLink: CustomLink = {
       ...editingLink,
@@ -673,10 +706,11 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
       category: editCategory,
       seasonNumber: parsed.seasonNumber || editingLink.seasonNumber,
       episodeNumber: parsed.episodeNumber !== undefined ? parsed.episodeNumber : editingLink.episodeNumber,
-      linkType: parsed.linkType || editingLink.linkType,
-      quality: editQuality.trim() || parsed.quality || editingLink.quality,
-      audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.audioLanguage,
-      size: editSize.trim() || parsed.size || editingLink.size,
+      linkType: parsed.isPack ? 'zip_pack' : (parsed.episodeNumber ? 'single_episode' : editingLink.linkType),
+      quality: editQuality.trim() || parsed.resolution || editingLink.quality,
+      audioLanguage: editAudio.trim() || parsed.audioLabel || editingLink.audioLanguage,
+      size: editSize.trim() || editingLink.size,
+      manualOverrides,
     };
 
     updateGlobalCustomLink(titleDetails.id, updatedLink);
@@ -1076,6 +1110,66 @@ export const CustomLinksManager: React.FC<CustomLinksManagerProps> = ({ titleDet
                     onChange={(e) => setEditSize(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-zinc-800/80">
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Container</label>
+                  <select
+                    value={editContainer}
+                    onChange={(e) => setEditContainer(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="MKV">MKV (Video)</option>
+                    <option value="ZIP">ZIP (Archive)</option>
+                    <option value="MP4">MP4 (Video)</option>
+                    <option value="RAR">RAR (Archive)</option>
+                    <option value="7Z">7Z (Archive)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Dynamic Range</label>
+                  <select
+                    value={editDynamicRange}
+                    onChange={(e) => setEditDynamicRange(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto (Filename)</option>
+                    <option value="None">None (No Badge)</option>
+                    <option value="SDR">SDR</option>
+                    <option value="HDR">HDR</option>
+                    <option value="DV HDR">DV HDR</option>
+                    <option value="Conflict">Conflict (Review)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Codec</label>
+                  <select
+                    value={editCodec}
+                    onChange={(e) => setEditCodec(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="H.265">H.265 / HEVC</option>
+                    <option value="H.264">H.264 / AVC</option>
+                    <option value="AV1">AV1</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-zinc-400 block mb-1">Resolution</label>
+                  <select
+                    value={editResolution}
+                    onChange={(e) => setEditResolution(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="2160p">2160p (4K)</option>
+                    <option value="1080p">1080p (FHD)</option>
+                    <option value="720p">720p (HD)</option>
+                    <option value="480p">480p (SD)</option>
+                  </select>
                 </div>
               </div>
 

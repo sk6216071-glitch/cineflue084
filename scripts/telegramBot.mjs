@@ -5,6 +5,7 @@ import dns from 'dns';
 import { Redis } from '@upstash/redis';
 import { MongoClient } from 'mongodb';
 import http from 'http';
+import { parseReleaseDetails, formatTelegramReleaseSummary } from '../src/lib/releaseParser.ts';
 
 // Ensure IPv4 lookup precedence for stable TMDB API and external cloud connections
 try {
@@ -386,34 +387,45 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
     if (eMatch) episode = parseInt(eMatch[1], 10);
   }
 
-  // 6. Mode Enforcement & Auto-sensing
-  let isZip = false;
+  // 6. Universal Shared Parser Integration (Strict Independence of Properties)
+  const parsedRelease = parseReleaseDetails(rawReleaseTitle || text, url);
+
+  if (parsedRelease.episodeNumber !== undefined) {
+    episode = parsedRelease.episodeNumber;
+  }
+  if (parsedRelease.seasonNumber !== undefined) {
+    season = parsedRelease.seasonNumber;
+  }
+
+  // File container: .zip is ZIP archive, .mkv is MKV video file
+  let isZip = parsedRelease.container === 'ZIP' || parsedRelease.container === 'RAR' || parsedRelease.container === '7Z';
+  let isPack = parsedRelease.isPack;
+
   if (forcedMode === 'zip') {
     isZip = true;
+    isPack = true;
     explicitType = 'tv';
     if (!season) season = 1;
     episode = undefined;
   } else if (forcedMode === 'episode') {
     isZip = false;
+    isPack = false;
     explicitType = 'tv';
     if (!season) season = 1;
     if (episode === undefined) episode = 1;
   } else if (forcedMode === 'movie') {
     isZip = false;
+    isPack = false;
     explicitType = 'movie';
     season = undefined;
     episode = undefined;
   } else {
-    // Auto-sensing:
-    // S01..S100, E01..E100, Season, Episode, Zip Pack are 100% EXCLUSIVE TO TV SERIES!
-    // Movies NEVER have Seasons or Episodes.
-    const isTvBySeason = season !== undefined;
-    const isTvByEpisode = episode !== undefined;
-    const isTvByWord = /(?:^|[\s._\-[\]()])(?:s0*\d{1,3}|e0*\d{1,4}|season|episodes?|series)(?:[\s._\-[\]()]|\b)/i.test(cleanText);
-    isZip = /(?:\.zip|\.rar|\.7z|\bzip\b|\bpack\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bfull\s*season\b)/i.test(cleanText);
+    // HubCloud Pack label must NEVER turn an individual episode into a pack
+    if (episode !== undefined && episode > 0) {
+      isPack = false;
+    }
 
-    if (isTvBySeason || isTvByEpisode || isTvByWord || isZip) {
-      // DEFINITIVE TV SERIES: Any season S01..S100 or episode E01..E100 means TV show!
+    if (season !== undefined || episode !== undefined || isPack || /(?:s\d{1,3}|e\d{1,4}|season|episodes?|series)/i.test(cleanText)) {
       explicitType = 'tv';
       if (!season) season = 1;
     } else {
@@ -461,40 +473,38 @@ function extractBlockMetadata(text, fallbackUrl, forcedMode = null) {
   // Strip leading list numbers, indexes, or release prefixes e.g. "2.", "01.", "[1]", "Name :", "Title :"
   titleForSearch = cleanLeadingLabels(titleForSearch);
 
-  // 7. Quality Detection
+  // 8. Quality Detection: NEVER DEFAULT TO SDR!
   let quality = explicitQuality;
   if (!quality) {
-    const qTags = [];
-    if (/\b(?:2160p|2160|4k|uhd)\b/i.test(cleanText)) qTags.push('2160p 4K');
-    else if (/\b(?:1080p|1080|fhd)\b/i.test(cleanText)) qTags.push('1080p FHD');
-    else if (/\b(?:720p|720|hd)\b/i.test(cleanText)) qTags.push('720p HD');
-    else if (/\b(?:480p|480|sd)\b/i.test(cleanText)) qTags.push('480p SD');
+    const qParts = [];
+    if (parsedRelease.resolutionLabel) qParts.push(parsedRelease.resolutionLabel);
+    if (parsedRelease.source && parsedRelease.source !== 'WebDL') qParts.push(parsedRelease.source);
+    else if (parsedRelease.source) qParts.push(parsedRelease.sourceLabel);
+    if (parsedRelease.dynamicRangeLabel && parsedRelease.dynamicRangeLabel !== 'Unknown') qParts.push(parsedRelease.dynamicRangeLabel);
+    if (parsedRelease.bitDepthLabel) qParts.push(parsedRelease.bitDepthLabel);
+    if (parsedRelease.codecLabel) qParts.push(parsedRelease.codecLabel);
+    if (parsedRelease.provider && parsedRelease.provider !== 'HubCloud') qParts.push(parsedRelease.provider);
 
-    if (/\bhybrid\b/i.test(cleanText)) qTags.push('Hybrid');
-    if (/dv[\s._-]*hdr|dolby[\s._-]*vision/i.test(cleanText)) qTags.push('DV HDR');
-    else if (/\b(?:hdr10\+|hdr10|hdr)\b/i.test(cleanText)) qTags.push('HDR');
-    if (/\b10bit\b/i.test(cleanText)) qTags.push('10bit');
-    if (/\bremux\b/i.test(cleanText)) qTags.push('REMUX');
-    if (/\b(?:bluray|blu-ray)\b/i.test(cleanText)) qTags.push('BluRay');
-    if (/\bdsnp\b/i.test(cleanText)) qTags.push('DSNP');
-    if (/\b(?:web-dl|webrip|web)\b/i.test(cleanText)) qTags.push('WEB-DL');
-    if (/\b(?:hevc|x265|h265)\b/i.test(cleanText)) qTags.push('HEVC');
-
-    quality = qTags.length > 0 ? qTags.join(' • ') : '1080p WEB-DL';
+    quality = qParts.length > 0 ? qParts.join(' ') : '1080p WEB-DL';
   }
+
+  const releaseSummary = formatTelegramReleaseSummary(rawReleaseTitle || text, url);
 
   return {
     url,
     titleQuery: titleForSearch,
     year,
     quality,
-    audio: explicitAudio ? explicitAudio.replace(/[\[\]]/g, '').trim() : 'Hindi + English',
+    audio: explicitAudio ? explicitAudio.replace(/[\[\]]/g, '').trim() : (parsedRelease.audioLabel || 'Hindi + English'),
     size: explicitSize ? explicitSize.replace(/[\[\]]/g, '').trim() : undefined,
     mediaType: explicitType,
     season,
     episode,
     isZip,
+    isPack,
     rawReleaseTitle,
+    parsedRelease,
+    releaseSummary,
   };
 }
 
@@ -1138,10 +1148,12 @@ async function sendMediaPostCard(chatId, {
 }) {
   const versionsLines = versions.map((v) => {
     let q = v.quality || '1080p';
-    if (/\b(?:2160p|2160|4k|uhd)\b/i.test(q)) q = '2160p';
-    else if (/\b(?:1080p|1080|fhd)\b/i.test(q)) q = '1080p';
-    else if (/\b(?:720p|720|hd)\b/i.test(q)) q = '720p';
-    else if (/\b(?:480p|480|sd)\b/i.test(q)) q = '480p';
+    if (!q.includes('·')) {
+      if (/\b(?:2160p|2160|4k|uhd)\b/i.test(q)) q = '2160p';
+      else if (/\b(?:1080p|1080|fhd)\b/i.test(q)) q = '1080p';
+      else if (/\b(?:720p|720|hd)\b/i.test(q)) q = '720p';
+      else if (/\b(?:480p|480|sd)\b/i.test(q)) q = '480p';
+    }
     const s = v.size ? `\n  ${v.size}` : '';
     return `• ${q} :${s}`;
   }).join('\n');
@@ -2483,7 +2495,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
     if (mediaType === 'tv') {
       const tvSeason = meta.season || 1;
-      if (meta.isZip) {
+      if (meta.isPack || (meta.isZip && !meta.episode)) {
         category = 'ZipPack';
         displayTitle = meta.rawReleaseTitle || `${officialTitle} (${releaseYear}) Season ${tvSeason} Complete ${meta.quality} [${meta.audio}]`;
       } else {
@@ -2503,6 +2515,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
     const serverInfo = detectServer(meta.url);
 
+    const isTvPack = mediaType === 'tv' && (meta.isPack || (meta.isZip && !meta.episode));
     const linkObj = {
       id: `tg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       movieId: String(movieId),
@@ -2518,13 +2531,19 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       url: meta.url,
       category,
       seasonNumber: mediaType === 'tv' ? (meta.season || 1) : undefined,
-      episodeNumber: mediaType === 'tv' ? (meta.episode || (meta.isZip ? undefined : 1)) : undefined,
-      linkType: mediaType === 'tv' ? (meta.isZip ? 'zip_pack' : 'single_episode') : 'general',
+      episodeNumber: mediaType === 'tv' ? (meta.episode || (isTvPack ? undefined : 1)) : undefined,
+      linkType: mediaType === 'tv' ? (isTvPack ? 'zip_pack' : 'single_episode') : 'general',
       quality: meta.quality,
       audioLanguage: meta.audio,
       size: meta.size,
       serverName: serverInfo.name,
       serverBadge: serverInfo.badge,
+      container: meta.parsedRelease?.container,
+      dynamicRange: meta.parsedRelease?.dynamicRange,
+      bitDepth: meta.parsedRelease?.bitDepth,
+      codec: meta.parsedRelease?.codec,
+      resolution: meta.parsedRelease?.resolution,
+      provider: meta.parsedRelease?.provider,
       createdAt: new Date().toISOString(),
     };
 
@@ -2548,6 +2567,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
       url: meta.url,
       pageUrl: `${SITE_URL}/${mediaType}/${movieId}`,
       tmdbItem,
+      releaseSummary: meta.releaseSummary,
     });
   }
 
@@ -2626,7 +2646,7 @@ CineFuel Auto-Uploader is online! Send any movie or TV series link with details 
 
     const versions = [
       {
-        quality: item.quality,
+        quality: item.releaseSummary || item.quality,
         size: item.size || (item.quality.includes('2160p') ? '4K UHD' : 'WEB-DL'),
       },
     ];

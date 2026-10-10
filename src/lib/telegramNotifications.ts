@@ -8,6 +8,7 @@ import {
   TelegramLinkingToken,
   NotificationDelivery,
 } from '@/types';
+import { formatTelegramReleaseSummary } from '@/lib/releaseParser';
 
 let telegramIndexesCreated = false;
 
@@ -568,13 +569,16 @@ export async function notifyAdminOnTelegramNewRequest(request: UserRequest): Pro
     const notes = request.notes ? escapeHtml(request.notes) : '';
     const adminUrl = `${getSiteUrl()}/admin?tab=requests&id=${encodeURIComponent(request.id)}`;
 
+    const releaseCandidate = `${request.title} ${request.quality || ''} ${request.notes || ''}`.trim();
+    const releaseSummary = formatTelegramReleaseSummary(releaseCandidate);
+
     const text =
 `🎬 <b>NEW USER REQUEST SUBMISSION</b>
 ─────────────────────────────
 📌 <b>Title:</b> <b>${title}${releaseYear}</b>
 💎 <b>Quality:</b> <code>${quality}</code>
 🔊 <b>Audio:</b> <code>${audio}</code>
-👤 <b>User:</b> ${user}
+${releaseSummary ? `📦 <b>Release Details:</b> <code>${escapeHtml(releaseSummary)}</code>\n` : ''}👤 <b>User:</b> ${user}
 🆔 <code>${request.id}</code>
 ${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
 ⚡ <i>Open in Website Admin Panel to review, reply, or fulfill:</i>`;
@@ -620,13 +624,16 @@ export async function notifyAdminOnTelegramNewReport(report: DefectiveLinkReport
     const notes = report.additionalNotes ? escapeHtml(report.additionalNotes) : '';
     const adminUrl = `${getSiteUrl()}/admin?tab=reports&id=${encodeURIComponent(report.id)}`;
 
+    const releaseCandidate = `${report.linkTitle || ''} ${report.additionalNotes || ''}`.trim();
+    const releaseSummary = formatTelegramReleaseSummary(releaseCandidate, report.reportedUrl);
+
     const text =
 `🚨 <b>NEW DEFECTIVE LINK REPORT</b>
 ─────────────────────────────
 🎬 <b>Title:</b> <b>${mediaTitle}</b>
 ⚠️ <b>Issue:</b> <code>${issueLabel}</code>
 🔗 <b>Reported URL:</b> <code>${reportedUrl}</code>
-👤 <b>Reporter:</b> ${user}
+${releaseSummary ? `📦 <b>Release Details:</b> <code>${escapeHtml(releaseSummary)}</code>\n` : ''}👤 <b>Reporter:</b> ${user}
 🆔 <code>${report.id}</code>
 ${notes ? `📝 <b>Notes:</b> <i>${notes}</i>\n` : ''}
 ⚡ <i>Open in Website Admin Panel to test, reply, or replace link:</i>`;

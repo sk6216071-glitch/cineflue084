@@ -1,4 +1,5 @@
 import { CustomLink } from '@/types';
+import { parseReleaseDetails } from './releaseParser';
 
 export interface ParsedMediaMeta {
   seasonNumber: number;
@@ -115,28 +116,13 @@ export function isPackUrl(url?: string): boolean {
 }
 
 /**
- * Check whether a URL or release title indicates a complete season pack or zip archive
+ * Check whether a URL or release title indicates a complete season pack or zip archive.
+ * Does NOT classify individual episodes (e.g. S01E01, .mkv) as packs even if labeled "HubCloud Pack".
  */
 export function isPackMedia(title?: string, url?: string): boolean {
-  const t = (title || '').toLowerCase();
-  const u = (url || '').toLowerCase();
-  const combined = `${t} ${u}`.trim();
-  if (!combined) return false;
-
-  // 1. Pack URL patterns (/drive/packs/, /packs/, ?type=pack)
-  if (isPackUrl(u)) {
-    return true;
-  }
-
-  // 2. Archive extensions (.zip, .rar, .7z, .tar, .gz)
-  if (/(?:\.zip|\.rar|\.7z|\.tar|\.gz)(?:$|[?#\s])/i.test(combined)) {
-    return true;
-  }
-
-  // 3. Complete season / pack / archive keywords
-  return /(?:\bzip(?:pack)?\b|\bpacks?\b|\bbatch\b|\bcomplete\b|\ball\s*episodes\b|\bseason\s*\d+\s*complete\b|\bcomplete\s*season\b|\bfull\s*season\b|\bseason[-_ ]*pack\b|\bseries[-_ ]*pack\b|\bwhole\s*episode\b)/i.test(
-    combined
-  );
+  if (!title && !url) return false;
+  const parsed = parseReleaseDetails(title || '', url);
+  return parsed.isPack;
 }
 
 /**
@@ -147,8 +133,14 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
     return link.episodeNumber;
   }
 
-  // Pack / Archive links contain the entire season / all episodes, not an individual episode
-  if (isPackMedia(link.title, link.url)) {
+  // Release parser checks filename independently: S01E01 takes priority over "HubCloud Pack" labels
+  const parsed = parseReleaseDetails(link.title || '', link.url);
+  if (parsed.isEpisode && parsed.episodeNumber) {
+    return parsed.episodeNumber;
+  }
+
+  // True pack / archive links contain the entire season / all episodes, not an individual episode
+  if (parsed.isPack) {
     return undefined;
   }
 
@@ -229,26 +221,33 @@ export function detectEpisodeNumber(link: { title?: string; episodeNumber?: numb
  * Auto-detect whether a link is a Complete Season Zip/Batch Pack or Single Episode
  */
 export function detectLinkType(link: { title?: string; linkType?: string; category?: string; episodeNumber?: number; url?: string }): 'zip_pack' | 'single_episode' {
-  // 1. Pack / Archive indicators from URL or title take top priority
-  if (isPackMedia(link.title, link.url)) {
-    return 'zip_pack';
+  // 1. Explicit episode number provided
+  if (link.episodeNumber !== undefined && link.episodeNumber > 0) {
+    return 'single_episode';
   }
 
-  // 2. Explicit flags from database / admin payload
-  if (link.linkType === 'zip_pack' || link.category === 'ZipPack') {
-    return 'zip_pack';
+  // 2. Parse release metadata independently
+  const parsed = parseReleaseDetails(link.title || '', link.url);
+
+  // 3. Filename explicitly identifies an episode (e.g. S01E01, S01E02, E05, .mkv individual episode)
+  if (parsed.isEpisode) {
+    return 'single_episode';
   }
+
+  // 4. Explicit flags from database / admin payload
   if (link.linkType === 'single_episode' || link.category === 'SingleEpisode') {
     return 'single_episode';
   }
-
-  // 3. Check for detected episode number
-  const ep = detectEpisodeNumber(link);
-  if (ep !== undefined && ep > 0) {
-    return 'single_episode';
+  if (link.linkType === 'zip_pack' || link.category === 'ZipPack') {
+    return 'zip_pack';
   }
 
-  // 4. Default: for media files and streaming links, default to single episode
+  // 5. True season pack archive or keywords
+  if (parsed.isPack || isPackMedia(link.title, link.url)) {
+    return 'zip_pack';
+  }
+
+  // 6. Default: for media files and streaming links, default to single episode
   return 'single_episode';
 }
 
@@ -363,29 +362,32 @@ export function detectQuality(title: string, defaultQuality?: string, url?: stri
   else if (/(?:^|[\s._\-[\]()])(?:web-dl|webdl|webrip|web)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('WEB-DL');
   else if (/(?:^|[\s._\-[\]()])hdtv(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) tags.push('HDTV');
 
-  // 3. Dynamic Range (Sense DV HDR vs HDR vs SDR / simple H.265)
+  // 3. Dynamic Range (Strict explicit identification only - NEVER default to SDR!)
   const hasDV = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
-  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
+  const hasHDR = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr|hlg)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
   const hasSDR = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
 
-  if (hasDV && hasHDR) tags.push('DV HDR');
-  else if (hasDV) tags.push('DV HDR');
-  else if (hasHDR) tags.push('HDR');
-  else if (hasSDR) tags.push('SDR');
-  else if (is4k) tags.push('SDR'); // 4K without DV or HDR is SDR (simple H.265)
+  if ((hasDV || hasHDR) && hasSDR) {
+    tags.push('Conflict');
+  } else if (hasDV) {
+    tags.push('DV HDR');
+  } else if (hasHDR) {
+    tags.push('HDR');
+  } else if (hasSDR) {
+    tags.push('SDR');
+  }
+  // If neither appears, do NOT push SDR! Keep dynamic range omitted/unknown!
 
   if (/10bit/i.test(cleanForQuality)) tags.push('10bit');
 
-  // 4. Codec (Supports H.265 / HEVC, H.264 / AVC)
+  // 4. Codec (Supports H.265 / HEVC, H.264 / AVC, AV1) - Keep codec separate from dynamic range
   const isHEVC = /(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality);
   if (isHEVC) {
-    // In 1080p: if it's HEVC and has NO DV and NO HDR and NO explicit SDR yet, mark SDR
-    if (is1080p && !hasDV && !hasHDR && !hasSDR) {
-      tags.push('SDR');
-    }
     tags.push('HEVC');
   } else if (/(?:^|[\s._\-[\]()])(?:h\.?264|x264|avc)(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) {
     tags.push('x264');
+  } else if (/(?:^|[\s._\-[\]()])av1(?:[\s._\-[\]()]|$)/i.test(cleanForQuality)) {
+    tags.push('AV1');
   }
 
   if (tags.length > 0) {
@@ -468,12 +470,13 @@ export function detectSize(title?: string, defaultSize?: string, url?: string): 
  * Auto-parse full media metadata from title string or URL
  */
 export function parseFullMediaTitle(title: string, url?: string): ParsedMediaMeta {
-  const seasonNumber = detectSeasonNumber({ title, url });
-  const episodeNumber = detectEpisodeNumber({ title, url });
+  const parsed = parseReleaseDetails(title, url);
+  const seasonNumber = parsed.seasonNumber || detectSeasonNumber({ title, url });
+  const episodeNumber = parsed.isEpisode ? parsed.episodeNumber : detectEpisodeNumber({ title, url });
   const linkType = detectLinkType({ title, episodeNumber, url });
   const quality = detectQuality(title, undefined, url);
-  const audioLanguage = detectAudio(title, undefined, url);
-  const size = detectSize(title, undefined, url);
+  const audioLanguage = parsed.audioLanguage || detectAudio(title, undefined, url);
+  const size = parsed.fileSize || detectSize(title, undefined, url);
   const category: 'ZipPack' | 'SingleEpisode' = linkType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode';
 
   // Extract raw release title candidate if present

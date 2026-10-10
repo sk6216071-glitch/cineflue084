@@ -47,6 +47,7 @@ import {
   isPackMedia,
   isPackUrl,
 } from '@/lib/seasonParser';
+import { parseReleaseDetails, ReleaseOverrides } from '@/lib/releaseParser';
 import { detectServer } from '@/lib/serverDetector';
 import RequestLinkModal from './RequestLinkModal';
 import ReportBrokenLinkModal, { ReportModalData } from './ReportBrokenLinkModal';
@@ -67,6 +68,11 @@ interface EnrichedLink extends CustomLink {
   size?: string;
   resolution: string;
   source: string;
+  dynamicRange?: string;
+  bitDepth?: string;
+  codec?: string;
+  container?: string;
+  containerLabel?: string;
 }
 
 interface ReleaseOption {
@@ -94,124 +100,47 @@ interface GroupedEpisode {
 }
 
 // Extract rich release profiles including 4K SDR vs 4K DV HDR vs 1080p DV HDR vs 1080p SDR
-function extractReleaseProfile(title: string, quality?: string, titleDetails?: TitleDetails, url?: string) {
-  // Strip website domain watermarks (e.g. 4kHdHub.Com, TSS-4kHdHub.com, Vegamovies.NL, etc.) before checking resolution
-  const urlFn = extractFilenameFromUrl(url);
-  const cleanTitle = stripWatermarks(title || urlFn || '');
-  const cleanQuality = stripWatermarks(quality || '');
+function extractReleaseProfile(
+  title: string,
+  quality?: string,
+  titleDetails?: TitleDetails,
+  url?: string,
+  overrides?: ReleaseOverrides
+) {
+  const parsed = parseReleaseDetails(title, url, overrides);
 
-  const titleLower = `${cleanTitle} ${urlFn}`.toLowerCase();
-  const qHintLower = cleanQuality.toLowerCase();
-
-  // 1. Resolution sensing (First analyze title directly, fallback to quality hint)
-  let resolution = '1080p';
-  let resTag = '1080p';
-
-  if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
-    resolution = '1080p';
-    resTag = '1080p';
-  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
-    resolution = '720p';
-    resTag = '720p';
-  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
-    resolution = '480p';
-    resTag = '480p';
-  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
-    resolution = '2160p / 4K';
-    resTag = '2160p';
-  } else if (/(?:^|[\s._\-[\]()])(?:1080p|1080i|fhd)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
-    resolution = '1080p';
-    resTag = '1080p';
-  } else if (/(?:^|[\s._\-[\]()])(?:720p|720i|hd)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
-    resolution = '720p';
-    resTag = '720p';
-  } else if (/(?:^|[\s._\-[\]()])(?:480p|480i|sd)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
-    resolution = '480p';
-    resTag = '480p';
-  } else if (/(?:^|[\s._\-[\]()])(?:2160p|2160i|uhd|\b4k\b)(?:[\s._\-[\]()]|$)/i.test(qHintLower)) {
-    resolution = '2160p / 4K';
-    resTag = '2160p';
-  }
-
-  // 2. Platform sensing (Detect accurate platform: DSNP for Disney+ Marvel/Star Wars, AMZN, NF, etc.)
-  const platform = detectShowPlatform(cleanTitle || urlFn, titleDetails);
-
-  // 3. Source sensing (Disney+ streaming series are official DSNP.WEB-DL, never REMUX or BluRay disc)
-  let source = 'WEB-DL';
-  if (platform === 'DSNP') {
-    source = 'WEB-DL';
-  } else if (/(?:^|[\s._\-[\]()])remux(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'REMUX';
-  else if (/(?:^|[\s._\-[\]()])(?:bluray|blu-ray|bdrip)(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'BluRay';
-  else if (/(?:^|[\s._\-[\]()])(?:web-dl|webdl|webrip|web)(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'WEB-DL';
-  else if (/(?:^|[\s._\-[\]()])hdtv(?:[\s._\-[\]()]|$)/i.test(titleLower)) source = 'HDTV';
-  else if (qHintLower.includes('remux')) source = 'REMUX';
-  else if (qHintLower.includes('bluray')) source = 'BluRay';
-
-  // 4. Dynamic Range sensing (Sense DV HDR vs HDR vs SDR / simple H.265)
-  const isSceneFilename =
-    titleLower.includes('.mkv') ||
-    titleLower.includes('.mp4') ||
-    titleLower.includes('web-dl') ||
-    titleLower.includes('webdl') ||
-    titleLower.includes('bluray') ||
-    titleLower.includes('remux');
-
-  const hasDVInTitle = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
-  const hasHDRInTitle = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(titleLower);
-  const hasSDRInTitle = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(titleLower);
-
-  const hasDVInHint = /(?:^|[\s._\-[\]()])(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
-  const hasHDRInHint = /(?:^|[\s._\-[\]()])(?:hdr10\+|hdr10|hdr)(?:[\s._\-[\]()]|$)/i.test(qHintLower);
-  const hasSDRInHint = /(?:^|[\s._\-[\]()])sdr(?:[\s._\-[\]()]|$)/i.test(qHintLower);
-
-  let dynamicRange = '';
-  if (hasDVInTitle || (!isSceneFilename && hasDVInHint)) {
-    dynamicRange = 'DV HDR';
-  } else if (hasHDRInTitle || (!isSceneFilename && hasHDRInHint)) {
-    dynamicRange = 'HDR';
-  } else if (hasSDRInTitle || hasSDRInHint) {
-    dynamicRange = 'SDR';
-  } else if (resTag === '2160p') {
-    // In 4K / 2160p: if it has NO DV and NO HDR, it is strictly 2160p SDR!
-    dynamicRange = 'SDR';
-  } else if (resTag === '1080p' && (/(?:h\.?265|x265|hevc)/i.test(titleLower) || qHintLower.includes('265') || qHintLower.includes('hevc'))) {
-    // In 1080p: if it has H.265/HEVC and NO DV and NO HDR, it is strictly 1080p SDR!
-    dynamicRange = 'SDR';
-  }
-
-  // 5. Codec sensing (Supports H.265, H265, HEVC, x265, H.264, x264, etc.)
-  let codec = '';
-  if (/(?:^|[\s._\-[\]()])(?:h\.?265|x265|hevc)/i.test(titleLower)) {
-    codec = 'H.265';
-  } else if (/(?:^|[\s._\-[\]()])(?:h\.?264|x264|avc)(?:[\s._\-[\]()]|$)/i.test(titleLower)) {
-    codec = 'H.264';
-  } else if (qHintLower.includes('h.265') || qHintLower.includes('265') || qHintLower.includes('hevc')) {
-    codec = 'H.265';
-  } else if (qHintLower.includes('h.264') || qHintLower.includes('264') || qHintLower.includes('avc')) {
-    codec = 'H.264';
-  } else {
-    codec = resTag === '2160p' || hasDVInTitle || hasHDRInTitle ? 'H.265' : 'H.264';
-  }
-
-  // 6. Part sensing (e.g. Part 1, Part 2, Part-1, Part-2, pt1, pt2)
-  let part = '';
-  const partMatch = cleanTitle.match(/(?:^|[\s._\-[\]()])(?:part|pt)[\s._-]?0*(\d+)(?:[\s._\-[\]()]|$)/i);
-  if (partMatch && partMatch[1]) {
-    part = `Part-${parseInt(partMatch[1], 10)}`;
-  }
+  const platform = overrides?.provider || parsed.provider || detectShowPlatform(title, titleDetails);
+  const resolution = parsed.resolutionLabel || '1080p';
+  const resTag = parsed.resolution || '1080p';
+  const source = overrides?.source || parsed.source || 'WEB-DL';
+  const dynamicRange = parsed.dynamicRangeLabel === 'Unknown' ? '' : (parsed.dynamicRangeLabel || '');
+  const bitDepth = parsed.bitDepth || '';
+  const codec = parsed.codec || (resTag === '2160p' ? 'H.265' : 'H.264');
+  const container = parsed.container || '';
+  const containerLabel = parsed.containerLabel || '';
+  const part = parsed.part || '';
 
   return {
     resolution,
+    resTag,
     source,
     dynamicRange,
+    bitDepth,
     codec,
     platform,
+    container,
+    containerLabel,
+    isPack: parsed.isPack,
+    isEpisode: parsed.isEpisode,
+    episodeNumber: parsed.episodeNumber,
+    seasonNumber: parsed.seasonNumber,
+    audioLanguages: parsed.audioLanguage,
     part,
     cleanDisplayTitle: (showName: string, seasonNum: number) => {
       const sTag = `S${String(seasonNum).padStart(2, '0')}`;
       const cleanShow = (showName || 'Series').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '.');
       const partSeg = part ? `.${part.replace(/-/g, '.')}` : '';
-      const dynSeg = dynamicRange ? `.${dynamicRange.replace(/\s+/g, '.')}` : '';
+      const dynSeg = dynamicRange && dynamicRange !== 'Conflict' ? `.${dynamicRange.replace(/\s+/g, '.')}` : '';
       const codecSeg = codec || (resTag === '2160p' ? 'H.265' : 'H.264');
       const platSeg = platform ? `.${platform}` : '';
       const effSource = platform === 'DSNP' ? 'WEB-DL' : source;
@@ -463,6 +392,11 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   const [editQuality, setEditQuality] = useState<string>('');
   const [editAudio, setEditAudio] = useState<string>('');
   const [editSize, setEditSize] = useState<string>('');
+  const [editContainer, setEditContainer] = useState<string>('');
+  const [editDynamicRange, setEditDynamicRange] = useState<string>('');
+  const [editCodec, setEditCodec] = useState<string>('');
+  const [editResolution, setEditResolution] = useState<string>('');
+  const [editProvider, setEditProvider] = useState<string>('');
 
   // User Selection States (Single Open Accordion Slide & Season Selection)
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
@@ -485,28 +419,22 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
     return Array.from(detectedSeasons).sort((a, b) => a - b);
   }, [titleDetails.number_of_seasons, customLinks]);
 
-  // Enrich each custom link with smart auto-detected metadata
+  // Enrich each custom link with smart auto-detected metadata and manual overrides
   const enrichedLinks: EnrichedLink[] = useMemo(() => {
     return customLinks.map((l) => {
       const urlFn = extractFilenameFromUrl(l.url);
       const effectiveTitle = l.title || urlFn || '';
-      const isPack = isPackMedia(effectiveTitle, l.url);
-      const detectedSeason = detectSeasonNumber({ title: effectiveTitle, seasonNumber: l.seasonNumber, url: l.url });
-      const detectedEp = isPack ? undefined : detectEpisodeNumber({ title: effectiveTitle, episodeNumber: l.episodeNumber, url: l.url });
-      const detectedType = detectLinkType({
-        title: effectiveTitle,
-        episodeNumber: detectedEp,
-        url: l.url,
-        linkType: isPack ? 'zip_pack' : l.linkType,
-        category: isPack ? 'ZipPack' : l.category,
-      });
+      const prof = extractReleaseProfile(effectiveTitle, l.quality, titleDetails, l.url, l.manualOverrides);
+      const isPack = l.manualOverrides?.linkType === 'zip_pack' || prof.isPack;
+      const detectedSeason = l.manualOverrides?.seasonNumber || l.seasonNumber || prof.seasonNumber || detectSeasonNumber({ title: effectiveTitle, seasonNumber: l.seasonNumber, url: l.url });
+      const detectedEp = isPack ? undefined : (l.manualOverrides?.episodeNumber || l.episodeNumber || prof.episodeNumber || detectEpisodeNumber({ title: effectiveTitle, episodeNumber: l.episodeNumber, url: l.url }));
+      const detectedType: 'zip_pack' | 'single_episode' = (l.manualOverrides?.linkType as any) || (isPack ? 'zip_pack' : 'single_episode');
       const isSceneRelease = /(?:s\d{1,2}e\d{1,2}|2160p|1080p|720p|480p|\.mkv|\.mp4|web-dl|webdl|bluray)/i.test(effectiveTitle);
-      const detectedQ = (isSceneRelease || !l.quality || l.quality === 'HD')
+      const detectedQ = l.manualOverrides?.resolution || ((isSceneRelease || !l.quality || l.quality === 'HD')
         ? detectQuality(effectiveTitle, l.quality, l.url)
-        : l.quality;
-      const detectedAud = l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : detectAudio(effectiveTitle, l.audioLanguage, l.url);
-      const detectedSz = l.size || detectSize(effectiveTitle, undefined, l.url);
-      const prof = extractReleaseProfile(effectiveTitle, detectedQ, titleDetails, l.url);
+        : l.quality);
+      const detectedAud = l.manualOverrides?.audioLanguage || (l.audioLanguage && l.audioLanguage !== 'Original' ? l.audioLanguage : (prof.audioLanguages || detectAudio(effectiveTitle, l.audioLanguage, l.url)));
+      const detectedSz = l.manualOverrides?.size || l.size || detectSize(effectiveTitle, undefined, l.url);
 
       const finalTitle = (isSceneRelease && effectiveTitle.includes('.'))
         ? stripWatermarks(effectiveTitle)
@@ -520,12 +448,17 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         seasonNumber: detectedSeason,
         episodeNumber: detectedEp,
         linkType: detectedType,
-        category: detectedType === 'zip_pack' ? 'ZipPack' : l.category,
+        category: detectedType === 'zip_pack' ? 'ZipPack' : (l.category === 'ZipPack' ? 'SingleEpisode' : l.category),
         quality: detectedQ,
         audioLanguage: detectedAud,
         size: detectedSz,
         resolution: prof.resolution,
         source: prof.source,
+        dynamicRange: prof.dynamicRange,
+        bitDepth: prof.bitDepth,
+        codec: prof.codec,
+        container: prof.container,
+        containerLabel: prof.containerLabel,
       };
     });
   }, [customLinks, titleDetails]);
@@ -546,8 +479,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       const formatMap = new Map<string, { resolution: string; source: string; links: EnrichedLink[] }>();
 
       currentSeasonLinks.forEach((link) => {
-        const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url);
-        const dyn = prof.dynamicRange || (prof.codec === 'H.265' ? 'SDR' : '');
+        const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url, link.manualOverrides);
+        const dyn = prof.dynamicRange || '';
         const dynSuffix = dyn ? `_${dyn.replace(/\s+/g, '_')}` : '';
         const codecSuffix = prof.codec ? `_${prof.codec.replace(/\s+/g, '_')}` : '';
         const key = `${link.resolution}_${link.source}${dynSuffix}${codecSuffix}`;
@@ -578,7 +511,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         >();
 
         fVal.links.forEach((link) => {
-          const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url);
+          const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url, link.manualOverrides);
           const partSuffix = prof.part ? `_${prof.part}` : '';
           const optKey = `s${s}_${fKey}_${prof.dynamicRange || 'std'}_${prof.codec || 'codec'}${partSuffix}`;
 
@@ -599,7 +532,10 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           }
 
           const opt = optionsMap.get(optKey)!;
-          if (link.linkType === 'zip_pack' || link.category === 'ZipPack' || isPackMedia(link.title, link.url)) {
+          // IMPORTANT: Check episode status first! An individual episode (S01E01, etc.) must NEVER be placed in packs,
+          // even if provider label or title contains "HubCloud Pack"!
+          const isEpisode = link.episodeNumber !== undefined || prof.isEpisode || link.linkType === 'single_episode';
+          if (!isEpisode && (link.linkType === 'zip_pack' || prof.isPack || isPackMedia(link.title, link.url))) {
             opt.packs.push(link);
           } else {
             opt.episodes.push(link);
@@ -719,6 +655,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       title: string;
       codec?: string;
       dynamicRange?: string;
+      bitDepth?: string;
+      containerLabel?: string;
       audioLanguages: string;
       packs: EnrichedLink[];
       size: string;
@@ -741,7 +679,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             cleanPackTitle = `${showName} S0${selectedSeason} Complete Pack (${fmt.resolution} ${fmt.source})`;
           }
           const finalPackTitle = cleanPackTitle || rawPackTitle || opt.title;
-          const prof = extractReleaseProfile(finalPackTitle, first.quality, titleDetails, first.url);
+          const prof = extractReleaseProfile(finalPackTitle, first.quality, titleDetails, first.url, first.manualOverrides);
 
           results.push({
             optionId: opt.id,
@@ -750,6 +688,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             title: finalPackTitle,
             codec: prof.codec,
             dynamicRange: prof.dynamicRange,
+            bitDepth: prof.bitDepth,
+            containerLabel: prof.containerLabel,
             audioLanguages: opt.audioLanguages,
             packs: opt.packs,
             size: detectedSz,
@@ -795,25 +735,18 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
         baseWeight = 100;
       }
 
-      // 2. Detect Dynamic Range (DV HDR vs HDR vs SDR)
+      // 2. Detect Dynamic Range (DV HDR vs HDR vs SDR) - NEVER DEFAULT TO SDR!
       let dyn = (dynamicRange || '').trim();
       if (!dyn) {
-        if (/(?:dv|dovi|dolby[.\s_-]*vision|hdr[-._]dv|dv[-._]hdr)/i.test(tLower)) {
-          dyn = 'DV HDR';
-        } else if (/(?:hdr10\+|hdr10|hdr)/i.test(tLower)) {
-          dyn = 'HDR';
-        } else if (/sdr/i.test(tLower)) {
-          dyn = 'SDR';
-        } else if (resTag === '2160p') {
-          dyn = 'SDR';
-        } else if (resTag === '1080p' && /(?:h\.?265|x265|hevc)/i.test(tLower)) {
-          dyn = 'SDR';
+        const parsedSample = parseReleaseDetails(sampleTitle || '', sampleUrl);
+        if (parsedSample.dynamicRangeLabel && parsedSample.dynamicRangeLabel !== 'Unknown') {
+          dyn = parsedSample.dynamicRangeLabel;
         }
       }
 
       // 3. Detect 10bit / HEVC
       const is10Bit = /10bit|10-bit/i.test(tLower);
-      const isHEVC = /hevc|x265|h\.?265/i.test(tLower) || codec === 'H.265' || resTag === '2160p';
+      const isHEVC = /hevc|x265|h\.?265/i.test(tLower) || codec === 'H.265';
 
       // 4. Construct Key & Title per resolution:
       if (resTag === '2160p') {
@@ -836,7 +769,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             accentBorder: 'border-l-4 border-l-purple-500',
             weight: 440,
           };
-        } else {
+        } else if (dyn === 'SDR') {
           return {
             key: '2160p_sdr_h265',
             title: `2160p 4K SDR${codecLabel} ${src}`,
@@ -844,6 +777,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             resolution: '2160p / 4K',
             accentBorder: 'border-l-4 border-l-blue-500',
             weight: 420,
+          };
+        } else {
+          return {
+            key: '2160p_h265',
+            title: `2160p 4K${codecLabel} ${src}`,
+            badge: `2160p${codecLabel}`,
+            resolution: '2160p / 4K',
+            accentBorder: 'border-l-4 border-l-amber-500',
+            weight: 410,
           };
         }
       }
@@ -868,6 +810,15 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             accentBorder: 'border-l-4 border-l-indigo-400',
             weight: 380,
           };
+        } else if (dyn === 'SDR') {
+          return {
+            key: '1080p_sdr_h265',
+            title: `1080p SDR${codecLabel} ${src}`,
+            badge: `1080p SDR${codecLabel}`,
+            resolution: '1080p',
+            accentBorder: 'border-l-4 border-l-sky-500',
+            weight: 350,
+          };
         } else if (is10Bit && isHEVC) {
           return {
             key: '1080p_hevc_10bit',
@@ -877,13 +828,13 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
             accentBorder: 'border-l-4 border-l-emerald-400',
             weight: 360,
           };
-        } else if (isHEVC || dyn === 'SDR') {
+        } else if (isHEVC) {
           return {
-            key: '1080p_sdr_h265',
-            title: `1080p SDR H.265 ${src}`,
-            badge: '1080p SDR H.265',
+            key: '1080p_h265',
+            title: `1080p H.265 ${src}`,
+            badge: '1080p H.265',
             resolution: '1080p',
-            accentBorder: 'border-l-4 border-l-sky-500',
+            accentBorder: 'border-l-4 border-l-purple-500',
             weight: 340,
           };
         } else {
@@ -977,6 +928,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           audio: string;
           codec?: string;
           dynamicRange?: string;
+          bitDepth?: string;
+          containerLabel?: string;
           links: EnrichedLink[];
         }>;
       }
@@ -1027,6 +980,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
           audio: string;
           codec?: string;
           dynamicRange?: string;
+          bitDepth?: string;
+          containerLabel?: string;
           links: EnrichedLink[];
         }
       >();
@@ -1045,7 +1000,7 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               slide.source
             );
             const epName = extractEpisodeTitle(ep.title) || extractEpisodeTitle(epFormattedTitle);
-            const prof = extractReleaseProfile(ep.title || epFormattedTitle, ep.quality, titleDetails, ep.url);
+            const prof = extractReleaseProfile(ep.title || epFormattedTitle, ep.quality, titleDetails, ep.url, ep.manualOverrides);
 
             epMap.set(epNum, {
               episodeNumber: epNum,
@@ -1055,6 +1010,8 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
               audio: opt.audioLanguages,
               codec: prof.codec,
               dynamicRange: prof.dynamicRange || slide.dynamicRange,
+              bitDepth: prof.bitDepth,
+              containerLabel: prof.containerLabel,
               links: [],
             });
           }
@@ -1106,15 +1063,21 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
   }, [selectedSeason]);
 
   const handleStartEdit = (link: CustomLink) => {
+    const prof = extractReleaseProfile(link.title, link.quality, titleDetails, link.url, link.manualOverrides);
     setEditingLink(link);
-    setEditSeason(link.seasonNumber || 1);
-    setEditType(link.linkType === 'single_episode' ? 'single_episode' : 'zip_pack');
-    setEditEpisode(link.episodeNumber || 1);
+    setEditSeason(link.manualOverrides?.seasonNumber || link.seasonNumber || 1);
+    setEditType((link.manualOverrides?.linkType || link.linkType) === 'single_episode' ? 'single_episode' : 'zip_pack');
+    setEditEpisode(link.manualOverrides?.episodeNumber || link.episodeNumber || 1);
     setEditTitle(link.title);
     setEditUrl(link.url);
-    setEditQuality(link.quality || '');
-    setEditAudio(link.audioLanguage || '');
-    setEditSize(link.size || '');
+    setEditQuality(link.manualOverrides?.resolution || link.quality || prof.resolution || '');
+    setEditAudio(link.manualOverrides?.audioLanguage || link.audioLanguage || prof.audioLanguages || '');
+    setEditSize(link.manualOverrides?.size || link.size || '');
+    setEditContainer(link.manualOverrides?.container || prof.container || '');
+    setEditDynamicRange(link.manualOverrides?.dynamicRange || prof.dynamicRange || '');
+    setEditCodec(link.manualOverrides?.codec || prof.codec || '');
+    setEditResolution(link.manualOverrides?.resolution || prof.resTag || '');
+    setEditProvider(link.manualOverrides?.provider || prof.platform || '');
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -1126,7 +1089,20 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       finalUrl = `https://${finalUrl}`;
     }
 
-    const parsed = parseFullMediaTitle(editTitle.trim());
+    const manualOverrides: CustomLink['manualOverrides'] = {
+      container: editContainer || undefined,
+      linkType: editType,
+      seasonNumber: editSeason,
+      episodeNumber: editType === 'single_episode' ? editEpisode : undefined,
+      resolution: editResolution || undefined,
+      dynamicRange: editDynamicRange === 'None' ? undefined : (editDynamicRange || undefined),
+      codec: editCodec || undefined,
+      provider: editProvider || undefined,
+      audioLanguage: editAudio.trim() || undefined,
+      size: editSize.trim() || undefined,
+    };
+
+    const parsed = parseReleaseDetails(editTitle.trim(), finalUrl, manualOverrides);
 
     const updatedLink: CustomLink = {
       ...editingLink,
@@ -1135,10 +1111,16 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
       category: editType === 'zip_pack' ? 'ZipPack' : 'SingleEpisode',
       seasonNumber: editSeason,
       episodeNumber: editType === 'single_episode' ? editEpisode : undefined,
-      quality: editQuality.trim() || parsed.quality || editingLink.quality,
+      quality: editQuality.trim() || parsed.resolutionLabel || editingLink.quality,
       audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.audioLanguage,
-      size: editSize.trim() || parsed.size || editingLink.size,
+      size: editSize.trim() || parsed.fileSize || editingLink.size,
       linkType: editType,
+      container: editContainer || parsed.container,
+      dynamicRange: editDynamicRange === 'None' ? undefined : (editDynamicRange || parsed.dynamicRangeLabel),
+      codec: editCodec || parsed.codec,
+      resolution: editResolution || parsed.resolution,
+      provider: editProvider || parsed.provider,
+      manualOverrides,
     };
 
     updateGlobalCustomLink(titleDetails.id, updatedLink);
@@ -1313,9 +1295,23 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                     {detectedSz}
                                   </span>
                                 )}
+                                {packRel.containerLabel && (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                    {packRel.containerLabel}
+                                  </span>
+                                )}
                                 {packRel.dynamicRange && (
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                    packRel.dynamicRange === 'Conflict'
+                                      ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                                      : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                                  }`}>
                                     {packRel.dynamicRange}
+                                  </span>
+                                )}
+                                {packRel.bitDepth && (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                    {packRel.bitDepth}
                                   </span>
                                 )}
                                 {packRel.codec && (
@@ -1520,9 +1516,23 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                                       {ep.size}
                                     </span>
                                   )}
+                                  {ep.containerLabel && (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-700/50 text-zinc-200 border border-zinc-600/50">
+                                      {ep.containerLabel}
+                                    </span>
+                                  )}
                                   {ep.dynamicRange && (
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                      ep.dynamicRange === 'Conflict'
+                                        ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                                        : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                                    }`}>
                                       {ep.dynamicRange}
+                                    </span>
+                                  )}
+                                  {ep.bitDepth && (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                      {ep.bitDepth}
                                     </span>
                                   )}
                                   {ep.codec && (
@@ -1765,14 +1775,74 @@ export const TVEpisodeLinksManager: React.FC<TVEpisodeLinksManagerProps> = ({
                 />
               </div>
 
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">Container</label>
+                  <select
+                    value={editContainer}
+                    onChange={(e) => setEditContainer(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="MKV">MKV (Video)</option>
+                    <option value="ZIP">ZIP (Archive)</option>
+                    <option value="MP4">MP4 (Video)</option>
+                    <option value="RAR">RAR (Archive)</option>
+                    <option value="7Z">7Z (Archive)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">Dynamic Range</label>
+                  <select
+                    value={editDynamicRange}
+                    onChange={(e) => setEditDynamicRange(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto (Filename)</option>
+                    <option value="None">None (No Badge)</option>
+                    <option value="SDR">SDR</option>
+                    <option value="HDR">HDR</option>
+                    <option value="DV HDR">DV HDR</option>
+                    <option value="Conflict">Conflict (Review)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">Codec</label>
+                  <select
+                    value={editCodec}
+                    onChange={(e) => setEditCodec(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="H.265">H.265 / HEVC</option>
+                    <option value="H.264">H.264 / AVC</option>
+                    <option value="AV1">AV1</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">Resolution</label>
+                  <select
+                    value={editResolution}
+                    onChange={(e) => setEditResolution(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="2160p">2160p (4K)</option>
+                    <option value="1080p">1080p (FHD)</option>
+                    <option value="720p">720p (HD)</option>
+                    <option value="480p">480p (SD)</option>
+                  </select>
+                </div>
+              </div>
+
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">Quality</label>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">Provider / OTT</label>
                   <input
                     type="text"
-                    value={editQuality}
-                    onChange={(e) => setEditQuality(e.target.value)}
-                    placeholder="1080p, 4K..."
+                    value={editProvider}
+                    onChange={(e) => setEditProvider(e.target.value)}
+                    placeholder="DSNP, NF, Hulu..."
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>

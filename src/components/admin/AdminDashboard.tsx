@@ -69,6 +69,7 @@ import { getImageURL, getBackdropURL, searchMulti, getTitleDetails, getActiveTmd
 import { BUILTIN_CURATED_LINKS, saveGlobalCustomLink, saveMultipleGlobalCustomLinks, deleteGlobalCustomLink, deleteMultipleGlobalCustomLinks, getDeletedLinkIds, syncServerLinks, replaceAllGlobalCustomLinks, deleteAllGlobalCustomLinks } from '@/lib/curatedLinks';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from '@/lib/safeStorage';
 import { parseFullMediaTitle, parseBulkLinksInput, ParsedBulkItem, isPackMedia, isPackUrl } from '@/lib/seasonParser';
+import { parseReleaseDetails } from '@/lib/releaseParser';
 import { detectServer } from '@/lib/serverDetector';
 import { AdminFilmReelGraphic } from '@/components/admin/AdminFilmReelGraphic';
 import { AdminCinemaSilhouetteGraphic } from '@/components/admin/AdminCinemaSilhouetteGraphic';
@@ -380,6 +381,11 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   const [editQuality, setEditQuality] = useState('');
   const [editAudio, setEditAudio] = useState('');
   const [editSize, setEditSize] = useState('');
+  const [editContainer, setEditContainer] = useState('');
+  const [editDynamicRange, setEditDynamicRange] = useState('');
+  const [editCodec, setEditCodec] = useState('');
+  const [editResolution, setEditResolution] = useState('');
+  const [editProvider, setEditProvider] = useState('');
 
   // Multi-Select Links State for Bulk Deletion
   const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set());
@@ -2904,16 +2910,22 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
   // Open Edit Link Modal
   const openEditModal = (movieId: number, link: CustomLink) => {
+    const parsed = parseReleaseDetails(link.title, link.url, link.manualOverrides);
     setEditingLink({ movieId, link });
     setEditTitle(link.title);
     setEditUrl(link.url);
     setEditCategory(link.category);
-    setEditSeason(link.seasonNumber || 1);
-    setEditEpisode(link.episodeNumber || 1);
-    setEditType(link.linkType || (link.category === 'ZipPack' ? 'zip_pack' : link.category === 'SingleEpisode' ? 'single_episode' : 'general'));
-    setEditQuality(link.quality || '');
-    setEditAudio(link.audioLanguage || '');
-    setEditSize(link.size || '');
+    setEditSeason(link.manualOverrides?.seasonNumber || link.seasonNumber || 1);
+    setEditEpisode(link.manualOverrides?.episodeNumber || link.episodeNumber || 1);
+    setEditType(link.manualOverrides?.linkType || link.linkType || (link.category === 'ZipPack' ? 'zip_pack' : link.category === 'SingleEpisode' ? 'single_episode' : 'general'));
+    setEditQuality(link.manualOverrides?.resolution || link.quality || parsed.resolution || '');
+    setEditAudio(link.manualOverrides?.audioLanguage || link.audioLanguage || parsed.audioLabel || '');
+    setEditSize(link.manualOverrides?.size || link.size || '');
+    setEditContainer(link.manualOverrides?.container || (parsed.container && parsed.container !== 'UNKNOWN' ? parsed.container : '') || '');
+    setEditDynamicRange(link.manualOverrides?.dynamicRange || (parsed.dynamicRange === 'conflict' ? 'Conflict' : (parsed.dynamicRangeLabel || '')) || '');
+    setEditCodec(link.manualOverrides?.codec || parsed.codec || '');
+    setEditResolution(link.manualOverrides?.resolution || parsed.resolution || '');
+    setEditProvider(link.manualOverrides?.provider || parsed.provider || '');
   };
 
   // Save Edited Link
@@ -2926,8 +2938,23 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       url = 'https://' + url;
     }
 
+    const manualOverrides: CustomLink['manualOverrides'] = {
+      ...editingLink.link.manualOverrides,
+      container: editContainer || undefined,
+      linkType: editType,
+      seasonNumber: editSeason,
+      episodeNumber: editType === 'single_episode' ? editEpisode : undefined,
+      resolution: editResolution || undefined,
+      dynamicRange: editDynamicRange === 'None' ? undefined : (editDynamicRange || undefined),
+      codec: editCodec || undefined,
+      provider: editProvider || undefined,
+      audioLanguage: editAudio.trim() || undefined,
+      size: editSize.trim() || undefined,
+    };
+
     const parsed = parseFullMediaTitle(editTitle.trim(), url);
-    const isPack = isPackMedia(editTitle.trim(), url) || editCategory === 'ZipPack' || editType === 'zip_pack';
+    const parsedRel = parseReleaseDetails(editTitle.trim(), url, manualOverrides);
+    const isPack = parsedRel.isPack || editCategory === 'ZipPack' || editType === 'zip_pack';
     const finalEditCategory = isPack ? 'ZipPack' : editCategory;
     const finalEditType = isPack ? 'zip_pack' : (editType === 'single_episode' || editCategory === 'SingleEpisode' ? 'single_episode' : 'general');
 
@@ -2942,6 +2969,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       quality: editQuality.trim() || parsed.quality || editingLink.link.quality,
       audioLanguage: editAudio.trim() || parsed.audioLanguage || editingLink.link.audioLanguage,
       size: editSize.trim() || parsed.size || editingLink.link.size,
+      manualOverrides,
     };
 
     saveGlobalCustomLink(editingLink.movieId, updatedLinkObj);
@@ -5560,11 +5588,55 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                           </td>
                           <td className="py-3 px-3 font-bold text-amber-300">
                             <div>{item.link.title}</div>
-                            {(item.link.quality || item.link.audioLanguage) && (
-                              <div className="text-[10px] text-zinc-400 font-normal">
-                                {item.link.quality} {item.link.audioLanguage ? `• ${item.link.audioLanguage}` : ''}
-                              </div>
-                            )}
+                            {(() => {
+                              const parsed = parseReleaseDetails(item.link.title, item.link.url, item.link.manualOverrides);
+                              const cont = item.link.manualOverrides?.container || (parsed.container !== 'UNKNOWN' ? parsed.containerLabel : '');
+                              const dyn = item.link.manualOverrides?.dynamicRange || (parsed.dynamicRange === 'conflict' ? 'Conflict' : (parsed.dynamicRangeLabel || ''));
+                              const res = item.link.manualOverrides?.resolution || parsed.resolution;
+                              const cod = item.link.manualOverrides?.codec || parsed.codec;
+                              const pk = parsed.isPack ? 'Pack' : (parsed.episodeNumber ? `E${String(parsed.episodeNumber).padStart(2, '0')}` : '');
+                              const aud = item.link.manualOverrides?.audioLanguage || item.link.audioLanguage || parsed.audioLabel;
+
+                              return (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                  {cont && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                      {cont}
+                                    </span>
+                                  )}
+                                  {pk && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/50">
+                                      {pk}
+                                    </span>
+                                  )}
+                                  {res && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-950 text-blue-300 border border-blue-700/50">
+                                      {res}
+                                    </span>
+                                  )}
+                                  {dyn && (
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                      dyn === 'DV HDR' ? 'bg-purple-950 text-purple-300 border-purple-700/50' :
+                                      dyn === 'HDR' ? 'bg-fuchsia-950 text-fuchsia-300 border-fuchsia-700/50' :
+                                      dyn === 'Conflict' ? 'bg-rose-950 text-rose-300 border-rose-700/50' :
+                                      'bg-slate-900 text-slate-300 border-slate-700/50'
+                                    }`}>
+                                      {dyn}
+                                    </span>
+                                  )}
+                                  {cod && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700/50">
+                                      {cod}
+                                    </span>
+                                  )}
+                                  {aud && (
+                                    <span className="text-[10px] text-zinc-400 font-normal ml-0.5">
+                                      • {aud}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="py-3 px-3 text-[11px] text-zinc-400 whitespace-nowrap font-mono">
                             <span
@@ -7560,6 +7632,69 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                     onChange={(e) => setEditSize(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-zinc-800/80">
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Container</label>
+                  <select
+                    value={editContainer}
+                    onChange={(e) => setEditContainer(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="MKV">MKV (Video)</option>
+                    <option value="ZIP">ZIP (Archive)</option>
+                    <option value="MP4">MP4 (Video)</option>
+                    <option value="RAR">RAR (Archive)</option>
+                    <option value="7Z">7Z (Archive)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Dynamic Range</label>
+                  <select
+                    value={editDynamicRange}
+                    onChange={(e) => setEditDynamicRange(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto (Filename)</option>
+                    <option value="None">None (No Badge)</option>
+                    <option value="SDR">SDR</option>
+                    <option value="HDR">HDR</option>
+                    <option value="DV HDR">DV HDR</option>
+                    <option value="Conflict">Conflict (Review)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Codec</label>
+                  <select
+                    value={editCodec}
+                    onChange={(e) => setEditCodec(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="H.265">H.265 / HEVC</option>
+                    <option value="H.264">H.264 / AVC</option>
+                    <option value="AV1">AV1</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-300 block mb-1">Resolution</label>
+                  <select
+                    value={editResolution}
+                    onChange={(e) => setEditResolution(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Auto Detect</option>
+                    <option value="2160p">2160p (4K)</option>
+                    <option value="1080p">1080p (FHD)</option>
+                    <option value="720p">720p (HD)</option>
+                    <option value="480p">480p (SD)</option>
+                  </select>
                 </div>
               </div>
 

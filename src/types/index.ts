@@ -195,6 +195,27 @@ export interface CustomLink {
   backdropPath?: string | null;
   releaseDate?: string;
   voteAverage?: number;
+  container?: string;
+  dynamicRange?: string;
+  bitDepth?: string;
+  codec?: string;
+  resolution?: string;
+  provider?: string;
+  manualOverrides?: {
+    container?: string;
+    packType?: string;
+    linkType?: 'zip_pack' | 'single_episode' | 'general';
+    resolution?: string;
+    dynamicRange?: string;
+    bitDepth?: string;
+    codec?: string;
+    provider?: string;
+    source?: string;
+    audioLanguage?: string;
+    size?: string;
+    seasonNumber?: number;
+    episodeNumber?: number;
+  };
 }
 
 export interface WatchlistItem {
