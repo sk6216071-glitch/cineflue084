@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getDatabase, resetMongoClient } from '@/lib/mongodb';
 import { TitleDetails } from '@/types';
-import { getTitleDetails, getLightweightTitleCard } from '@/lib/tmdb';
+import { getTitleDetails, getLightweightTitleCard, cleanTitleString } from '@/lib/tmdb';
 import { detectShowPlatform, stripWatermarks } from '@/lib/seasonParser';
 
 import { getEnv } from '@/lib/env';
@@ -1682,21 +1682,24 @@ export async function getPaginatedUploadedTitles(
     const localTotalPages = Math.max(1, Math.ceil(localTotal / safeLimit));
     const pagedEntries = filtered.slice((safePage - 1) * safeLimit, safePage * safeLimit);
 
-    const localItems: TitleDetails[] = pagedEntries.map(({ movieId, link }) => ({
-      id: Number(movieId) || (movieId as any),
-      title: link?.title || 'Unknown Title',
-      name: link?.title || 'Unknown Title',
-      overview: 'Available on CineFuel.',
-      poster_path: link?.posterPath || '/placeholder-poster.svg',
-      backdrop_path: link?.backdropPath || '/placeholder-backdrop.svg',
-      release_date: link?.releaseDate || '',
-      first_air_date: link?.releaseDate || '',
-      vote_average: 7.5,
-      vote_count: 500,
-      media_type: type === 'tv' ? 'tv' : 'movie',
-      genres: [{ id: 28, name: 'Featured' }],
-      uploadMeta: extractUploadMeta(link, type === 'tv' ? 'tv' : 'movie', link),
-    }));
+    const localItems: TitleDetails[] = pagedEntries.map(({ movieId, link }) => {
+      const cleanName = link?.movieTitle || cleanTitleString(link?.title) || (type === 'tv' ? `Series #${movieId}` : `Movie #${movieId}`);
+      return {
+        id: Number(movieId) || (movieId as any),
+        title: cleanName,
+        name: cleanName,
+        overview: link?.overview || 'Available on CineFuel.',
+        poster_path: link?.posterPath || link?.backdropPath || '/placeholder-poster.svg',
+        backdrop_path: link?.backdropPath || link?.posterPath || '/placeholder-backdrop.svg',
+        release_date: link?.releaseDate || '',
+        first_air_date: link?.releaseDate || '',
+        vote_average: link?.voteAverage || 7.5,
+        vote_count: 500,
+        media_type: type === 'tv' ? 'tv' : 'movie',
+        genres: [{ id: 28, name: 'Featured' }],
+        uploadMeta: extractUploadMeta(link, type === 'tv' ? 'tv' : 'movie', link),
+      };
+    });
 
     const hasMore = safePage < localTotalPages;
     return {

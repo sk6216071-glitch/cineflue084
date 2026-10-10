@@ -217,8 +217,10 @@ export async function searchMulti(query: string, page = 1): Promise<{ results: (
 export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | string): Promise<TitleDetails> {
   const numId = Number(id) || 1;
 
+  const strId = String(id).trim();
+
   // Instant verified resolution for Carrie (2026 Prime Video Adaptation)
-  if (numId === 288673 || String(id) === '288673') {
+  if (numId === 288673 || strId === '288673') {
     return {
       id: 288673,
       title: 'Carrie',
@@ -272,7 +274,7 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
     };
   }
 
-  // 1. Try TMDB API first
+  // 1. Try TMDB API first (direct mediaType + ID)
   const data = await tmdbFetch<TitleDetails>(`/${mediaType}/${numId}`, {
     append_to_response: 'credits,videos,similar,recommendations,watch/providers,external_ids',
   });
@@ -285,6 +287,42 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
       imdb_rating: data.vote_average ? Number((data.vote_average + 0.3).toFixed(1)) : 8.4,
       mdblist_score: data.vote_average ? Math.round(data.vote_average * 10 + 2) : 86,
     };
+  }
+
+  // 1b. Check if the ID is an IMDb ID (e.g. tt4550098 or numeric 4550098 / 13623632)
+  const isLikelyImdb = strId.startsWith('tt') || (strId.length >= 7 && /^\d+$/.test(strId));
+  const imdbId = strId.startsWith('tt') ? strId : (isLikelyImdb ? `tt${strId.padStart(7, '0')}` : null);
+  if (imdbId) {
+    try {
+      const findData = await tmdbFetch<{ movie_results?: any[]; tv_results?: any[] }>(`/find/${imdbId}`, {
+        external_source: 'imdb_id',
+      });
+      if (findData) {
+        const movieMatch = findData.movie_results?.[0];
+        const tvMatch = findData.tv_results?.[0];
+        const match = mediaType === 'tv' ? (tvMatch || movieMatch) : (movieMatch || tvMatch);
+        if (match?.id) {
+          const targetType = (match.media_type || (match === tvMatch ? 'tv' : 'movie')) as 'movie' | 'tv';
+          const fullMatch = await tmdbFetch<TitleDetails>(`/${targetType}/${match.id}`, {
+            append_to_response: 'credits,videos,similar,recommendations,watch/providers,external_ids',
+          });
+          if (fullMatch && (fullMatch.title || fullMatch.name)) {
+            return {
+              ...fullMatch,
+              id: numId,
+              media_type: targetType,
+              title: fullMatch.title || fullMatch.name || 'Untitled',
+              imdb_rating: fullMatch.vote_average ? Number((fullMatch.vote_average + 0.3).toFixed(1)) : 8.4,
+              mdblist_score: fullMatch.vote_average ? Math.round(fullMatch.vote_average * 10 + 2) : 86,
+              external_ids: {
+                imdb_id: imdbId,
+                tmdb_id: match.id,
+              },
+            };
+          }
+        }
+      }
+    } catch {}
   }
 
   // 2. Check direct mock dictionary by key
@@ -331,59 +369,126 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
     };
   }
 
-  // 4. Check if metadata exists in the database for this movieId (from custom link uploads)
+  // 4. Check if metadata exists in Upstash Redis, MongoDB, or local serverLinks for this movieId
+  let storedDoc: any = null;
+
   if (typeof window === 'undefined') {
+    // 4a. Check Upstash Redis (works everywhere including Cloudflare Workers edge runtime)
     try {
-      const { getDatabase } = await import('@/lib/mongodb');
-      const db = await getDatabase();
-      if (db) {
-        const doc = await db.collection('links').findOne(
-          {
-            movieId: String(numId),
-            $or: [
-              { posterPath: { $exists: true, $nin: [null, ''] } },
-              { backdropPath: { $exists: true, $nin: [null, ''] } },
-              { movieTitle: { $exists: true, $nin: [null, ''] } },
-            ],
-          },
-          { sort: { createdAt: -1 } }
-        );
-        if (doc && (doc.movieTitle || doc.title)) {
-          const docTitle = doc.movieTitle || cleanTitleString(doc.title) || (mediaType === 'tv' ? `Series #${numId}` : `Movie #${numId}`);
-          const poster = doc.posterPath || doc.poster_path || doc.backdropPath || doc.backdrop_path || '/placeholder-poster.svg';
-          const backdrop = doc.backdropPath || doc.backdrop_path || poster || '/placeholder-backdrop.svg';
-          return {
-            id: numId,
-            title: docTitle,
-            name: docTitle,
-            overview: doc.overview || 'Available for streaming & high-speed download on CineFuel.',
-            poster_path: poster,
-            backdrop_path: backdrop,
-            release_date: doc.releaseDate || '2024-01-01',
-            first_air_date: doc.releaseDate || '2024-01-01',
-            vote_average: doc.voteAverage || 8.0,
-            vote_count: 1000,
-            media_type: mediaType,
-            runtime: mediaType === 'tv' ? 55 : 120,
-            status: 'Released',
-            imdb_rating: 8.0,
-            genres: [{ id: 28, name: 'Featured' }],
-            external_ids: {
-              imdb_id: `tt${String(numId).padStart(7, '0')}`,
-              tmdb_id: numId,
-            },
-          } as TitleDetails;
+      const redisUrl = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/^["']|["']$/g, '').trim();
+      const redisToken = (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '').replace(/^["']|["']$/g, '').trim();
+      if (redisUrl && redisToken) {
+        const { Redis } = await import('@upstash/redis');
+        const redisClient = new Redis({ url: redisUrl, token: redisToken });
+        const redisVal = await redisClient.hget<any>('cinefuel:curated_links', strId);
+        let list: any[] = [];
+        if (Array.isArray(redisVal)) list = redisVal;
+        else if (typeof redisVal === 'string') {
+          try { list = JSON.parse(redisVal); } catch {}
+        }
+        if (list.length > 0) {
+          storedDoc = list.find((l: any) => l?.movieTitle || l?.posterPath) || list[0];
         }
       }
-    } catch {
-      // Continue to neutral fallback
+    } catch {}
+
+    // 4b. Check MongoDB (if Node runtime)
+    if (!storedDoc) {
+      try {
+        const { getDatabase } = await import('@/lib/mongodb');
+        const db = await getDatabase();
+        if (db) {
+          const doc = await db.collection('links').findOne(
+            {
+              movieId: strId,
+              $or: [
+                { posterPath: { $exists: true, $nin: [null, ''] } },
+                { backdropPath: { $exists: true, $nin: [null, ''] } },
+                { movieTitle: { $exists: true, $nin: [null, ''] } },
+              ],
+            },
+            { sort: { createdAt: -1 } }
+          );
+          if (doc) storedDoc = doc;
+        }
+      } catch {}
+    }
+
+    // 4c. Check bundled serverLinks.json
+    if (!storedDoc) {
+      try {
+        const { getLocalFallbackLinks } = await import('@/lib/redisDb');
+        const local = getLocalFallbackLinks();
+        if (local && local[strId] && local[strId].length > 0) {
+          storedDoc = local[strId].find((l: any) => l?.movieTitle || l?.posterPath) || local[strId][0];
+        }
+      } catch {}
     }
   }
 
-  // 5. Safe Fallback Placeholder (clean CineFuel placeholders, no false movie posters)
+  // 4d. Enriched resolution if stored link document is found
+  if (storedDoc) {
+    const rawDocTitle = storedDoc.movieTitle || cleanTitleString(storedDoc.title);
+    const poster = storedDoc.posterPath || storedDoc.poster_path || storedDoc.backdropPath || storedDoc.backdrop_path || null;
+    const backdrop = storedDoc.backdropPath || storedDoc.backdrop_path || poster || null;
+    const releaseDate = storedDoc.releaseDate || '2024-01-01';
+    const voteAverage = storedDoc.voteAverage || 8.0;
+
+    // Try TMDB search by the clean title for complete official posters, cast, crew, etc.
+    if (rawDocTitle && rawDocTitle !== 'Featured Title') {
+      try {
+        const searchData = await tmdbFetch<{ results: TitleDetails[] }>(`/search/${mediaType}`, {
+          query: rawDocTitle,
+        });
+        if (searchData?.results && searchData.results.length > 0) {
+          const topResult = searchData.results[0];
+          const fullData = await tmdbFetch<TitleDetails>(`/${mediaType}/${topResult.id}`, {
+            append_to_response: 'credits,videos,similar,recommendations,watch/providers,external_ids',
+          });
+          if (fullData && (fullData.title || fullData.name)) {
+            return {
+              ...fullData,
+              id: numId,
+              media_type: mediaType,
+              title: fullData.title || fullData.name || rawDocTitle,
+              poster_path: fullData.poster_path || poster || '/placeholder-poster.svg',
+              backdrop_path: fullData.backdrop_path || backdrop || fullData.poster_path || '/placeholder-backdrop.svg',
+            };
+          }
+        }
+      } catch {}
+    }
+
+    const cleanTitle = rawDocTitle || (mediaType === 'tv' ? `Series #${numId}` : `Movie #${numId}`);
+    return {
+      id: numId,
+      title: cleanTitle,
+      name: cleanTitle,
+      overview: storedDoc.overview || 'Available for streaming & high-speed download on CineFuel.',
+      poster_path: poster || '/placeholder-poster.svg',
+      backdrop_path: backdrop || poster || '/placeholder-backdrop.svg',
+      release_date: releaseDate,
+      first_air_date: releaseDate,
+      vote_average: voteAverage,
+      vote_count: 1000,
+      media_type: mediaType,
+      runtime: mediaType === 'tv' ? 55 : 120,
+      status: 'Released',
+      imdb_rating: voteAverage,
+      genres: [{ id: 28, name: 'Featured' }],
+      external_ids: {
+        imdb_id: imdbId || `tt${strId.padStart(7, '0')}`,
+        tmdb_id: numId,
+      },
+    } as TitleDetails;
+  }
+
+  // 5. Ultimate Fallback (Clean title without awkward "Cinema Feature #" or "Series Feature #")
+  const fallbackTitle = mediaType === 'tv' ? `Series #${numId}` : `Movie #${numId}`;
   return {
     id: numId,
-    title: mediaType === 'tv' ? `Series Feature #${numId}` : `Cinema Feature #${numId}`,
+    title: fallbackTitle,
+    name: fallbackTitle,
     overview: 'An acclaimed presentation available on CineFuel.',
     poster_path: '/placeholder-poster.svg',
     backdrop_path: '/placeholder-backdrop.svg',
@@ -403,7 +508,7 @@ export async function getTitleDetails(mediaType: 'movie' | 'tv', id: number | st
       { id: 53, name: 'Thriller' },
     ],
     external_ids: {
-      imdb_id: `tt${String(numId).padStart(7, '0')}`,
+      imdb_id: imdbId || `tt${strId.padStart(7, '0')}`,
       tmdb_id: numId,
     },
     credits: {
