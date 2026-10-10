@@ -537,7 +537,13 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
   try {
     const db = await getDatabase();
     if (db) {
-      await db.collection('links').deleteOne({ movieId: key, id: linkId });
+      await db.collection('links').deleteMany({
+        $or: [
+          { id: linkId },
+          { movieId: key, id: linkId },
+          { movieId: Number(key) as any, id: linkId },
+        ],
+      } as any);
       persisted = true;
     }
   } catch (err: any) {
@@ -559,7 +565,11 @@ export async function deleteLinkFromDatabase(movieId: number | string, linkId: s
         try { list = JSON.parse(fetched); } catch {}
       }
       const updated = list.filter((l: any) => l.id !== linkId);
-      await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+      if (updated.length > 0) {
+        await redisClient.hset(REDIS_HASH_KEY, { [key]: updated });
+      } else {
+        await redisClient.hdel(REDIS_HASH_KEY, key);
+      }
       persisted = true;
     } catch (err: any) {
       console.error('Upstash Redis deletion error:', err.message);
@@ -932,7 +942,12 @@ export async function replaceAllLinksForTitle(
         existingDoc = await collection.findOne({ movieId: key }, { sort: { createdAt: -1 } });
       }
 
-      await collection.deleteMany({ movieId: key });
+      await collection.deleteMany({
+        $or: [
+          { movieId: key },
+          { movieId: Number(key) },
+        ],
+      });
 
       if (sanitized.length > 0) {
         const docsToInsert = sanitized.map((doc) => {

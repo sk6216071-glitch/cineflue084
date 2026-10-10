@@ -320,6 +320,8 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   const [titleAddLinkEpisode, setTitleAddLinkEpisode] = useState(1);
   const [titleAddLinkType, setTitleAddLinkType] = useState<'zip_pack' | 'single_episode' | 'general'>('single_episode');
   const [isAddingSingleTitleLink, setIsAddingSingleTitleLink] = useState(false);
+  const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
+  const [isDeletingAllLinks, setIsDeletingAllLinks] = useState(false);
 
   // Manual Custom Title Creation State (for titles not in TMDB or title mismatches)
   const [isManualTitleModalOpen, setIsManualTitleModalOpen] = useState(false);
@@ -1186,6 +1188,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       return;
     }
     try {
+      setIsDeletingAllLinks(true);
       const res = await fetch('/api/curated-links', {
         method: 'POST',
         headers: getAdminAuthHeaders(),
@@ -1199,9 +1202,15 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
         setTitleManagerModalOpen(false);
         fetchLinkedCatalogTitles(linkedTitlesPage, linkedTitlesFilter, linkedTitlesSearch);
         refreshAdminLinks();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to delete all links: ${errData.error || res.statusText || 'Server error'}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete title links:', err);
+      alert(`Error deleting title links: ${err?.message || 'Network error'}`);
+    } finally {
+      setIsDeletingAllLinks(false);
     }
   };
 
@@ -1287,11 +1296,42 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     if (!managingTitle) return;
     if (!confirm(`Delete link "${linkTitle}" permanently?`)) return;
     try {
+      setDeletingLinkId(linkId);
+      // 1. Optimistic UI update in the modal
       setManagingTitleLinks((prev) => prev.filter((l) => l.id !== linkId));
-      await handleDeleteLink(Number(managingTitle.id), linkId, linkTitle);
+
+      // 2. Call server API directly with admin auth headers
+      const movieIdStr = String(managingTitle.id);
+      const res = await fetch(
+        `/api/curated-links?movieId=${encodeURIComponent(movieIdStr)}&linkId=${encodeURIComponent(linkId)}`,
+        {
+          method: 'DELETE',
+          headers: getAdminAuthHeaders(),
+        }
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to delete link: ${errData.error || res.statusText || 'Server error'}`);
+        // Revert modal state
+        fetchTitleLinks(managingTitle.id);
+        return;
+      }
+
+      // 3. Update global states and refresh lists
+      removeCustomLink(Number(managingTitle.id), linkId);
+      addLog(`Admin deleted link "${linkTitle}" from "${managingTitle.title}"`, 'warn');
+      
+      // 4. Update the parent linked catalog titles counts and refresh
+      fetchTitleLinks(managingTitle.id);
       fetchLinkedCatalogTitles(linkedTitlesPage, linkedTitlesFilter, linkedTitlesSearch);
-    } catch (err) {
+      refreshAdminLinks();
+    } catch (err: any) {
       console.error('Failed to delete managing title link:', err);
+      alert(`Error deleting link: ${err?.message || 'Network error'}`);
+      fetchTitleLinks(managingTitle.id);
+    } finally {
+      setDeletingLinkId(null);
     }
   };
 
@@ -2795,6 +2835,18 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     addLog(`Admin deleted link "${linkTitle}"`, 'warn');
 
     // 2. Persist deletion to server & cloud database
+    try {
+      const res = await fetch(`/api/curated-links?movieId=${movieId}&linkId=${linkId}`, {
+        method: 'DELETE',
+        headers: getAdminAuthHeaders(),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.warn('Delete link error:', errData.error || res.statusText);
+      }
+    } catch (netErr) {
+      console.warn('Network deletion error:', netErr);
+    }
     await deleteGlobalCustomLink(movieId, linkId);
   };
 
@@ -8822,11 +8874,16 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
 
                               <button
                                 type="button"
+                                disabled={deletingLinkId === link.id}
                                 onClick={() => handleDeleteManagingTitleLink(link.id, link.title)}
-                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Delete this link"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                {deletingLinkId === link.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
                               </button>
                             </div>
                           </div>
@@ -8841,11 +8898,16 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                     </span>
                     <button
                       type="button"
+                      disabled={isDeletingAllLinks}
                       onClick={() => handleDeleteAllTitleLinks(managingTitle)}
-                      className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete All Links for this Title</span>
+                      {isDeletingAllLinks ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isDeletingAllLinks ? 'Deleting All Links...' : 'Delete All Links for this Title'}</span>
                     </button>
                   </div>
                 </div>
