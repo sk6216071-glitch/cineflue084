@@ -1128,6 +1128,83 @@ export async function deleteAllLinksForTitle(movieId: number | string): Promise<
   return await replaceAllLinksForTitle(movieId, []);
 }
 
+/**
+ * Updates title metadata (title name, year, poster, backdrop, media type)
+ * and optionally remaps/migrates links to a new movieId across Redis, MongoDB, and local storage.
+ * Enables admins to fix/rename a title or change its linked TMDB/IMDb ID directly without searching TMDB.
+ */
+export async function updateTitleMetadata(
+  currentMovieId: number | string,
+  updates: {
+    newMovieId?: number | string;
+    movieTitle?: string;
+    year?: string | number;
+    releaseDate?: string;
+    mediaType?: 'movie' | 'tv';
+    posterPath?: string;
+    backdropPath?: string;
+    overview?: string;
+  }
+): Promise<{ success: boolean; updatedCount: number; newId: string }> {
+  const oldKey = String(currentMovieId).trim();
+  const newKey = updates.newMovieId ? String(updates.newMovieId).trim() : oldKey;
+  const isKeyChanged = oldKey !== newKey;
+
+  // 1. Fetch current links for oldKey
+  const res = await getLinksFromDatabase(oldKey);
+  let links = Array.isArray(res.links) ? [...res.links] : [];
+
+  const nowIso = new Date().toISOString();
+  const relDate = updates.releaseDate || (updates.year ? `${updates.year}-01-01` : '2024-01-01');
+
+  if (links.length === 0) {
+    links = [{
+      id: `title-meta-${Date.now()}`,
+      movieId: newKey,
+      title: updates.movieTitle || `Title #${newKey}`,
+      movieTitle: updates.movieTitle,
+      posterPath: updates.posterPath,
+      backdropPath: updates.backdropPath,
+      releaseDate: relDate,
+      mediaType: updates.mediaType || 'movie',
+      overview: updates.overview,
+      category: 'Download',
+      linkType: 'general',
+      url: 'https://cinephile.sk6216071.workers.dev',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    }];
+  } else {
+    links = links.map((l) => ({
+      ...l,
+      movieId: newKey,
+      updatedAt: nowIso,
+      ...(updates.movieTitle ? { movieTitle: updates.movieTitle } : {}),
+      ...(updates.posterPath !== undefined ? { posterPath: updates.posterPath } : {}),
+      ...(updates.backdropPath !== undefined ? { backdropPath: updates.backdropPath } : {}),
+      ...(updates.mediaType ? { mediaType: updates.mediaType } : {}),
+      ...(relDate ? { releaseDate: relDate } : {}),
+      ...(updates.overview ? { overview: updates.overview } : {}),
+    }));
+  }
+
+  // 2. If key changed, remove old key from Redis and local storage
+  if (isKeyChanged) {
+    await deleteAllLinksForTitle(oldKey).catch(() => {});
+  }
+
+  // 3. Save updated links under newKey across all persistence tiers
+  await replaceAllLinksForTitle(newKey, links, {
+    movieTitle: updates.movieTitle,
+    posterPath: updates.posterPath,
+    backdropPath: updates.backdropPath,
+    mediaType: updates.mediaType,
+  });
+
+  await invalidateCatalogCache().catch(() => {});
+  return { success: true, updatedCount: links.length, newId: newKey };
+}
+
 // Helper to detect synthetic/dummy placeholders
 export const isDummyTitle = (t?: string) =>
   !t || t.startsWith('Series Feature #') || t.startsWith('Cinema Feature #');

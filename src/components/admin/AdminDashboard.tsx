@@ -87,6 +87,7 @@ export interface LinkedCatalogTitle {
   first_air_date?: string;
   year?: string;
   linksCount: number;
+  overview?: string;
   uploadMeta?: any;
 }
 
@@ -294,8 +295,20 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   const [managingTitle, setManagingTitle] = useState<LinkedCatalogTitle | null>(null);
   const [managingTitleLinks, setManagingTitleLinks] = useState<CustomLink[]>([]);
   const [isLoadingManagingLinks, setIsLoadingManagingLinks] = useState(false);
-  const [titleManagerTab, setTitleManagerTab] = useState<'view' | 'replace' | 'domain' | 'add'>('view');
+  const [titleManagerTab, setTitleManagerTab] = useState<'view' | 'replace' | 'domain' | 'add' | 'edit_title'>('view');
   const [titleLinksSearch, setTitleLinksSearch] = useState('');
+
+  // Title Metadata Direct Editing State (without TMDB search)
+  const [editTitleName, setEditTitleName] = useState('');
+  const [editTitleYear, setEditTitleYear] = useState('');
+  const [editTitleMediaType, setEditTitleMediaType] = useState<'movie' | 'tv'>('tv');
+  const [editTitleId, setEditTitleId] = useState('');
+  const [editTitlePoster, setEditTitlePoster] = useState('');
+  const [editTitleBackdrop, setEditTitleBackdrop] = useState('');
+  const [editTitleOverview, setEditTitleOverview] = useState('');
+  const [isSavingTitleMeta, setIsSavingTitleMeta] = useState(false);
+  const [titleMetaMsg, setTitleMetaMsg] = useState('');
+  const [titleMetaError, setTitleMetaError] = useState('');
 
   // Whole Link Replacement State
   const [replaceRawLinksText, setReplaceRawLinksText] = useState('');
@@ -1102,7 +1115,7 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
   }, []);
 
   // Open the dedicated Title Manager Modal for a specific title
-  const openTitleManager = (title: LinkedCatalogTitle, defaultTab: 'view' | 'replace' = 'view') => {
+  const openTitleManager = (title: LinkedCatalogTitle, defaultTab: 'view' | 'replace' | 'edit_title' = 'view') => {
     setManagingTitle(title);
     setTitleManagerTab(defaultTab);
     setTitleManagerModalOpen(true);
@@ -1120,6 +1133,17 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
     setTitleAddLinkSeason(1);
     setTitleAddLinkEpisode(1);
     setTitleAddLinkType(title.media_type === 'tv' ? 'single_episode' : 'general');
+
+    // Populate title direct edit fields
+    setEditTitleName(title.title || '');
+    setEditTitleYear(title.year ? String(title.year) : '');
+    setEditTitleMediaType(title.media_type === 'movie' ? 'movie' : 'tv');
+    setEditTitleId(String(title.id));
+    setEditTitlePoster(title.poster_path || '');
+    setEditTitleBackdrop((title as any).backdrop_path || '');
+    setEditTitleOverview((title as any).overview || '');
+    setTitleMetaMsg('');
+    setTitleMetaError('');
 
     setSelectedTargetTitle({
       id: Number(title.id),
@@ -1283,6 +1307,69 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
       setTitleDomainMsg(`❌ Error: ${err.message}`);
     } finally {
       setIsMigratingTitleDomain(false);
+    }
+  };
+
+  // Direct Title Metadata Editing without TMDB search
+  const handleSaveTitleMetadata = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managingTitle) return;
+    if (!editTitleName.trim()) {
+      setTitleMetaError('Title name cannot be empty.');
+      return;
+    }
+    if (!editTitleId.trim()) {
+      setTitleMetaError('Title ID cannot be empty.');
+      return;
+    }
+    try {
+      setIsSavingTitleMeta(true);
+      setTitleMetaMsg('');
+      setTitleMetaError('');
+
+      const res = await fetch('/api/curated-links', {
+        method: 'POST',
+        headers: getAdminAuthHeaders(),
+        body: JSON.stringify({
+          action: 'update_title_metadata',
+          currentMovieId: String(managingTitle.id),
+          updates: {
+            movieTitle: editTitleName.trim(),
+            releaseDate: editTitleYear.trim(),
+            mediaType: editTitleMediaType,
+            newMovieId: editTitleId.trim() !== String(managingTitle.id) ? editTitleId.trim() : undefined,
+            posterPath: editTitlePoster.trim(),
+            backdropPath: editTitleBackdrop.trim(),
+            overview: editTitleOverview.trim(),
+          },
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTitleMetaMsg('✅ Title details updated successfully!');
+        addLog(`Admin updated title details for "${editTitleName.trim()}" (ID: ${editTitleId.trim()})`, 'success');
+        const updatedTitleObj: LinkedCatalogTitle = {
+          ...managingTitle,
+          id: isNaN(Number(editTitleId.trim())) ? editTitleId.trim() : Number(editTitleId.trim()),
+          title: editTitleName.trim(),
+          year: editTitleYear.trim(),
+          media_type: editTitleMediaType,
+          poster_path: editTitlePoster.trim(),
+          backdrop_path: editTitleBackdrop.trim() || undefined,
+          overview: editTitleOverview.trim() || undefined,
+        };
+        setManagingTitle(updatedTitleObj);
+        fetchTitleLinks(updatedTitleObj.id);
+        fetchLinkedCatalogTitles(linkedTitlesPage, linkedTitlesFilter, linkedTitlesSearch);
+        refreshAdminLinks();
+      } else {
+        setTitleMetaError(`❌ ${data.error || 'Failed to update title metadata.'}`);
+      }
+    } catch (err: any) {
+      setTitleMetaError(`❌ Error: ${err.message || 'Network error'}`);
+    } finally {
+      setIsSavingTitleMeta(false);
     }
   };
 
@@ -6004,7 +6091,17 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                                 <span>Change Links</span>
                               </button>
 
-                              {/* 3. View Page Link */}
+                              {/* 3. Fix / Edit Title Details */}
+                              <button
+                                type="button"
+                                onClick={() => openTitleManager(t, 'edit_title')}
+                                className="p-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 hover:text-purple-200 transition-colors cursor-pointer"
+                                title="Fix / Edit title name, year, ID, or poster without TMDB search"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* 4. View Page Link */}
                               <Link
                                 href={`/${mediaType}/${t.id}`}
                                 target="_blank"
@@ -8992,14 +9089,30 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleCloseTitleManager}
-                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
-                title="Close"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTitleManagerTab('edit_title')}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    titleManagerTab === 'edit_title'
+                      ? 'bg-purple-500 text-white border-purple-400 shadow-md shadow-purple-500/30'
+                      : 'bg-purple-500/15 hover:bg-purple-500/25 border-purple-500/30 text-purple-300'
+                  }`}
+                  title="Fix / Edit title name, release year, ID, and poster without TMDB search"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Fix Title & ID</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCloseTitleManager}
+                  className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  title="Close"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Modal Navigation Tabs */}
@@ -9018,6 +9131,19 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                 <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-800 font-mono">
                   {managingTitleLinks.length}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTitleManagerTab('edit_title')}
+                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 cursor-pointer ${
+                  titleManagerTab === 'edit_title'
+                    ? 'border-purple-400 text-purple-300 bg-zinc-900/80 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Edit className="w-3.5 h-3.5 text-purple-400" />
+                <span>✏️ Fix / Edit Title & ID</span>
               </button>
 
               <button
@@ -9566,6 +9692,167 @@ export default function AdminDashboard({ onLogout }: { onLogout?: () => void } =
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* TAB 5: FIX / EDIT TITLE & ID DIRECTLY (NO TMDB SEARCH REQUIRED) */}
+              {titleManagerTab === 'edit_title' && (
+                <form onSubmit={handleSaveTitleMetadata} className="space-y-4">
+                  <div className="bg-purple-950/20 border border-purple-800/40 rounded-2xl p-4 text-xs text-purple-200/90 leading-relaxed space-y-1">
+                    <p className="font-bold flex items-center gap-1.5 text-purple-300">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                      Direct Title & ID Correction (No TMDB Search Required)
+                    </p>
+                    <p className="text-zinc-400 text-[11px]">
+                      Fix scraped mistakes, wrong titles, wrong IDs, or unreleased media without relying on TMDB API search.
+                      Changing the ID will automatically remap all existing links for this title to the new ID.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Title Name */}
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-bold text-zinc-300">Title Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editTitleName}
+                        onChange={(e) => setEditTitleName(e.target.value)}
+                        placeholder="e.g. Special Ops 1.5: The Himmat Story"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400 font-semibold"
+                      />
+                    </div>
+
+                    {/* Release Year */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-300">Release Year</label>
+                      <input
+                        type="text"
+                        value={editTitleYear}
+                        onChange={(e) => setEditTitleYear(e.target.value)}
+                        placeholder="e.g. 2021"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400 font-mono"
+                      />
+                    </div>
+
+                    {/* Media Type */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-300">Media Type *</label>
+                      <select
+                        value={editTitleMediaType}
+                        onChange={(e) => setEditTitleMediaType(e.target.value as 'movie' | 'tv')}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-400"
+                      >
+                        <option value="tv">TV Series / Web Series (tv)</option>
+                        <option value="movie">Movie / Cinema Feature (movie)</option>
+                      </select>
+                    </div>
+
+                    {/* Movie / Series ID */}
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
+                        <span>TMDB / IMDb ID (Current: {managingTitle.id}) *</span>
+                        <span className="text-[10px] text-amber-400 font-normal">
+                          ⚠️ Changing this remaps all {managingTitleLinks.length} links to the new ID
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editTitleId}
+                        onChange={(e) => setEditTitleId(e.target.value)}
+                        placeholder="e.g. 13623632 or tt15849884"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400 font-mono font-bold"
+                      />
+                    </div>
+
+                    {/* Poster Path / URL */}
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-bold text-zinc-300">Poster Image URL / TMDB Path</label>
+                      <div className="flex gap-3 items-center">
+                        <div className="w-14 h-20 bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden shrink-0 relative flex items-center justify-center">
+                          {editTitlePoster ? (
+                            <img
+                              src={getImageURL(editTitlePoster, 'w200')}
+                              alt="Poster Preview"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = '/placeholder-poster.svg';
+                              }}
+                            />
+                          ) : (
+                            <Film className="w-5 h-5 text-zinc-600" />
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <input
+                            type="text"
+                            value={editTitlePoster}
+                            onChange={(e) => setEditTitlePoster(e.target.value)}
+                            placeholder="e.g. /path.jpg or https://image.tmdb.org/t/p/w500/... or external image URL"
+                            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400 font-mono text-[11px]"
+                          />
+                          <p className="text-[10px] text-zinc-500">
+                            Enter a TMDB poster path (`/abc.jpg`) or any direct image URL (`https://...`).
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Backdrop Path / URL */}
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-bold text-zinc-300">Backdrop Banner URL / TMDB Path (Optional)</label>
+                      <input
+                        type="text"
+                        value={editTitleBackdrop}
+                        onChange={(e) => setEditTitleBackdrop(e.target.value)}
+                        placeholder="e.g. /backdrop.jpg or https://..."
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400 font-mono text-[11px]"
+                      />
+                    </div>
+
+                    {/* Overview / Synopsis */}
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-bold text-zinc-300">Plot Summary / Overview (Optional)</label>
+                      <textarea
+                        rows={3}
+                        value={editTitleOverview}
+                        onChange={(e) => setEditTitleOverview(e.target.value)}
+                        placeholder="Enter title plot synopsis or description..."
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-400"
+                      />
+                    </div>
+                  </div>
+
+                  {titleMetaMsg && (
+                    <p className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20">
+                      {titleMetaMsg}
+                    </p>
+                  )}
+
+                  {titleMetaError && (
+                    <p className="text-xs font-mono font-bold text-rose-300 bg-rose-500/10 p-3 rounded-xl border border-rose-500/20">
+                      {titleMetaError}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setTitleManagerTab('view')}
+                      className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingTitleMeta || !editTitleName.trim() || !editTitleId.trim()}
+                      className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-purple-500/20 hover:scale-105 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Edit className="w-3.5 h-3.5" />
+                      <span>{isSavingTitleMeta ? 'Saving Changes...' : 'Save Title Changes'}</span>
+                    </button>
+                  </div>
+                </form>
               )}
             </div>
           </div>

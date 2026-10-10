@@ -11,6 +11,7 @@ import {
   replaceAllLinksForTitle,
   deleteAllLinksForTitle,
   replaceDomainForTitleInDatabase,
+  updateTitleMetadata,
 } from '@/lib/redisDb';
 import { validateAdminAuth } from '@/lib/adminAuth';
 import { isValidHttpUrl } from '@/lib/security';
@@ -124,6 +125,22 @@ export async function POST(request: NextRequest) {
         posterPath: body.posterPath,
         backdropPath: body.backdropPath,
         mediaType: body.mediaType,
+      });
+      try { revalidatePath('/'); } catch {}
+      return NextResponse.json(result);
+    }
+
+    // Handle fixing / updating title metadata directly (without TMDB search)
+    if (action === 'update_title_metadata') {
+      const result = await updateTitleMetadata(movieId, {
+        newMovieId: body.newMovieId,
+        movieTitle: body.movieTitle,
+        year: body.year,
+        releaseDate: body.releaseDate,
+        mediaType: body.mediaType,
+        posterPath: body.posterPath,
+        backdropPath: body.backdropPath,
+        overview: body.overview,
       });
       try { revalidatePath('/'); } catch {}
       return NextResponse.json(result);
